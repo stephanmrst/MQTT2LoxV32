@@ -1,5 +1,14 @@
 # Changelog
 
+## 32.2.5
+
+- KNX-Hilfs- und Bridge-Funktionen nach `app/services/knx.py` ausgelagert.
+- KNX Listener, Monitor-Listen, Monitor-Payload und Monitor-Routen bleiben in `legacy/app_legacy.py`.
+- KNX TX-Monitor-Eintraege laufen ueber den uebergebenen `add_knx_monitor_entry`-Callback weiter in die zentrale Legacy-Liste.
+- KNX RX-Monitor-Eintraege werden weiterhin direkt im Legacy-Listener geschrieben.
+- Keine UI- oder Feature-Aenderungen.
+- Versionsstand auf `32.2.5` gesetzt.
+
 ## 32.2.4
 
 - Loxone-Hilfsfunktionen aus `legacy/app_legacy.py` nach `app/services/loxone.py` ausgelagert.

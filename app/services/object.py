@@ -167,7 +167,7 @@ def _object_value_from_sources(item):
     candidates = []
     mqtt_topic = str(item.get("mqtt_topic", "") or "").strip()
     loxone_topic = str(item.get("loxone_topic", "") or "").strip()
-    knx_ga = normalize_knx_group_address(item.get("knx_ga", "")) if 'normalize_knx_group_address' in globals() else str(item.get("knx_ga", "") or "").strip()
+    knx_ga = normalize_knx_group_address(item.get("knx_ga", ""))
     influx_topic = str(item.get("influx_topic", "") or "").strip()
     udp_topic = str(item.get("udp_topic", "") or "").strip()
     if mqtt_topic and 'mqtt_monitor_values' in globals():
@@ -245,7 +245,7 @@ def ensure_object_mappings(item):
     mqtt_topic = _object_clean_text(item.get("mqtt_topic"))
     mqtt_json_key = _object_clean_text(item.get("mqtt_json_key"))
     loxone_topic = _object_clean_text(item.get("loxone_topic"))
-    knx_ga = normalize_knx_group_address(item.get("knx_ga", "")) if 'normalize_knx_group_address' in globals() else _object_clean_text(item.get("knx_ga"))
+    knx_ga = normalize_knx_group_address(item.get("knx_ga", ""))
     udp_topic = _object_clean_text(item.get("udp_topic"))
     influx_topic = _object_clean_text(item.get("influx_topic")).strip("/")
 
@@ -511,7 +511,7 @@ def cleanup_object_mappings(item):
     mqtt_topic = _object_clean_text(item.get("mqtt_topic"))
     mqtt_json_key = _object_clean_text(item.get("mqtt_json_key"))
     loxone_topic = _object_clean_text(item.get("loxone_topic"))
-    knx_ga = normalize_knx_group_address(item.get("knx_ga", "")) if 'normalize_knx_group_address' in globals() else _object_clean_text(item.get("knx_ga"))
+    knx_ga = normalize_knx_group_address(item.get("knx_ga", ""))
     udp_topic = _object_clean_text(item.get("udp_topic"))
     influx_topic = _object_clean_text(item.get("influx_topic")).strip("/")
 

@@ -1,14 +1,15 @@
 # Roadmap
 
-## Aktueller Stand: 32.2.4
+## Aktueller Stand: 32.2.5
 
-Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object- und Loxone-Hilfsfunktionen sind in Service-Module ausgelagert. Die bestehende Legacy-Logik bleibt unveraendert angebunden.
+Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone- und KNX-Hilfsfunktionen sind in Service-Module ausgelagert. KNX Listener und KNX Monitor bleiben wegen Live-State-Stabilitaet im Legacy-Core.
 
 ## Naechste Schritte
 
 - Weitere Funktionsbereiche schrittweise in v32-Module auslagern, ohne Verhalten zu aendern.
 - MQTT-Service weiter entflechten: Publish-Hilfen und Monitor-Endpunkte schrittweise aus dem Legacy-Core herausloesen.
 - UDP-Service spaeter um fokussierte Tests fuer Listener, Mapping und Presets ergaenzen.
+- KNX-Service im laufenden Betrieb gegenpruefen: MQTT -> KNX, UDP -> KNX, KNX -> MQTT, KNX -> Loxone und Monitor-Callback.
 - Runtime-/Bridge-Logik erst nach vollstaendiger Port-Stabilisierung modularisieren.
 - Objektmanager vorerst nicht neu bauen, sondern nur stabil uebernehmen.
 - Optional-Abhaengigkeiten weiter klar im Startstatus sichtbar halten.

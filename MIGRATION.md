@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.2.4
+## Aktueller Stand: 32.2.5
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -8,7 +8,19 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `app/engine/port.py`
 - `legacy/app_legacy.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. Der Legacy-Core verwendet weiterhin die bekannten Funktionsnamen und Seiten.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+
+## Von 32.2.4 nach 32.2.5
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die technische Modulstruktur:
+
+- KNX-Hilfs- und Bridge-Funktionen liegen jetzt in `app/services/knx.py`.
+- `legacy/app_legacy.py` importiert diesen Service als `knx_service`.
+- KNX Listener, KNX Monitor und KNX Live-State bleiben in `legacy/app_legacy.py`.
+- Monitor-Eintraege fuer KNX TX werden per Callback weiter in die zentrale Legacy-Liste geschrieben.
+- Bestehende URLs, Formulare und Konfigurationsdateien bleiben unveraendert.
 
 ## Von 32.2.3 nach 32.2.4
 
