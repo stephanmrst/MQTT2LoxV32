@@ -1,0 +1,14 @@
+[
+  {
+    "port": "7000",
+    "label": "Loxone UDP 7000"
+  },
+  {
+    "port": "7001",
+    "label": "Loxone UDP 7001"
+  },
+  {
+    "port": "7010",
+    "label": "Loxone Test 7010"
+  }
+]

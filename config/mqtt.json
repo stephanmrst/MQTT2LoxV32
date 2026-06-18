@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "host": "192.168.1.27",
+  "port": 1883,
+  "username": "",
+  "password": "",
+  "client_id": "mqtt2lox-v32",
+  "auto_connect": true,
+  "keepalive": 60,
+  "clean_session": true
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "enabled": true,
+    "name": "Iobroker",
+    "host": "192.168.1.5",
+    "port": "1883",
+    "user": "",
+    "password": ""
+  },
+  {
+    "enabled": true,
+    "name": "Victron",
+    "host": "192.168.1.19",
+    "port": "1883",
+    "user": "",
+    "password": ""
+  }
+]

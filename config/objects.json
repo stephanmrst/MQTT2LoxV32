@@ -1,0 +1,16 @@
+[
+  {
+    "id": "obj_1781810613969",
+    "enabled": true,
+    "name": "trah",
+    "room": "",
+    "type": "",
+    "mqtt_topic": "",
+    "mqtt_json_key": "",
+    "loxone_topic": "",
+    "knx_ga": "",
+    "udp_topic": "",
+    "influx_topic": "",
+    "notes": ""
+  }
+]

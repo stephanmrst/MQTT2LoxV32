@@ -1,0 +1,318 @@
+import json
+import os
+import socket
+from datetime import datetime
+
+from services import config
+
+
+mqtt2udp_last_seen = {}
+udp2mqtt_last_seen = {}
+udp_input_last_seen = {}
+
+DEFAULT_UDP_PRESETS = [
+    {"port": "7000", "label": "Loxone UDP 7000"},
+    {"port": "7001", "label": "Loxone UDP 7001"},
+    {"port": "7010", "label": "Loxone Test 7010"},
+]
+
+
+def _log(add_log_entry, message):
+    if add_log_entry:
+        add_log_entry(message)
+
+
+def parse_udp_input_message(text):
+    text = str(text).strip()
+
+    if ":" in text:
+        topic, value = text.split(":", 1)
+    elif "=" in text:
+        topic, value = text.split("=", 1)
+    else:
+        return None, None
+
+    topic = topic.strip()
+    value = value.strip()
+
+    if not topic:
+        return None, None
+
+    return topic, value
+
+
+def build_udp_message(udp_topic, value, udp_format):
+    udp_format = str(udp_format or "topic_value").strip()
+
+    if udp_format == "json":
+        return json.dumps({"topic": udp_topic, "value": value}, ensure_ascii=False)
+
+    if udp_format == "json_number":
+        try:
+            parsed_value = float(value)
+        except Exception:
+            parsed_value = value
+        return json.dumps({"topic": udp_topic, "value": parsed_value}, ensure_ascii=False)
+
+    if udp_format == "value_only":
+        return str(value)
+
+    return f"{udp_topic}:{value}"
+
+
+def send_mqtt2udp(ip_list, port, udp_topic, value, udp_format="topic_value", add_log_entry=None):
+    try:
+        port = int(port)
+        message = build_udp_message(udp_topic, value, udp_format)
+        targets = [ip.strip() for ip in str(ip_list).split(",") if ip.strip()]
+
+        if not targets:
+            _log(add_log_entry, "MQTT2UDP Fehler: keine Ziel-IP angegeben")
+            return False
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            for ip in targets:
+                sock.sendto(message.encode("utf-8"), (ip, port))
+                _log(add_log_entry, f"MQTT2UDP -> {ip}:{port} | {message}")
+        finally:
+            sock.close()
+        return True
+
+    except Exception as exc:
+        _log(add_log_entry, f"MQTT2UDP Fehler: {exc}")
+        return False
+
+
+def handle_mqtt_to_udp(
+    topic,
+    payload,
+    load_mqtt2udp_config,
+    extract_mqtt_mapping_value,
+    add_log_entry=None,
+    send_udp_func=None,
+):
+    mappings = load_mqtt2udp_config()
+    sender = send_udp_func or (lambda ip, port, udp_topic, value, udp_format: send_mqtt2udp(
+        ip,
+        port,
+        udp_topic,
+        value,
+        udp_format,
+        add_log_entry,
+    ))
+
+    for item in mappings:
+        if not item.get("enabled", True):
+            continue
+
+        source_topic = item.get("source_topic", "").strip()
+        udp_topic = item.get("udp_topic", "").strip()
+        udp_ip = item.get("udp_ip", "").strip()
+        udp_port = item.get("udp_port", "7000").strip()
+        udp_format = item.get("udp_format", "topic_value")
+
+        if not source_topic:
+            continue
+
+        if topic != source_topic:
+            continue
+
+        mapped_value = extract_mqtt_mapping_value(item, payload)
+        if mapped_value is None:
+            _log(add_log_entry, f"MQTT2UDP kein gueltiger Wert fuer {topic}")
+            return True
+
+        mqtt2udp_last_seen[source_topic] = {
+            "value": mapped_value,
+            "time": datetime.now().strftime("%H:%M:%S"),
+        }
+
+        if udp_topic and udp_ip and udp_port:
+            sender(udp_ip, udp_port, udp_topic, mapped_value, udp_format)
+
+        return True
+
+    return False
+
+
+def handle_udp_to_mqtt(
+    raw_topic,
+    value,
+    load_udp2mqtt_config,
+    publish_func,
+    add_log_entry=None,
+    default_prefix="",
+    default_retain=False,
+    legacy_fallback=False,
+):
+    topic = str(raw_topic or "").strip()
+    if not topic:
+        return False
+
+    matched = False
+    for item in load_udp2mqtt_config():
+        if not item.get("enabled", True):
+            continue
+        udp_topic = str(item.get("udp_topic", "")).strip()
+        mqtt_topic = str(item.get("mqtt_topic", "")).strip()
+        if not udp_topic or not mqtt_topic or udp_topic != topic:
+            continue
+        matched = True
+        udp2mqtt_last_seen[udp_topic] = {
+            "value": value,
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "mqtt_topic": mqtt_topic,
+        }
+        if publish_func:
+            publish_func(mqtt_topic, value, bool(item.get("retain", False)))
+            _log(add_log_entry, f"UDP2MQTT Mapping -> {udp_topic} => {mqtt_topic} = {value}")
+        else:
+            _log(add_log_entry, "UDP2MQTT Fehler: MQTT Client nicht bereit")
+
+    if matched:
+        return True
+
+    if not legacy_fallback:
+        _log(add_log_entry, f"UDP2MQTT kein Mapping fuer {topic} - Legacy aus")
+        return False
+
+    final_topic = f"{default_prefix}/{topic}" if default_prefix else topic
+    udp2mqtt_last_seen[topic] = {
+        "value": value,
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "mqtt_topic": final_topic,
+        "legacy": True,
+    }
+    if publish_func:
+        publish_func(final_topic, value, bool(default_retain))
+        _log(add_log_entry, f"UDP2MQTT Legacy -> {final_topic} = {value}")
+        return True
+    _log(add_log_entry, "UDP2MQTT Legacy Fehler: MQTT Client nicht bereit")
+    return False
+
+
+def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqtt_func, add_log_entry=None):
+    _log(add_log_entry, "UDP Input Funktion wurde aufgerufen")
+
+    try:
+        udp_config = config.get("udp_input", {})
+        _log(add_log_entry, f"UDP Input Config: {udp_config}")
+
+        enabled = udp_config.get("enabled", False)
+        port = int(udp_config.get("port", 7002))
+        prefix = udp_config.get("prefix", "").strip().strip("/")
+        retain = bool(udp_config.get("retain", False))
+        legacy_fallback = bool(udp_config.get("legacy_fallback", False))
+
+        if not enabled:
+            _log(add_log_entry, "UDP Input deaktiviert")
+            return
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("0.0.0.0", port))
+
+        _log(add_log_entry, f"UDP Input lauscht auf Port {port}")
+
+        while True:
+            data, addr = sock.recvfrom(4096)
+
+            text = data.decode("utf-8", errors="ignore").strip()
+            _log(add_log_entry, f"UDP RX roh von {addr[0]}:{addr[1]} | {text}")
+
+            udp_input_last_seen["last"] = {
+                "ip": addr[0],
+                "port": addr[1],
+                "raw": text,
+                "time": datetime.now().strftime("%H:%M:%S"),
+            }
+
+            topic, value = parse_udp_input_message(text)
+
+            if not topic:
+                _log(add_log_entry, f"UDP Input ungueltig: {text}")
+                continue
+
+            try:
+                live_udp_cfg = load_config().get("udp_input", {})
+                prefix = str(live_udp_cfg.get("prefix", prefix) or "").strip().strip("/")
+                retain = bool(live_udp_cfg.get("retain", retain))
+                legacy_fallback = bool(live_udp_cfg.get("legacy_fallback", legacy_fallback))
+            except Exception as exc:
+                _log(add_log_entry, f"UDP Input Live-Config Fehler: {exc}")
+
+            handle_udp_to_knx(topic, value)
+            handle_udp_to_mqtt_func(topic, value, prefix, retain, legacy_fallback)
+
+    except Exception as exc:
+        _log(add_log_entry, f"UDP Input Start/Runtime Fehler: {repr(exc)}")
+
+
+def load_udp_presets():
+    if not os.path.exists(config.UDP_PRESETS_FILE):
+        save_udp_presets(DEFAULT_UDP_PRESETS)
+    data = config.safe_load_json_file(config.UDP_PRESETS_FILE, DEFAULT_UDP_PRESETS)
+    return data if isinstance(data, list) else []
+
+
+def save_udp_presets(data):
+    config.safe_save_json_file(config.UDP_PRESETS_FILE, data if isinstance(data, list) else [], indent=2)
+
+
+def get_udp_port_presets(load_mqtt2udp_config):
+    presets = load_udp_presets()
+    known = {}
+
+    for item in presets:
+        port = str(item.get("port", "")).strip()
+        label = str(item.get("label", "")).strip()
+        if port:
+            known[port] = label
+
+    for item in load_mqtt2udp_config():
+        port = str(item.get("udp_port", "")).strip()
+        if port and port not in known:
+            known[port] = "aus MQTT->UDP gelernt"
+
+    return [
+        {"port": port, "label": label}
+        for port, label in sorted(known.items(), key=lambda item: int(item[0]) if item[0].isdigit() else 999999)
+    ]
+
+
+def send_udp_input_test(port, test_topic, test_value, add_log_entry=None):
+    message = f"{test_topic}:{test_value}"
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.sendto(message.encode("utf-8"), ("127.0.0.1", int(port)))
+        finally:
+            sock.close()
+        _log(add_log_entry, f"UDP Test gesendet -> {message}")
+        return True
+    except Exception as exc:
+        _log(add_log_entry, f"UDP Test Fehler: {exc}")
+        return False
+
+
+def run_udp2mqtt_test(index, form, load_udp2mqtt_config, save_udp2mqtt_config, publish_func, add_log_entry=None):
+    mappings = load_udp2mqtt_config()
+    if index < 0 or index >= len(mappings):
+        return False
+
+    test_value = form.get(f"test_value_{index}", "123").strip()
+    mappings[index]["test_value"] = test_value
+    save_udp2mqtt_config(mappings)
+    item = mappings[index]
+    mqtt_topic = str(item.get("mqtt_topic", "")).strip()
+    udp_topic = str(item.get("udp_topic", "")).strip()
+
+    udp2mqtt_last_seen[udp_topic] = {
+        "value": test_value,
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "mqtt_topic": mqtt_topic,
+    }
+    if publish_func and mqtt_topic:
+        publish_func(mqtt_topic, test_value, bool(item.get("retain", False)))
+        _log(add_log_entry, f"UDP2MQTT Test -> {udp_topic} => {mqtt_topic} = {test_value}")
+    return True

@@ -1,0 +1,14 @@
+[
+  {
+    "enabled": true,
+    "label": "Influxdb",
+    "url": "http://192.168.1.122:8086",
+    "new_tab": true
+  },
+  {
+    "enabled": true,
+    "label": "Grafana",
+    "url": "http://192.168.1.122:3000/",
+    "new_tab": true
+  }
+]

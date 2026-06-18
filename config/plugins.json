@@ -1,0 +1,50 @@
+[
+  {
+    "id": "mqtt",
+    "name": "MQTT",
+    "enabled": true,
+    "status": "aktiv",
+    "description": "Hauptbroker und zusätzliche Broker",
+    "route": "/mqtt_settings_embed"
+  },
+  {
+    "id": "loxone",
+    "name": "Loxone",
+    "enabled": true,
+    "status": "aktiv",
+    "description": "Loxone Websocket, HTTP und Mapping",
+    "route": "/settings_embed"
+  },
+  {
+    "id": "udp",
+    "name": "UDP",
+    "enabled": true,
+    "status": "aktiv",
+    "description": "MQTT → UDP und UDP → MQTT",
+    "route": "/mqtt2udp"
+  },
+  {
+    "id": "influx",
+    "name": "InfluxDB",
+    "enabled": true,
+    "status": "aktiv",
+    "description": "Zeitreihen-Ausgabe",
+    "route": "/influx_settings_embed"
+  },
+  {
+    "id": "zigbee",
+    "name": "Zigbee",
+    "enabled": false,
+    "status": "vorbereitet",
+    "description": "Reserviert für Zigbee2MQTT Links und Mapping",
+    "route": ""
+  },
+  {
+    "id": "knx",
+    "name": "KNX",
+    "enabled": false,
+    "status": "Foundation",
+    "description": "KNX Gateway, MQTT → KNX und KNX → MQTT",
+    "route": "/mqtt2knx"
+  }
+]

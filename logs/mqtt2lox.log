@@ -1,0 +1,14 @@
+2026-06-18 13:52:55,633 | ERROR | mqtt2lox.runtime | MQTT zu Loxone Runtime Fehler: topic=test/topic route=a44f1439-c481-450f-8dce-55670af8c251:mqtt_to_loxone target=test_uuid_1
+Traceback (most recent call last):
+  File "C:\Users\Garten\Documents\GitHub\MQTT2LoxV32\app\engine\runtime.py", line 134, in handle_mqtt_message
+    value = self._coerce_datatype(route, (event or {}).get("payload"))
+  File "C:\Users\Garten\Documents\GitHub\MQTT2LoxV32\app\engine\runtime.py", line 82, in _coerce_datatype
+    return float(str(value).replace(",", "."))
+ValueError: could not convert string to float: 'not-a-number'
+2026-06-18 13:53:33,830 | ERROR | mqtt2lox.runtime | MQTT zu Loxone Runtime Fehler: topic=test/topic route=a44f1439-c481-450f-8dce-55670af8c251:mqtt_to_loxone target=test_uuid_1
+Traceback (most recent call last):
+  File "C:\Users\Garten\Documents\GitHub\MQTT2LoxV32\app\engine\runtime.py", line 136, in handle_mqtt_message
+    value = self._coerce_datatype(route, raw_value)
+  File "C:\Users\Garten\Documents\GitHub\MQTT2LoxV32\app\engine\runtime.py", line 82, in _coerce_datatype
+    return float(str(value).replace(",", "."))
+ValueError: could not convert string to float: 'not-a-number'

@@ -1,0 +1,15 @@
+[
+  {
+    "enabled": true,
+    "source_topic": "",
+    "payload_mode": "raw",
+    "json_key": "",
+    "group_address": "",
+    "dpt": "1.001",
+    "invert": false,
+    "test_value": "1",
+    "group": "",
+    "set_name": "Neues MQTT → KNX Set",
+    "mapping_alias": "Neues Mapping"
+  }
+]

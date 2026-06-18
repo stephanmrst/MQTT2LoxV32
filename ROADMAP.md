@@ -1,0 +1,22 @@
+# Roadmap
+
+## Aktueller Stand: 32.2.4
+
+Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object- und Loxone-Hilfsfunktionen sind in Service-Module ausgelagert. Die bestehende Legacy-Logik bleibt unveraendert angebunden.
+
+## Naechste Schritte
+
+- Weitere Funktionsbereiche schrittweise in v32-Module auslagern, ohne Verhalten zu aendern.
+- MQTT-Service weiter entflechten: Publish-Hilfen und Monitor-Endpunkte schrittweise aus dem Legacy-Core herausloesen.
+- UDP-Service spaeter um fokussierte Tests fuer Listener, Mapping und Presets ergaenzen.
+- Runtime-/Bridge-Logik erst nach vollstaendiger Port-Stabilisierung modularisieren.
+- Objektmanager vorerst nicht neu bauen, sondern nur stabil uebernehmen.
+- Optional-Abhaengigkeiten weiter klar im Startstatus sichtbar halten.
+- Tests fuer Hauptseiten, Config-Loader und Backup/Restore ausbauen.
+
+## Leitplanken
+
+- Keine neue Runtime, solange die technische Basis nicht vollstaendig stabil ist.
+- Keine neue Objektmanager-Logik ohne ausdrueckliche Anforderung.
+- Keine UI-Aenderungen bei reinen Portierungs- oder Service-Auslagerungen.
+- Jede neue Version muss `CHANGELOG.md`, `ROADMAP.md` und `MIGRATION.md` aktualisieren.
