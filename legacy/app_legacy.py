@@ -28,6 +28,10 @@ from services import influx as influx_service
 from services import runtime as runtime_service
 from services import backup as backup_service
 from services import template as template_service
+try:
+    from app.runtime.context import create_runtime_context
+except ModuleNotFoundError:
+    from runtime.context import create_runtime_context
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -99,7 +103,7 @@ def safe_save_json_file(path, data, indent=2):
         os.replace(tmp_path, path)
 
 
-live_log = deque(maxlen=100)
+runtime_context = create_runtime_context()
 knx_monitor_log = deque(maxlen=15)
 knx_monitor_values = {}
 
@@ -148,7 +152,119 @@ def bump_sse(name):
 
 
 def add_log_entry(text):
-    runtime_service.add_log(live_log, bump_sse, text)
+    with runtime_context.live_log.lock:
+        runtime_service.add_log(runtime_context.live_log.entries, bump_sse, text)
+        runtime_context.live_log.version += 1
+
+
+def get_mqtt_monitor_values():
+    with runtime_context.mqtt.lock:
+        return dict(runtime_context.mqtt.mqtt_monitor_values)
+
+
+def set_mqtt_monitor_value(monitor_key, value):
+    with runtime_context.mqtt.lock:
+        runtime_context.mqtt.mqtt_monitor_values[monitor_key] = dict(value or {})
+        runtime_context.mqtt.monitor_version += 1
+        return runtime_context.mqtt.mqtt_monitor_values[monitor_key]
+
+
+def clear_mqtt_monitor():
+    with runtime_context.mqtt.lock:
+        runtime_context.mqtt.mqtt_monitor_values.clear()
+        runtime_context.mqtt.monitor_version += 1
+
+
+def _udp_state_bucket(kind):
+    buckets = {
+        "mqtt2udp": runtime_context.udp.mqtt2udp_last_seen,
+        "udp2mqtt": runtime_context.udp.udp2mqtt_last_seen,
+        "udp2knx": runtime_context.udp.udp2knx_last_seen,
+        "udp_input": runtime_context.udp.udp_input_last_seen,
+    }
+    return buckets.get(kind)
+
+
+def get_udp_last_seen(kind, key=None):
+    with runtime_context.udp.lock:
+        bucket = _udp_state_bucket(kind)
+        if bucket is None:
+            return {}
+        if key is None:
+            if bucket:
+                return dict(bucket)
+        else:
+            if key in bucket:
+                return dict(bucket.get(key, {}))
+    legacy_buckets = {
+        "mqtt2udp": mqtt2udp_last_seen,
+        "udp2mqtt": udp2mqtt_last_seen,
+        "udp2knx": udp2knx_last_seen,
+        "udp_input": udp_input_last_seen,
+    }
+    legacy_bucket = legacy_buckets.get(kind, {})
+    if key is None:
+        return dict(legacy_bucket)
+    return dict(legacy_bucket.get(key, {}))
+
+
+def update_udp_last_seen(kind, key, value):
+    with runtime_context.udp.lock:
+        bucket = _udp_state_bucket(kind)
+        if bucket is None:
+            return {}
+        bucket[key] = dict(value or {})
+        return bucket[key]
+
+
+def clear_udp_last_seen(kind=None):
+    with runtime_context.udp.lock:
+        if kind is None:
+            runtime_context.udp.mqtt2udp_last_seen.clear()
+            runtime_context.udp.udp2mqtt_last_seen.clear()
+            runtime_context.udp.udp2knx_last_seen.clear()
+            runtime_context.udp.udp_input_last_seen.clear()
+            return
+        bucket = _udp_state_bucket(kind)
+        if bucket is not None:
+            bucket.clear()
+
+
+def get_broker_process():
+    with runtime_context.broker.lock:
+        return runtime_context.broker.process
+
+
+def set_broker_process(process):
+    with runtime_context.broker.lock:
+        runtime_context.broker.process = process
+        return runtime_context.broker.process
+
+
+def update_broker_state(status=None, running=None, start_requested=None, stop_requested=None, restart_requested=None):
+    with runtime_context.broker.lock:
+        if status is not None:
+            runtime_context.broker.status = status
+        if running is not None:
+            runtime_context.broker.running = bool(running)
+        if start_requested is not None:
+            runtime_context.broker.start_requested = bool(start_requested)
+        if stop_requested is not None:
+            runtime_context.broker.stop_requested = bool(stop_requested)
+        if restart_requested is not None:
+            runtime_context.broker.restart_requested = bool(restart_requested)
+
+
+def get_broker_state():
+    with runtime_context.broker.lock:
+        return {
+            "process": runtime_context.broker.process,
+            "running": runtime_context.broker.running,
+            "status": runtime_context.broker.status,
+            "start_requested": runtime_context.broker.start_requested,
+            "stop_requested": runtime_context.broker.stop_requested,
+            "restart_requested": runtime_context.broker.restart_requested,
+        }
 
 
 def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
@@ -486,7 +602,12 @@ def is_tcp_port_open(host, port, timeout=0.4):
 
 
 def get_internal_broker_status():
-    return runtime_service.get_internal_broker_status(load_internal_broker_config, internal_broker_process)
+    status = runtime_service.get_internal_broker_status(load_internal_broker_config, get_broker_process())
+    update_broker_state(
+        status=status.get("state", "gestoppt"),
+        running=bool(status.get("running", False)),
+    )
+    return status
 
 
 def build_mosquitto_config_file(cfg):
@@ -494,7 +615,7 @@ def build_mosquitto_config_file(cfg):
 
 
 def start_internal_broker_process():
-    global internal_broker_process
+    update_broker_state(start_requested=True, stop_requested=False, status="startet")
     ok, msg, process = runtime_service.start_internal_broker(
         load_internal_broker_config,
         get_internal_broker_status,
@@ -503,14 +624,26 @@ def start_internal_broker_process():
         BASE_DIR,
     )
     if process is not None:
-        internal_broker_process = process
+        set_broker_process(process)
+    status = get_internal_broker_status()
+    update_broker_state(
+        status=status.get("state", msg),
+        running=bool(status.get("running", ok)),
+        start_requested=False,
+    )
     return ok, msg
 
 
 def stop_internal_broker_process():
-    global internal_broker_process
-    ok, msg, process = runtime_service.stop_internal_broker(internal_broker_process, add_log_entry)
-    internal_broker_process = process
+    update_broker_state(stop_requested=True, start_requested=False, status="Stop angefordert")
+    ok, msg, process = runtime_service.stop_internal_broker(get_broker_process(), add_log_entry)
+    set_broker_process(process)
+    status = get_internal_broker_status()
+    update_broker_state(
+        status=status.get("state", msg),
+        running=bool(status.get("running", False)),
+        stop_requested=False,
+    )
     return ok, msg
 
 
@@ -945,7 +1078,7 @@ def _handle_mqtt_to_knx_service(topic, payload):
 
 
 def _handle_udp_to_knx_service(topic, value):
-    return knx_service.handle_udp_to_knx(
+    handled = knx_service.handle_udp_to_knx(
         topic,
         value,
         load_udp2knx_config,
@@ -953,6 +1086,9 @@ def _handle_udp_to_knx_service(topic, value):
         _send_knx_service_value,
         add_log_entry,
     )
+    for key, info in udp2knx_last_seen.items():
+        update_udp_last_seen("udp2knx", key, info)
+    return handled
 
 def handle_udp_to_mqtt(raw_topic, value, default_prefix="", default_retain=False, legacy_fallback=False):
     """Map UDP topic/value to MQTT. Optional legacy fallback publishes all UDP telegrams for discovery."""
@@ -969,6 +1105,7 @@ def handle_udp_to_mqtt(raw_topic, value, default_prefix="", default_retain=False
         default_prefix,
         default_retain,
         legacy_fallback,
+        update_udp_last_seen,
     )
 
 
@@ -1028,7 +1165,7 @@ async def _knx_listener_async(knx_cfg):
             return
         await xknx.start()
         add_log_entry("KNX Listener gestartet")
-        while not bridge_stop_requested:
+        while not runtime_context.bridge.stop_requested:
             await asyncio.sleep(1)
     except Exception as e:
         add_log_entry(f"KNX Listener Fehler: {e}")
@@ -1128,26 +1265,24 @@ def flatten_json(data, prefix=""):
 
 def restart_bridge_async():
     def worker():
-        global bridge_thread, bridge_stop_requested, bridge_running
-
         try:
             add_log_entry("Bridge Neustart angefordert")
 
-            bridge_stop_requested = True
+            runtime_context.bridge.stop_requested = True
 
-            if bridge_thread and bridge_thread.is_alive():
-                bridge_thread.join(timeout=5)
+            if runtime_context.bridge.thread and runtime_context.bridge.thread.is_alive():
+                runtime_context.bridge.thread.join(timeout=5)
 
-            bridge_stop_requested = False
+            runtime_context.bridge.stop_requested = False
 
             config = load_config()
 
-            bridge_thread = threading.Thread(
+            runtime_context.bridge.thread = threading.Thread(
                 target=bridge_runner,
                 args=(config,),
                 daemon=True
             )
-            bridge_thread.start()
+            runtime_context.bridge.thread.start()
 
             add_log_entry("Bridge wurde neu gestartet")
 
@@ -1169,6 +1304,7 @@ def udp_input_listener(config):
         _handle_udp_to_knx_service,
         handle_udp_to_mqtt,
         add_log_entry,
+        update_udp_last_seen,
     )
 
 
@@ -1206,6 +1342,7 @@ def handle_mqtt_to_udp(topic, payload):
         load_mqtt2udp_config,
         extract_mqtt_mapping_value,
         add_log_entry,
+        update_last_seen=update_udp_last_seen,
     )
 
 
@@ -1228,12 +1365,6 @@ def force_utf8_response(response):
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 app.config["MAX_FORM_MEMORY_SIZE"] = 20 * 1024 * 1024
 app.config["MAX_FORM_PARTS"] = 5000
-
-bridge_thread = None
-bridge_running = False
-bridge_stop_requested = False
-bridge_status = "gestoppt"
-internal_broker_process = None
 
 ws = None
 main_loop = None
@@ -1562,22 +1693,22 @@ def parse_udp_input_message(text):
 
 
 async def bridge_async(config):
-    global ws, main_loop, mqtt_client, bridge_running, bridge_status
-    global bridge_stop_requested, last_values, display_values
+    global ws, main_loop, mqtt_client
+    global last_values, display_values
 
     if not globals().get("LOXWEBSOCKET_AVAILABLE", True):
-        bridge_status = globals().get("LOXWEBSOCKET_STATUS", "Loxone: Bibliothek nicht installiert")
-        add_log_entry(bridge_status)
+        runtime_context.bridge.status = globals().get("LOXWEBSOCKET_STATUS", "Loxone: Bibliothek nicht installiert")
+        add_log_entry(runtime_context.bridge.status)
         return
 
     last_values = {}
     display_values = {}
 
-    bridge_status = "lade Mapping"
+    runtime_context.bridge.status = "lade Mapping"
 
     load_mapping(config)
 
-    bridge_status = "verbinde MQTT"
+    runtime_context.bridge.status = "verbinde MQTT"
 
     global mqtt_clients
 
@@ -1616,7 +1747,8 @@ async def bridge_async(config):
 
             add_log_entry(f"MQTT RX [{broker_name}] -> {msg.topic} = {payload}")
 
-            mqtt_module.record_mqtt_message(broker_name, msg.topic, payload)
+            monitor_entry = mqtt_module.record_mqtt_message(broker_name, msg.topic, payload)
+            set_mqtt_monitor_value(f"{broker_name}::{msg.topic}", monitor_entry)
             bump_sse("mqtt")
 
             # MQTT Explorer -> Influx: direkte Topics und aktivierte JSON-Keys schreiben.
@@ -1647,6 +1779,9 @@ async def bridge_async(config):
         on_mqtt_message,
         add_log_entry,
     )
+    with runtime_context.mqtt.lock:
+        runtime_context.mqtt.mqtt_client = mqtt_client
+        runtime_context.mqtt.mqtt_clients = mqtt_clients
     all_brokers = []
 
     for broker in all_brokers:
@@ -1675,6 +1810,8 @@ async def bridge_async(config):
             # Hauptbroker merken für publish
             if broker.get("is_main"):
                 mqtt_client = client
+                with runtime_context.mqtt.lock:
+                    runtime_context.mqtt.mqtt_client = mqtt_client
 
             add_log_entry(
                 f"MQTT verbunden: {broker['name']} "
@@ -1700,7 +1837,7 @@ async def bridge_async(config):
     except Exception as e:
         add_log_entry(f"KNX Listener Start Fehler: {e}")
 
-    bridge_status = "verbinde Loxone"
+    runtime_context.bridge.status = "verbinde Loxone"
 
     main_loop = asyncio.get_running_loop()
     ws = LoxWs()
@@ -1734,15 +1871,15 @@ async def bridge_async(config):
         receive_updates=True
     )
 
-    bridge_running = True
-    bridge_status = "läuft"
+    runtime_context.bridge.running = True
+    runtime_context.bridge.status = "läuft"
 
     print("✅ Bridge läuft")
 
-    while not bridge_stop_requested:
+    while not runtime_context.bridge.stop_requested:
         await asyncio.sleep(1)
 
-    bridge_status = "stoppe"
+    runtime_context.bridge.status = "stoppe"
 
     try:
         if ws:
@@ -1763,19 +1900,17 @@ async def bridge_async(config):
     except Exception:
         pass
 
-    bridge_running = False
-    bridge_status = "gestoppt"
+    runtime_context.bridge.running = False
+    runtime_context.bridge.status = "gestoppt"
     print("Bridge gestoppt")
 
 
 def bridge_runner(config):
-    global bridge_status, bridge_running
-
     try:
         asyncio.run(bridge_async(config))
     except Exception as e:
-        bridge_running = False
-        bridge_status = f"Fehler: {e}"
+        runtime_context.bridge.running = False
+        runtime_context.bridge.status = f"Fehler: {e}"
         print("Bridge Fehler:", e)
 
 
@@ -1968,7 +2103,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.2.9
+            MQTT2Lox 32.4.0
         </div>
     </aside>
 
@@ -1995,7 +2130,7 @@ def nav_active(name, active):
 
 
 def render_layout(title, content, active="dashboard", subtitle="", message=""):
-    return template_service.render_layout(render_template_string, APP_LAYOUT, bridge_status, title, content, active, subtitle, message)
+    return template_service.render_layout(render_template_string, APP_LAYOUT, runtime_context.bridge.status, title, content, active, subtitle, message)
 
 
 
@@ -2635,19 +2770,21 @@ def sse_response(event_name, payload_func, version_name, interval=0.2):
 
 
 def live_log_payload(limit=12):
-    return runtime_service.live_log_payload(live_log, limit)
+    with runtime_context.live_log.lock:
+        return runtime_service.live_log_payload(runtime_context.live_log.entries, limit)
 
 
 def live_log_full_payload(limit=100):
-    return {"logs": runtime_service.get_live_log_entries(live_log, limit)}
+    with runtime_context.live_log.lock:
+        return {"logs": runtime_service.get_live_log_entries(runtime_context.live_log.entries, limit)}
 
 
 def shell_status_payload():
-    return runtime_service.build_status_payload(bridge_status)
+    return runtime_service.build_status_payload(runtime_context.bridge.status)
 
 
 def status_sse_response():
-    return runtime_service.status_sse_response(Response, stream_with_context, shell_status_payload, lambda: bridge_status)
+    return runtime_service.status_sse_response(Response, stream_with_context, shell_status_payload, lambda: runtime_context.bridge.status)
 
 
 def knx_monitor_payload():
@@ -2673,7 +2810,8 @@ def dashboard_content():
     udp_cfg = config.get("udp_input", {})
     udp_state = "aktiv" if udp_cfg.get("enabled", False) else "aus"
     plugin_count = len([p for p in load_plugins_config() if p.get("enabled")])
-    logs = list(live_log)[:8]
+    with runtime_context.live_log.lock:
+        logs = list(runtime_context.live_log.entries)[:8]
 
     log_html = "".join(f"<div class='small'>{escape(str(x))}</div>" for x in logs) or "<div class='small'>Noch keine Logeinträge.</div>"
 
@@ -2779,7 +2917,8 @@ startLiveLogStream();
 
 
 def live_log_console_content():
-    logs = list(live_log)[:100]
+    with runtime_context.live_log.lock:
+        logs = list(runtime_context.live_log.entries)[:100]
     log_html = "".join(f"<div class='log-line'>{escape(str(x))}</div>" for x in logs) or "<div class='small'>Noch keine Logeinträge.</div>"
     return f"""
 <h1>Live-Log</h1>
@@ -2990,7 +3129,7 @@ def settings_content(config, notice=""):
     lox = config.get("loxone", {})
 
     modules = [
-        {"name": "Bridge / Loxone", "status": bridge_status, "desc": f"Miniserver {lox.get('host', '-')}, Bridge-Basiswerte", "route": "/core_settings_embed"},
+        {"name": "Bridge / Loxone", "status": runtime_context.bridge.status, "desc": f"Miniserver {lox.get('host', '-')}, Bridge-Basiswerte", "route": "/core_settings_embed"},
         {"name": "MQTT Broker", "status": f"{mqtt.get('host', '-')}:{mqtt.get('port', '-')}", "desc": "Hauptbroker, zusätzliche Broker und Prefix", "route": "/mqtt_settings_embed"},
         {"name": "UDP", "status": "aktiv" if udp_cfg.get("enabled") else "aus", "desc": f"UDP → MQTT Eingang auf Port {udp_cfg.get('port', '-')}; MQTT → UDP Mappings bleiben links unter Mappings", "route": "/udp_input"},
         {"name": "InfluxDB", "status": "aktiv" if influx.get("enabled") else "aus", "desc": "Zeitreihen-Ausgabe / Logging", "route": "/influx_settings_embed"},
@@ -3714,7 +3853,7 @@ def live_log_data():
 
 @app.route("/")
 def index(message=""):
-    return render_template_string(SHELL_LAYOUT, status=bridge_status, sidebar_links_html=build_sidebar_links_html())
+    return render_template_string(SHELL_LAYOUT, status=runtime_context.bridge.status, sidebar_links_html=build_sidebar_links_html())
 
 
 @app.route("/settings")
@@ -3912,22 +4051,20 @@ def test_mqtt():
 
 @app.route("/start", methods=["POST"])
 def start_bridge():
-    global bridge_thread, bridge_stop_requested, bridge_running, bridge_status
-
     if not globals().get("LOXWEBSOCKET_AVAILABLE", True):
-        bridge_status = globals().get("LOXWEBSOCKET_STATUS", "Loxone: Bibliothek nicht installiert")
-        add_log_entry(bridge_status)
+        runtime_context.bridge.status = globals().get("LOXWEBSOCKET_STATUS", "Loxone: Bibliothek nicht installiert")
+        add_log_entry(runtime_context.bridge.status)
         return redirect('/')
 
-    if bridge_running or (bridge_thread and bridge_thread.is_alive()):
+    if runtime_context.bridge.running or (runtime_context.bridge.thread and runtime_context.bridge.thread.is_alive()):
         return redirect('/')
 
-    bridge_stop_requested = False
-    bridge_status = "startet"
+    runtime_context.bridge.stop_requested = False
+    runtime_context.bridge.status = "startet"
 
     cfg = load_config()
-    bridge_thread = threading.Thread(target=bridge_runner, args=(cfg,), daemon=True)
-    bridge_thread.start()
+    runtime_context.bridge.thread = threading.Thread(target=bridge_runner, args=(cfg,), daemon=True)
+    runtime_context.bridge.thread.start()
 
     time.sleep(0.5)
     return redirect('/')
@@ -3935,10 +4072,8 @@ def start_bridge():
 
 @app.route("/stop", methods=["POST"])
 def stop_bridge():
-    global bridge_stop_requested, bridge_status
-
-    bridge_stop_requested = True
-    bridge_status = "Stop angefordert"
+    runtime_context.bridge.stop_requested = True
+    runtime_context.bridge.status = "Stop angefordert"
     return redirect('/')
 
 def _topic_manager_2_collect_topics():
@@ -6487,7 +6622,7 @@ def mqtt2udp():
 """
             for row_index, alias in zip(set_obj["rows"], alias_names):
                 source_topic = str(mappings[row_index].get("source_topic", "") or "").strip()
-                last_info = mqtt2udp_last_seen.get(source_topic, {})
+                last_info = get_udp_last_seen("mqtt2udp", source_topic)
                 live_value = str(last_info.get("value", "") or "").strip()
                 live_cls = "" if live_value and live_value != "-" else " empty"
                 html += f"""
@@ -6536,7 +6671,7 @@ def mqtt2udp():
         payload_mode = item.get("payload_mode", "raw")
         json_key = item.get("json_key", "")
         test_value = item.get("test_value", "123")
-        last_info = mqtt2udp_last_seen.get(source_topic, {})
+        last_info = get_udp_last_seen("mqtt2udp", source_topic)
         last_payload = last_info.get("value", "-")
         last_time = last_info.get("time", "-")
         checked = "checked" if enabled else ""
@@ -6837,7 +6972,7 @@ def mqtt2udp_data():
 
     for i, item in enumerate(mappings):
         source_topic = item.get("source_topic", "").strip()
-        info = mqtt2udp_last_seen.get(source_topic, {})
+        info = get_udp_last_seen("mqtt2udp", source_topic)
 
         data[str(i)] = {
             "value": str(info.get("value", "-")),
@@ -8338,14 +8473,18 @@ startMqttMonitorStream();
 
 @app.route("/clear_monitor")
 def clear_monitor():
-    live_log.clear()
+    with runtime_context.live_log.lock:
+        runtime_context.live_log.entries.clear()
+        runtime_context.live_log.version += 1
     bump_sse("log")
     return redirect("/monitor")
 
 
 @app.route("/clear_log")
 def clear_log():
-    live_log.clear()
+    with runtime_context.live_log.lock:
+        runtime_context.live_log.entries.clear()
+        runtime_context.live_log.version += 1
     bump_sse("log")
     return redirect("/live_log")
 
@@ -8381,9 +8520,10 @@ def mqtt_hub_content():
     config = load_config()
     mqtt = get_effective_mqtt_config(config)
     udp_cfg = config.get("udp_input", {})
+    mqtt_monitor_snapshot = get_mqtt_monitor_values()
     cards = [
         ("Loxone Explorer", "/topics2", len(_topic_manager_2_collect_topics()), "Explorer-Ansicht für Loxone Topics: suchen, auswählen, Alias setzen, Influx/Writable schalten und direkt weiter mappen."),
-        ("MQTT Monitor", "/monitor", len(mqtt_monitor_values), "Live MQTT Topics ansehen, filtern und kopieren. Discovery kannst du direkt dort ein- und ausschalten."),
+        ("MQTT Monitor", "/monitor", len(mqtt_monitor_snapshot), "Live MQTT Topics ansehen, filtern und kopieren. Discovery kannst du direkt dort ein- und ausschalten."),
         ("MQTT → Loxone", "/mqtt2lox", len(load_mqtt2lox_config()), "MQTT Topics an Loxone Eingänge/Controls schicken."),
         ("MQTT → UDP", "/mqtt2udp", len(load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
         ("UDP → MQTT", "/udp2mqtt", len(load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics veröffentlichen und gezielt mappen."),
@@ -8786,7 +8926,7 @@ def udp2knx():
     prefill_group_address = knx_service.normalize_knx_ga(request.args.get('group_address', ''))
 
     def card(i, item, group_name, set_name, set_key, alias):
-        last = udp2knx_last_seen.get(item.get('source_topic',''), {})
+        last = get_udp_last_seen("udp2knx", item.get('source_topic',''))
         top = f'''<div><label>UDP Topic</label><input type="text" name="source_topic_{i}" value="{escape(str(item.get('source_topic','')))}" placeholder="topic vor Doppelpunkt"></div><div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div><div><label>Testwert</label><input type="text" name="test_value_{i}" value="{escape(str(item.get('test_value','1')))}"></div>'''
         bottom = f'''<div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="udp2knx_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="udp2knx_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
         actions = f'''<button type="submit" formaction="/udp2knx/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
@@ -8803,7 +8943,7 @@ def udp2knx():
 def udp2knx_data():
     data={}
     for i,item in enumerate(load_udp2knx_config()):
-        info = udp2knx_last_seen.get(item.get('source_topic','').strip(), {})
+        info = get_udp_last_seen("udp2knx", item.get('source_topic','').strip())
         data[str(i)] = {'value': str(info.get('value','-')), 'time': str(info.get('time','-'))}
     return data
 
@@ -9624,7 +9764,7 @@ def events_live_log_full():
 
 @app.route("/events/mqtt_monitor")
 def events_mqtt_monitor():
-    return sse_response("mqtt_monitor", lambda: mqtt_monitor_values, "mqtt", interval=0.1)
+    return sse_response("mqtt_monitor", get_mqtt_monitor_values, "mqtt", interval=0.1)
 
 
 @app.route("/events/knx_monitor")
@@ -9734,7 +9874,7 @@ def udp2mqtt():
     )
 
     def card(i, item, group_name, set_name, set_key, alias):
-        last = udp2mqtt_last_seen.get(str(item.get("udp_topic", "")).strip(), {})
+        last = get_udp_last_seen("udp2mqtt", str(item.get("udp_topic", "")).strip())
         top = f'''<div><label>UDP Topic</label><input type="text" name="udp_topic_{i}" value="{escape(str(item.get('udp_topic','')))}" placeholder="z.B. licht/eg/flur"></div><div><label>MQTT Topic</label><input type="text" name="mqtt_topic_{i}" value="{escape(str(item.get('mqtt_topic','')))}" placeholder="z.B. loxone/licht/flur/set"></div>'''
         bottom = f'''<div><label>Retain</label><input type="checkbox" name="retain_{i}" {'checked' if item.get('retain', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="udp2mqtt_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="udp2mqtt_time_{i}">{escape(str(last.get('time','-')))}</div></div><div><label>Testwert</label><input type="text" name="test_value_{i}" value="{escape(str(item.get('test_value','123')))}"></div>'''
         actions = f'''<button type="submit" formaction="/udp2mqtt/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
@@ -9829,6 +9969,7 @@ def udp2mqtt_test(index):
         save_udp2mqtt_config,
         publish_func,
         add_log_entry,
+        update_udp_last_seen,
     )
     return redirect("/udp2mqtt")
 
@@ -9838,7 +9979,7 @@ def udp2mqtt_data():
     data = {}
     for i, item in enumerate(load_udp2mqtt_config()):
         udp_topic = str(item.get("udp_topic", "")).strip()
-        info = udp2mqtt_last_seen.get(udp_topic, {})
+        info = get_udp_last_seen("udp2mqtt", udp_topic)
         data[str(i)] = {"value": str(info.get("value", "-")), "time": str(info.get("time", "-"))}
     return data
 
@@ -10060,7 +10201,7 @@ def udp_input_test():
 
 @app.route("/udp_input_data")
 def udp_input_data():
-    return udp_input_last_seen
+    return get_udp_last_seen("udp_input")
 
 
 @app.route("/mqtt_brokers")
@@ -10285,12 +10426,16 @@ def mqtt_brokers_save():
 @app.route("/udp_discovery_status")
 def udp_discovery_status():
     cfg = load_config().get("udp_input", {})
-    return {
+    state = {
         "enabled": bool(cfg.get("enabled", False)),
         "legacy_fallback": bool(cfg.get("legacy_fallback", False)),
         "port": cfg.get("port", 7002),
         "prefix": cfg.get("prefix", "")
     }
+    with runtime_context.udp.lock:
+        runtime_context.udp.discovery_enabled = bool(state.get("legacy_fallback", False))
+        runtime_context.udp.discovery_state = dict(state)
+    return state
 
 
 @app.route("/udp_discovery_toggle", methods=["POST"])
@@ -10300,13 +10445,16 @@ def udp_discovery_toggle():
     raw = str(request.form.get("legacy_fallback", "")).strip().lower()
     udp_cfg["legacy_fallback"] = raw in ["1", "true", "on", "yes", "ja"]
     save_config(config)
+    with runtime_context.udp.lock:
+        runtime_context.udp.discovery_enabled = bool(udp_cfg.get("legacy_fallback", False))
+        runtime_context.udp.discovery_state = {"ok": True, "legacy_fallback": runtime_context.udp.discovery_enabled}
     add_log_entry("UDP Discovery " + ("aktiviert" if udp_cfg["legacy_fallback"] else "deaktiviert"))
     return {"ok": True, "legacy_fallback": bool(udp_cfg.get("legacy_fallback", False))}
 
 
 @app.route("/monitor_data")
 def monitor_data():
-    return mqtt_monitor_values
+    return get_mqtt_monitor_values()
 
 
 @app.route("/monitor_settings")
@@ -10774,6 +10922,7 @@ object_service.normalize_knx_group_address = knx_service.normalize_knx_ga
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8099, debug=False)
+
 
 
 

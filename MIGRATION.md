@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.2.9
+## Aktueller Stand: 32.4.0
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -9,6 +9,104 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `legacy/app_legacy.py`
 
 Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+
+## Von 32.3.9 nach 32.4.0
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur der interne Broker-Runtime-State:
+
+- Broker-Prozess, Status und Start-/Stop-Flags liegen jetzt in `runtime_context.broker`.
+- `internal_broker_process` wurde als Legacy-Global entfernt.
+- Bridge-, MQTT-, UDP- und KNX-State bleiben unveraendert.
+
+## Von 32.3.8 nach 32.3.9
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur der UDP-Runtime-State:
+
+- UDP Last-Seen-Daten werden zusaetzlich in `runtime_context.udp` geschrieben.
+- UDP-Seiten lesen bevorzugt aus dem RuntimeContext.
+- Bestehende UDP-Globals bleiben parallel erhalten.
+
+## Von 32.3.7 nach 32.3.8
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur der MQTT-Monitor-Runtime-State:
+
+- MQTT-Monitor-Werte werden zusaetzlich in `runtime_context.mqtt` geschrieben.
+- Monitor-Datenrouten lesen bevorzugt aus dem RuntimeContext.
+- Bestehende MQTT-Globals bleiben parallel erhalten.
+
+## Von 32.3.5 nach 32.3.7
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur der Bridge-Runtime-State:
+
+- Bridge-Status, Running-Flag, Stop-Flag und Thread-Referenz liegen jetzt in `runtime_context.bridge`.
+- Alte Bridge-Globals wurden entfernt.
+- MQTT-, UDP-, KNX- und Broker-State bleiben unveraendert.
+
+## Von 32.3.4 nach 32.3.5
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die vorsichtige LiveLog-Vorbereitung:
+
+- `LiveLogState` enthaelt eine eigene Deque, einen Lock und eine Version.
+- Neue Logeintraege werden zusaetzlich in `runtime_context.live_log` gespiegelt.
+- Bestehende LiveLog-Routen und sichtbare UI bleiben unveraendert.
+
+## Von 32.3.3 nach 32.3.4
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur das Architektur-Grundgeruest:
+
+- `app/runtime/` mit leeren Dataclass-Platzhaltern ergaenzt.
+- `RuntimeContext` definiert, aber nicht instanziiert und nicht verwendet.
+- Keine Laufzeitdaten verschoben.
+
+## Von 32.3.2 nach 32.3.3
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die Dokumentation:
+
+- `RUNTIME_CONTEXT_PLAN.md` ergänzt.
+- Globale Runtime-States wurden fuer einen spaeteren Context geplant.
+- Keine Variablen, Funktionen oder Routen verschoben.
+
+## Von 32.3.1 nach 32.3.2
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die Dokumentation:
+
+- `BLUEPRINT_PLAN.md` ergänzt.
+- Alle aktuellen Flask-Routen wurden geplanten Blueprints zugeordnet.
+- Keine Routen verschoben, umbenannt oder gelöscht.
+
+## Von 32.3.0 nach 32.3.1
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die Dokumentation:
+
+- `ARCHITECTURE_REVIEW.md` aktualisiert und um Datei-Bewertungen ergänzt.
+- Keine Funktionen verschoben, umbenannt oder gelöscht.
+
+## Von 32.2.9 nach 32.3.0
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die Dokumentation:
+
+- `ARCHITECTURE_REVIEW.md` ergänzt.
+- Keine Funktionen verschoben, umbenannt oder gelöscht.
 
 ## Von 32.2.8 nach 32.2.9
 
@@ -104,7 +202,7 @@ Geaendert wurde nur die Zeichenkodierung der ausgelieferten Oberflaechen:
 - Flask-JSON bleibt UTF-8-lesbar und nutzt kein ASCII-Escaping.
 - Defekte Umlaut-/Sonderzeichen im Port wurden repariert.
 
-## Von 32.2.0 nach 32.3.0
+## Von 32.2.0 nach 32.2.1
 
 Keine manuelle Migration der Konfigurationsdateien erforderlich.
 

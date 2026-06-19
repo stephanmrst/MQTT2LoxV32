@@ -91,6 +91,7 @@ def handle_mqtt_to_udp(
     extract_mqtt_mapping_value,
     add_log_entry=None,
     send_udp_func=None,
+    update_last_seen=None,
 ):
     mappings = load_mqtt2udp_config()
     sender = send_udp_func or (lambda ip, port, udp_topic, value, udp_format: send_mqtt2udp(
@@ -127,6 +128,8 @@ def handle_mqtt_to_udp(
             "value": mapped_value,
             "time": datetime.now().strftime("%H:%M:%S"),
         }
+        if update_last_seen:
+            update_last_seen("mqtt2udp", source_topic, mqtt2udp_last_seen[source_topic])
 
         if udp_topic and udp_ip and udp_port:
             sender(udp_ip, udp_port, udp_topic, mapped_value, udp_format)
@@ -145,6 +148,7 @@ def handle_udp_to_mqtt(
     default_prefix="",
     default_retain=False,
     legacy_fallback=False,
+    update_last_seen=None,
 ):
     topic = str(raw_topic or "").strip()
     if not topic:
@@ -164,6 +168,8 @@ def handle_udp_to_mqtt(
             "time": datetime.now().strftime("%H:%M:%S"),
             "mqtt_topic": mqtt_topic,
         }
+        if update_last_seen:
+            update_last_seen("udp2mqtt", udp_topic, udp2mqtt_last_seen[udp_topic])
         if publish_func:
             publish_func(mqtt_topic, value, bool(item.get("retain", False)))
             _log(add_log_entry, f"UDP2MQTT Mapping -> {udp_topic} => {mqtt_topic} = {value}")
@@ -184,6 +190,8 @@ def handle_udp_to_mqtt(
         "mqtt_topic": final_topic,
         "legacy": True,
     }
+    if update_last_seen:
+        update_last_seen("udp2mqtt", topic, udp2mqtt_last_seen[topic])
     if publish_func:
         publish_func(final_topic, value, bool(default_retain))
         _log(add_log_entry, f"UDP2MQTT Legacy -> {final_topic} = {value}")
@@ -192,7 +200,7 @@ def handle_udp_to_mqtt(
     return False
 
 
-def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqtt_func, add_log_entry=None):
+def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqtt_func, add_log_entry=None, update_last_seen=None):
     _log(add_log_entry, "UDP Input Funktion wurde aufgerufen")
 
     try:
@@ -226,6 +234,8 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
                 "raw": text,
                 "time": datetime.now().strftime("%H:%M:%S"),
             }
+            if update_last_seen:
+                update_last_seen("udp_input", "last", udp_input_last_seen["last"])
 
             topic, value = parse_udp_input_message(text)
 
@@ -295,7 +305,7 @@ def send_udp_input_test(port, test_topic, test_value, add_log_entry=None):
         return False
 
 
-def run_udp2mqtt_test(index, form, load_udp2mqtt_config, save_udp2mqtt_config, publish_func, add_log_entry=None):
+def run_udp2mqtt_test(index, form, load_udp2mqtt_config, save_udp2mqtt_config, publish_func, add_log_entry=None, update_last_seen=None):
     mappings = load_udp2mqtt_config()
     if index < 0 or index >= len(mappings):
         return False
@@ -312,6 +322,8 @@ def run_udp2mqtt_test(index, form, load_udp2mqtt_config, save_udp2mqtt_config, p
         "time": datetime.now().strftime("%H:%M:%S"),
         "mqtt_topic": mqtt_topic,
     }
+    if update_last_seen:
+        update_last_seen("udp2mqtt", udp_topic, udp2mqtt_last_seen[udp_topic])
     if publish_func and mqtt_topic:
         publish_func(mqtt_topic, test_value, bool(item.get("retain", False)))
         _log(add_log_entry, f"UDP2MQTT Test -> {udp_topic} => {mqtt_topic} = {test_value}")

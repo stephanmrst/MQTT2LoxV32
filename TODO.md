@@ -2,6 +2,15 @@
 
 ## 32.0.x
 
+- Architektur-Review 32.3.1 auswerten: zuerst RuntimeContext/Blueprint-Plan festlegen, dann weitere Auslagerungen angehen.
+- Blueprint-Plan 32.3.2 pruefen und vor der ersten Route-Migration Smoke-Tests fuer Seiten, JSON-Endpunkte und SSE vorbereiten.
+- RuntimeContext-Plan 32.3.3 pruefen und vor State-Verschiebungen Tests fuer Live-Log, Status-SSE, MQTT Monitor, KNX Monitor und Bridge Start/Stop festlegen.
+- RuntimeContext-Grundgeruest 32.3.4 vorerst ungenutzt lassen; erst nach Smoke-Tests Instanzierung und schrittweise Verdrahtung planen.
+- LiveLog-Spiegelung 32.3.5 pruefen: Dashboard, Live Log, `/events/live_log` und keine doppelten sichtbaren Eintraege.
+- Bridge-State 32.3.7 pruefen: Start/Stop, `/events/status`, Dashboard-Status und Live-Log-Meldungen.
+- MQTT-Monitor-State 32.3.8 pruefen: MQTT Monitor, MQTT Hub, `/monitor_data`, `/events/mqtt_monitor`, Topic Explorer und Dashboard.
+- UDP-State 32.3.9 pruefen: MQTT -> UDP, UDP -> MQTT, UDP -> KNX, UDP Input, Discovery, Dashboard und Live Log.
+- BrokerState 32.4.0 pruefen: Broker starten, stoppen, Statusroute, Dashboard, LiveLog, MQTT und Bridge.
 - Umbenannte Module im laufenden Betrieb gegenpruefen: Dashboard, MQTT -> Loxone, MQTT -> UDP, MQTT -> KNX und Log-Leerzustand.
 - Object-Service im laufenden Betrieb gegenpruefen: Objektliste, Objekt bearbeiten, Mapping-Sync, Mapping-Rebuild und Objekt loeschen.
 - Loxone-Service im laufenden Betrieb gegenpruefen: MQTT -> Loxone, Loxone IO-Datalist und Dashboard-Zaehler.

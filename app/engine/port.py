@@ -6,7 +6,7 @@ from pathlib import Path
 from platform import python_version
 
 
-APP_VERSION = "32.2.9"
+APP_VERSION = "32.4.0"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -213,7 +213,10 @@ def create_legacy_app():
     legacy.LOXWEBSOCKET_AVAILABLE = LOXWEBSOCKET_AVAILABLE
     legacy.LOXWEBSOCKET_STATUS = LOXWEBSOCKET_STATUS
     if not LOXWEBSOCKET_AVAILABLE:
-        legacy.bridge_status = LOXWEBSOCKET_STATUS
+        try:
+            legacy.runtime_context.bridge.status = LOXWEBSOCKET_STATUS
+        except Exception:
+            pass
         try:
             legacy.add_log_entry(LOXWEBSOCKET_STATUS)
         except Exception:
@@ -233,4 +236,5 @@ def create_legacy_app():
                 return startup_status()
 
     return legacy.app
+
 
