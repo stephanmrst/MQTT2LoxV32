@@ -1,4 +1,4 @@
-import importlib.util
+﻿import importlib.util
 import os
 import sys
 import types
@@ -6,7 +6,7 @@ from pathlib import Path
 from platform import python_version
 
 
-APP_VERSION = "32.2.5"
+APP_VERSION = "32.2.9"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -233,3 +233,4 @@ def create_legacy_app():
                 return startup_status()
 
     return legacy.app
+

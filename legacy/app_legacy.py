@@ -24,6 +24,10 @@ from services import udp
 from services import object as object_service
 from services import loxone as loxone_service
 from services import knx as knx_service
+from services import influx as influx_service
+from services import runtime as runtime_service
+from services import backup as backup_service
+from services import template as template_service
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -33,7 +37,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Im Docker-Container liegen persistente Dateien getrennt in:
 #   /app/config   -> JSON-Konfigurationen / Mappings
 #   /app/data     -> Laufzeitdaten, Mosquitto-Daten
-#   /app/backups  -> spÃ¤tere Backup-Ablage / Mountpoint
+#   /app/backups  -> spätere Backup-Ablage / Mountpoint
 # Lokal unter Windows/Linux ohne Docker bleibt alles wie bisher im Script-Ordner.
 APP_ROOT = os.environ.get("MQTT2LOX_APP_ROOT", "/app" if os.path.isdir("/app") else BASE_DIR)
 CONFIG_DIR = os.environ.get("MQTT2LOX_CONFIG_DIR", os.path.join(APP_ROOT, "config") if os.path.isdir("/app") else BASE_DIR)
@@ -100,12 +104,12 @@ knx_monitor_log = deque(maxlen=15)
 knx_monitor_values = {}
 
 def knx_influx_topic(group_address):
-    """Stabiler Influx-/Config-Key fÃ¼r KNX Gruppenadressen."""
+    """Stabiler Influx-/Config-Key für KNX Gruppenadressen."""
     ga = knx_service.normalize_knx_ga(group_address)
     return f"knx/{ga}" if ga else ""
 
 def get_knx_influx_output_topic(group_address, settings=None):
-    """Influx-Zieltopic fÃ¼r KNX. Optionaler Alias aus topic_config, sonst knx/<GA>."""
+    """Influx-Zieltopic für KNX. Optionaler Alias aus topic_config, sonst knx/<GA>."""
     default_topic = knx_influx_topic(group_address)
     if not settings:
         return default_topic
@@ -125,15 +129,15 @@ def write_knx_monitor_influx(group_address, value, dpt="", direction="RX"):
         value_type = settings.get("influx_value_type", "auto")
         output_topic = get_knx_influx_output_topic(group_address, settings)
         # Field bleibt bewusst immer value. Der optionale Alias betrifft nur das Influx-Topic.
-        write_to_influx_field(output_topic, "value", value, value_type=value_type)
+        influx_service.write_to_influx_field(output_topic, "value", value, load_config, add_log_entry, value_type=value_type)
     except Exception as e:
         try:
             add_log_entry(f"KNX Influx Fehler {group_address}: {e}")
         except Exception:
             pass
 
-# V22: kleine VersionszÃ¤hler fÃ¼r Live-Push per Server-Sent Events (SSE).
-# Sobald sich Daten Ã¤ndern, bekommen die offenen Browser direkt ein Event.
+# V22: kleine Versionszähler für Live-Push per Server-Sent Events (SSE).
+# Sobald sich Daten ändern, bekommen die offenen Browser direkt ein Event.
 sse_versions = {"log": 0, "mqtt": 0, "knx": 0, "status": 0}
 
 def bump_sse(name):
@@ -144,15 +148,7 @@ def bump_sse(name):
 
 
 def add_log_entry(text):
-    from datetime import datetime
-
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    entry = f"{timestamp} | {text}"
-
-    print(entry)
-    live_log.appendleft(entry)
-    bump_sse("log")
-    bump_sse("status")
+    runtime_service.add_log(live_log, bump_sse, text)
 
 
 def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
@@ -203,7 +199,7 @@ def load_mqtt2lox_config():
     with open(MQTT2LOX_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # neue Defaults fÃ¼r alte Configs ergÃ¤nzen
+    # neue Defaults für alte Configs ergänzen
     for m in data:
         m.setdefault("payload_mode", "raw")
         m.setdefault("json_key", "")
@@ -317,12 +313,12 @@ def save_monitor_settings(data):
 
 
 DEFAULT_PLUGINS = [
-    {"id": "mqtt", "name": "MQTT", "enabled": True, "status": "aktiv", "description": "Hauptbroker und zusÃ¤tzliche Broker", "route": "/mqtt_settings_embed"},
+    {"id": "mqtt", "name": "MQTT", "enabled": True, "status": "aktiv", "description": "Hauptbroker und zusätzliche Broker", "route": "/mqtt_settings_embed"},
     {"id": "loxone", "name": "Loxone", "enabled": True, "status": "aktiv", "description": "Loxone Websocket, HTTP und Mapping", "route": "/settings_embed"},
-    {"id": "udp", "name": "UDP", "enabled": True, "status": "aktiv", "description": "MQTT â†’ UDP und UDP â†’ MQTT", "route": "/mqtt2udp"},
+    {"id": "udp", "name": "UDP", "enabled": True, "status": "aktiv", "description": "MQTT → UDP und UDP → MQTT", "route": "/mqtt2udp"},
     {"id": "influx", "name": "InfluxDB", "enabled": True, "status": "aktiv", "description": "Zeitreihen-Ausgabe", "route": "/influx_settings_embed"},
-    {"id": "zigbee", "name": "Zigbee", "enabled": False, "status": "vorbereitet", "description": "Reserviert fÃ¼r Zigbee2MQTT Links und Mapping", "route": ""},
-    {"id": "knx", "name": "KNX", "enabled": False, "status": "Foundation", "description": "KNX Gateway, MQTT â†’ KNX und KNX â†’ MQTT", "route": "/mqtt2knx"}
+    {"id": "zigbee", "name": "Zigbee", "enabled": False, "status": "vorbereitet", "description": "Reserviert für Zigbee2MQTT Links und Mapping", "route": ""},
+    {"id": "knx", "name": "KNX", "enabled": False, "status": "Foundation", "description": "KNX Gateway, MQTT → KNX und KNX → MQTT", "route": "/mqtt2knx"}
 ]
 
 
@@ -478,43 +474,7 @@ def save_internal_broker_config(data):
 
 
 def get_backup_files():
-    """Return all user/config files that should be included in backup/restore.
-
-    V25.6 Docker-ready: Keine harte Backup-Liste mehr. Alles Relevante in
-    CONFIG_DIR, DATA_DIR und BASE_DIR wird automatisch erkannt, damit neue
-    Config-Dateien nicht jedes Mal manuell nachgetragen werden mÃ¼ssen.
-    """
-    allowed_extra_files = {
-        "internal_mosquitto.conf",
-        "internal_mosquitto.passwd",
-    }
-
-    result = {}
-
-    try:
-        search_dirs = []
-        for folder in (CONFIG_DIR, DATA_DIR, BASE_DIR):
-            if folder and os.path.isdir(folder) and folder not in search_dirs:
-                search_dirs.append(folder)
-
-        for folder in search_dirs:
-            for filename in os.listdir(folder):
-                path = os.path.join(folder, filename)
-
-                if not os.path.isfile(path):
-                    continue
-
-                clean_name = os.path.basename(filename)
-
-                if clean_name.lower().endswith(".json"):
-                    result[clean_name] = path
-                elif clean_name in allowed_extra_files:
-                    result[clean_name] = path
-
-    except Exception as e:
-        add_log_entry(f"Backup Dateisuche Fehler: {e}")
-
-    return dict(sorted(result.items(), key=lambda item: item[0].lower()))
+    return backup_service.get_backup_files(CONFIG_DIR, DATA_DIR, BASE_DIR, add_log_entry)
 
 
 def is_tcp_port_open(host, port, timeout=0.4):
@@ -526,125 +486,32 @@ def is_tcp_port_open(host, port, timeout=0.4):
 
 
 def get_internal_broker_status():
-    cfg = load_internal_broker_config()
-    port_open = is_tcp_port_open(cfg.get("connect_host", "127.0.0.1"), int(cfg.get("port", 1883)))
-    process_running = False
-    try:
-        process_running = bool(internal_broker_process and internal_broker_process.poll() is None)
-    except Exception:
-        process_running = False
-
-    mosquitto_path = cfg.get("mosquitto_path", "mosquitto") or "mosquitto"
-    exe_found = bool(shutil.which(mosquitto_path)) or os.path.exists(mosquitto_path)
-
-    if process_running:
-        state = "lÃ¤uft (App)"
-    elif port_open:
-        state = "lÃ¤uft (Port offen)"
-    else:
-        state = "gestoppt"
-
-    return {
-        "state": state,
-        "running": process_running or port_open,
-        "process_running": process_running,
-        "port_open": port_open,
-        "exe_found": exe_found,
-        "port": int(cfg.get("port", 1883)),
-        "use_as_main": bool(cfg.get("use_as_main", False)),
-        "enabled": bool(cfg.get("enabled", False))
-    }
+    return runtime_service.get_internal_broker_status(load_internal_broker_config, internal_broker_process)
 
 
 def build_mosquitto_config_file(cfg):
-    conf_path = os.path.join(CONFIG_DIR, "internal_mosquitto.conf")
-    data_dir = os.path.join(DATA_DIR, "mosquitto_data")
-    os.makedirs(data_dir, exist_ok=True)
-
-    host = str(cfg.get("host", "0.0.0.0") or "0.0.0.0").strip()
-    port = int(cfg.get("port", 1883))
-    allow_anonymous = bool(cfg.get("allow_anonymous", True))
-    persistence = bool(cfg.get("persistence", True))
-
-    lines = [
-        f"listener {port} {host}",
-        "protocol mqtt",
-        f"allow_anonymous {'true' if allow_anonymous else 'false'}",
-        f"persistence {'true' if persistence else 'false'}",
-        f"persistence_location {data_dir.replace(os.sep, '/')}/",
-        "log_dest stdout",
-        "connection_messages true"
-    ]
-
-    # Einfacher V17-Start: User/Pass ist vorbereitet, aber nur aktiv wenn mosquitto_passwd vorhanden ist.
-    user = str(cfg.get("user", "") or "").strip()
-    password = str(cfg.get("password", "") or "")
-    if not allow_anonymous and user and password:
-        passwd_tool = shutil.which("mosquitto_passwd")
-        passwd_file = os.path.join(CONFIG_DIR, "internal_mosquitto.passwd")
-        if passwd_tool:
-            try:
-                subprocess.run([passwd_tool, "-b", "-c", passwd_file, user, password], check=True, capture_output=True, text=True)
-                lines.append(f"password_file {passwd_file.replace(os.sep, '/')}")
-            except Exception as e:
-                add_log_entry(f"Interner Broker Passwortdatei Fehler: {e}")
-        else:
-            add_log_entry("Interner Broker: mosquitto_passwd nicht gefunden, User/Pass nicht aktiviert")
-
-    with open(conf_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-
-    return conf_path
+    return runtime_service.build_mosquitto_config_file(cfg, CONFIG_DIR, DATA_DIR, add_log_entry)
 
 
 def start_internal_broker_process():
     global internal_broker_process
-    cfg = load_internal_broker_config()
-
-    if not cfg.get("enabled", False):
-        add_log_entry("Interner Broker nicht aktiviert")
-        return False, "Interner Broker ist nicht aktiviert"
-
-    status = get_internal_broker_status()
-    if status.get("running"):
-        return True, f"Interner Broker lÃ¤uft bereits auf Port {status.get('port')}"
-
-    mosquitto_path = cfg.get("mosquitto_path", "mosquitto") or "mosquitto"
-    if not (shutil.which(mosquitto_path) or os.path.exists(mosquitto_path)):
-        return False, f"Mosquitto nicht gefunden: {mosquitto_path}"
-
-    conf_path = build_mosquitto_config_file(cfg)
-
-    try:
-        internal_broker_process = subprocess.Popen(
-            [mosquitto_path, "-c", conf_path],
-            cwd=BASE_DIR,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        time.sleep(0.7)
-        if internal_broker_process.poll() is not None:
-            return False, "Mosquitto ist direkt wieder beendet"
-        add_log_entry(f"Interner MQTT Broker gestartet auf Port {cfg.get('port')}")
-        return True, "Interner Broker gestartet"
-    except Exception as e:
-        return False, str(e)
+    ok, msg, process = runtime_service.start_internal_broker(
+        load_internal_broker_config,
+        get_internal_broker_status,
+        build_mosquitto_config_file,
+        add_log_entry,
+        BASE_DIR,
+    )
+    if process is not None:
+        internal_broker_process = process
+    return ok, msg
 
 
 def stop_internal_broker_process():
     global internal_broker_process
-    try:
-        if internal_broker_process and internal_broker_process.poll() is None:
-            internal_broker_process.terminate()
-            try:
-                internal_broker_process.wait(timeout=3)
-            except Exception:
-                internal_broker_process.kill()
-            add_log_entry("Interner MQTT Broker gestoppt")
-            return True, "Interner Broker gestoppt"
-        return True, "Kein von der App gestarteter Broker aktiv"
-    except Exception as e:
-        return False, str(e)
+    ok, msg, process = runtime_service.stop_internal_broker(internal_broker_process, add_log_entry)
+    internal_broker_process = process
+    return ok, msg
 
 
 def get_effective_mqtt_config(config):
@@ -678,7 +545,7 @@ DEFAULT_KNX_CONFIG = {
 
 
 def load_knx_config():
-    """KNX Gateway Config laden, ohne vorhandene Werte versehentlich zu Ã¼berschreiben."""
+    """KNX Gateway Config laden, ohne vorhandene Werte versehentlich zu überschreiben."""
     data = safe_load_json_file(KNX_CONFIG_FILE, None)
 
     if not isinstance(data, dict):
@@ -895,15 +762,15 @@ save_knx2lox_config = config.save_knx2lox_config
 # bevor sie weiter unten im File definiert sind.
 def get_template_export_sections():
     return {
-        "mqtt2lox": {"label": "MQTT â†’ Loxone", "file": MQTT2LOX_FILE, "load": load_mqtt2lox_config, "save": save_mqtt2lox_config, "kind": "list"},
-        "mqtt2udp": {"label": "MQTT â†’ UDP", "file": MQTT2UDP_FILE, "load": load_mqtt2udp_config, "save": save_mqtt2udp_config, "kind": "list"},
-        "udp2mqtt": {"label": "UDP â†’ MQTT", "file": UDP2MQTT_FILE, "load": load_udp2mqtt_config, "save": save_udp2mqtt_config, "kind": "list"},
-        "mqtt2knx": {"label": "MQTT â†’ KNX", "file": MQTT2KNX_FILE, "load": load_mqtt2knx_config, "save": save_mqtt2knx_config, "kind": "list"},
-        "knx2mqtt": {"label": "KNX â†’ MQTT", "file": KNX2MQTT_FILE, "load": load_knx2mqtt_config, "save": save_knx2mqtt_config, "kind": "list"},
-        "udp2knx": {"label": "UDP â†’ KNX", "file": UDP2KNX_FILE, "load": load_udp2knx_config, "save": save_udp2knx_config, "kind": "list"},
-        "knx2lox": {"label": "KNX â†’ Loxone", "file": KNX2LOX_FILE, "load": load_knx2lox_config, "save": save_knx2lox_config, "kind": "list"},
+        "mqtt2lox": {"label": "MQTT → Loxone", "file": MQTT2LOX_FILE, "load": load_mqtt2lox_config, "save": save_mqtt2lox_config, "kind": "list"},
+        "mqtt2udp": {"label": "MQTT → UDP", "file": MQTT2UDP_FILE, "load": load_mqtt2udp_config, "save": save_mqtt2udp_config, "kind": "list"},
+        "udp2mqtt": {"label": "UDP → MQTT", "file": UDP2MQTT_FILE, "load": load_udp2mqtt_config, "save": save_udp2mqtt_config, "kind": "list"},
+        "mqtt2knx": {"label": "MQTT → KNX", "file": MQTT2KNX_FILE, "load": load_mqtt2knx_config, "save": save_mqtt2knx_config, "kind": "list"},
+        "knx2mqtt": {"label": "KNX → MQTT", "file": KNX2MQTT_FILE, "load": load_knx2mqtt_config, "save": save_knx2mqtt_config, "kind": "list"},
+        "udp2knx": {"label": "UDP → KNX", "file": UDP2KNX_FILE, "load": load_udp2knx_config, "save": save_udp2knx_config, "kind": "list"},
+        "knx2lox": {"label": "KNX → Loxone", "file": KNX2LOX_FILE, "load": load_knx2lox_config, "save": save_knx2lox_config, "kind": "list"},
         "topic_config": {"label": "Topic Einstellungen", "file": TOPIC_CONFIG_FILE, "load": load_topic_config, "save": save_topic_config, "kind": "dict"},
-        "mqtt_brokers": {"label": "ZusÃ¤tzliche MQTT Broker", "file": MQTT_BROKERS_FILE, "load": load_mqtt_brokers, "save": save_mqtt_brokers, "kind": "list"},
+        "mqtt_brokers": {"label": "Zusätzliche MQTT Broker", "file": MQTT_BROKERS_FILE, "load": load_mqtt_brokers, "save": save_mqtt_brokers, "kind": "list"},
         "udp_presets": {"label": "UDP Presets", "file": UDP_PRESETS_FILE, "load": load_udp_presets, "save": save_udp_presets, "kind": "list"},
     }
 
@@ -948,7 +815,7 @@ def merge_template_section(section_id, incoming, mode="append"):
                 current = []
             new_data = current + incoming
         spec["save"](new_data)
-        return True, f"{section_id}: {len(incoming)} EintrÃ¤ge importiert"
+        return True, f"{section_id}: {len(incoming)} Einträge importiert"
     if kind == "dict":
         if not isinstance(incoming, dict):
             return False, f"{section_id}: kein Objekt"
@@ -961,18 +828,18 @@ def merge_template_section(section_id, incoming, mode="append"):
             new_data = dict(current)
             new_data.update(incoming)
         spec["save"](new_data)
-        return True, f"{section_id}: {len(incoming)} SchlÃ¼ssel importiert"
-    return False, f"{section_id}: Typ nicht unterstÃ¼tzt"
+        return True, f"{section_id}: {len(incoming)} Schlüssel importiert"
+    return False, f"{section_id}: Typ nicht unterstützt"
 
 
 def import_template_package(package, mode="append"):
     if not isinstance(package, dict):
-        return False, ["Template ist kein gÃ¼ltiges JSON Objekt"]
+        return False, ["Template ist kein gültiges JSON Objekt"]
     if package.get("type") not in ["mqtt2lox_mapping_template", "mapping_pack", "mqtt2lox_template"]:
         return False, ["Datei ist kein MQTT2Lox Mapping Template"]
     data = package.get("data", {})
     if not isinstance(data, dict):
-        return False, ["Template enthÃ¤lt keinen data-Bereich"]
+        return False, ["Template enthält keinen data-Bereich"]
     messages = []
     imported_any = False
     for section_id, incoming in data.items():
@@ -1001,7 +868,7 @@ def mapping_templates_content(notice=""):
 {notice or ""}
 <div class=\"card compact-card\">
     <h2 class=\"section-title\">Mapping Templates</h2>
-    <p class=\"small\">V19: gezielte Export-/Import-Pakete fÃ¼r Integrationen. Kein komplettes Backup, sondern wiederverwendbare Vorlagen.</p>
+    <p class=\"small\">V19: gezielte Export-/Import-Pakete für Integrationen. Kein komplettes Backup, sondern wiederverwendbare Vorlagen.</p>
 </div>
 
 <div class=\"card\">
@@ -1010,7 +877,7 @@ def mapping_templates_content(notice=""):
         <label>Name des Templates</label>
         <input name=\"template_name\" value=\"MQTT2Lox Mapping Template\">
         <table style=\"margin-top:14px;\">
-            <tr><th>Export</th><th>Bereich</th><th>EintrÃ¤ge</th></tr>
+            <tr><th>Export</th><th>Bereich</th><th>Einträge</th></tr>
             {rows}
         </table>
         <div class=\"button-row\" style=\"margin-top:14px;\">
@@ -1024,12 +891,12 @@ def mapping_templates_content(notice=""):
     <form method=\"post\" action=\"/templates/import\" enctype=\"multipart/form-data\" class=\"restore-form\">
         <input type=\"file\" name=\"template_file\" accept=\".json\" required class=\"file-upload\">
         <select name=\"mode\" style=\"width:auto; min-width:180px;\">
-            <option value=\"append\">AnhÃ¤ngen / ergÃ¤nzen</option>
+            <option value=\"append\">Anhängen / ergänzen</option>
             <option value=\"replace\">Bereiche ersetzen</option>
         </select>
         <button type=\"submit\">Template importieren</button>
     </form>
-    <p class=\"small\">AnhÃ¤ngen lÃ¤sst bestehende Mappings stehen. Ersetzen Ã¼berschreibt nur die Bereiche, die im Template enthalten sind.</p>
+    <p class=\"small\">Anhängen lässt bestehende Mappings stehen. Ersetzen überschreibt nur die Bereiche, die im Template enthalten sind.</p>
 </div>
 """
 
@@ -1111,7 +978,7 @@ async def _knx_listener_async(knx_cfg):
         from xknx import XKNX
         from xknx.io import ConnectionConfig, ConnectionType
     except Exception as e:
-        add_log_entry(f"KNX Listener Fehler: xknx fehlt oder lÃ¤dt nicht ({e})")
+        add_log_entry(f"KNX Listener Fehler: xknx fehlt oder lädt nicht ({e})")
         add_log_entry("KNX Hinweis: pip install xknx")
         return
     connection_type = ConnectionType.TUNNELING
@@ -1190,7 +1057,7 @@ def ensure_knx_listener_started(reason=""):
 
     try:
         if not load_knx_config().get("enabled", False):
-            add_log_entry("KNX Listener Auto-Start Ã¼bersprungen: KNX deaktiviert")
+            add_log_entry("KNX Listener Auto-Start übersprungen: KNX deaktiviert")
             return False
 
         if knx_listener_thread and knx_listener_thread.is_alive():
@@ -1349,9 +1216,13 @@ if hasattr(app, "json"):
 
 
 @app.after_request
-def add_utf8_charset(response):
-    if response.mimetype == "text/html":
+def force_utf8_response(response):
+    if response.content_type.startswith("text/html"):
         response.headers["Content-Type"] = "text/html; charset=utf-8"
+    elif response.content_type.startswith("text/event-stream"):
+        response.headers["Content-Type"] = "text/event-stream; charset=utf-8"
+    elif response.content_type.startswith("application/json"):
+        response.headers["Content-Type"] = "application/json; charset=utf-8"
     return response
 
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
@@ -1371,10 +1242,10 @@ mqtt_clients = mqtt_module.mqtt_clients
 state_mapping = {}
 control_mapping = {}
 
-# FÃ¼r Change-Only Publish
+# Für Change-Only Publish
 last_values = {}
 
-# FÃ¼r Anzeige im Topic Manager
+# Für Anzeige im Topic Manager
 display_values = {}
 
 mqtt2lox_last_seen = {}
@@ -1391,7 +1262,7 @@ mqtt_monitor_values = mqtt_module.mqtt_monitor_values
 
 def clean_topic(text):
     text = str(text).lower()
-    text = text.replace("Ã¤", "ae").replace("Ã¶", "oe").replace("Ã¼", "ue").replace("ÃŸ", "ss")
+    text = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
     text = text.replace("/", "_").replace(" ", "_")
     text = re.sub(r"[^a-z0-9_]", "", text)
     text = re.sub(r"_+", "_", text)
@@ -1482,11 +1353,7 @@ def build_state_topic(prefix, name):
 
 
 def build_datalist_html(datalist_id, options):
-    html = f'<datalist id="{escape(str(datalist_id))}">\n'
-    for item in options:
-        html += f'    <option value="{escape(str(item))}">\n'
-    html += '</datalist>\n'
-    return html
+    return template_service.build_datalist_html(datalist_id, options)
 
 
 def publish_value(config, name, value):
@@ -1506,7 +1373,7 @@ def publish_value(config, name, value):
 
     payload = normalize_value(value, digits)
 
-    # Nur Anzeige merken, unabhÃ¤ngig vom Aktiv-Haken
+    # Nur Anzeige merken, unabhängig vom Aktiv-Haken
     display_values[default_topic] = payload
     if custom_name:
         display_values[custom_name] = payload
@@ -1515,7 +1382,7 @@ def publish_value(config, name, value):
     if settings.get("enabled", True) is False:
         return
 
-    # Change-only nur fÃ¼r echtes Senden
+    # Change-only nur für echtes Senden
     if change_only and last_values.get(final_topic) == payload:
         return
 
@@ -1527,77 +1394,13 @@ def publish_value(config, name, value):
         retain=retain
     )
 
-    write_to_influx(final_topic, payload)
+    influx_service.write_to_influx(final_topic, payload, load_config, load_topic_config, add_log_entry)
 
     add_log_entry(f"MQTT -> {final_topic} = {payload}")
     
-def influx_escape_measurement(value):
-    return str(value or "loxone").replace("\\", "\\\\").replace(",", "\\,").replace(" ", "\\ ")
-
-
-def influx_escape_tag(value):
-    return str(value or "").replace("\\", "\\\\").replace(",", "\\,").replace("=", "\\=").replace(" ", "\\ ")
-
-
-def influx_escape_field_key(value):
-    return str(value or "value").replace("\\", "\\\\").replace(",", "\\,").replace("=", "\\=").replace(" ", "\\ ")
-
-
-def influx_escape_string_field(value):
-    return str(value or "").replace("\\", "\\\\").replace('"', '\\"')
-
-
-def influx_bool_to_01(value):
-    """Bool-/Schaltwerte einheitlich als 0/1 fÃ¼r Influx aufbereiten."""
-    if isinstance(value, bool):
-        return 1 if value else 0
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return 1 if float(value) != 0 else 0
-    txt = str(value or "").strip().lower()
-    if txt in ["true", "1", "on", "yes", "ja", "ein", "open", "auf", "active", "aktiv"]:
-        return 1
-    if txt in ["false", "0", "off", "no", "nein", "aus", "closed", "zu", "inactive", "inaktiv"]:
-        return 0
-    raise ValueError(f"kein Bool-Wert: {value}")
-
-
-def influx_format_field_value(value, value_type="auto"):
-    """Return fertigen Line-Protocol Field-Wert.
-
-    value_type:
-      auto   -> Bool/true/false als 0/1, Zahlen als Zahl, Rest als Text
-      bool01 -> Schaltwert erzwingen: true/false/on/off/open/closed => 1/0
-      number -> Zahl erzwingen
-      text   -> Text erzwingen
-    """
-    mode = str(value_type or "auto").strip().lower()
-
-    if mode in ["bool", "boolean", "bool01", "boolean01", "0/1", "schalter"]:
-        return str(influx_bool_to_01(value))
-
-    if mode in ["number", "numeric", "zahl"]:
-        return str(float(value))
-
-    if mode in ["text", "string", "str"]:
-        return f'"{influx_escape_string_field(value)}"'
-
-    # Auto: echte Boolwerte und typische Bool-Strings als 0/1 schreiben.
-    if isinstance(value, bool):
-        return "1" if value else "0"
-
-    txt = str(value or "").strip()
-    low = txt.lower()
-    if low in ["true", "false", "on", "off", "yes", "no", "ja", "nein", "ein", "aus", "open", "closed", "auf", "zu", "active", "inactive", "aktiv", "inaktiv"]:
-        return str(influx_bool_to_01(txt))
-
-    try:
-        return str(float(value))
-    except Exception:
-        return f'"{influx_escape_string_field(value)}"'
-
 
 def get_influx_form_config(base_config=None):
-    """Influx Config aus Formular Ã¼bernehmen, ohne gespeicherte Tokens versehentlich zu lÃ¶schen."""
+    """Influx Config aus Formular übernehmen, ohne gespeicherte Tokens versehentlich zu löschen."""
     config = base_config or load_config()
     current = config.get("influx", {}).copy()
 
@@ -1609,8 +1412,8 @@ def get_influx_form_config(base_config=None):
     token_from_form = request.form.get("influx_token", "")
     password_from_form = request.form.get("influx_password", "")
 
-    # Schutz gegen Browser/Password-Manager-MÃ¤tzchen: leeres Feld lÃ¶scht vorhandenen Token nicht automatisch.
-    # Will man wirklich lÃ¶schen, kann man den Token in der config.json entfernen oder neu Ã¼berschreiben.
+    # Schutz gegen Browser/Password-Manager-Mätzchen: leeres Feld löscht vorhandenen Token nicht automatisch.
+    # Will man wirklich löschen, kann man den Token in der config.json entfernen oder neu überschreiben.
     if not token_from_form and current.get("token"):
         token_from_form = current.get("token", "")
     if not password_from_form and current.get("password"):
@@ -1630,244 +1433,6 @@ def get_influx_form_config(base_config=None):
         "measurement": str(request.form.get("influx_measurement", current.get("measurement", "loxone")) or "loxone").strip() or "loxone"
     }
 
-
-def influx_v2_write(influx, topic, value, test=False, field_key_name="value", value_type="auto"):
-    host = str(influx.get("host", "")).strip()
-    port = int(influx.get("port", 8086))
-    bucket = str(influx.get("bucket", "")).strip()
-    org = str(influx.get("org", "")).strip()
-    token = str(influx.get("token", "")).strip()
-    measurement = influx_escape_measurement(influx.get("measurement", "loxone"))
-
-    if not host:
-        return False, "Host fehlt"
-    if not bucket:
-        return False, "Bucket fehlt"
-    if not org:
-        return False, "Organisation fehlt"
-    if not token:
-        return False, "Token fehlt"
-
-    try:
-        field_value = influx_format_field_value(value, value_type)
-    except Exception as e:
-        return False, f"Wert kann nicht konvertiert werden ({value_type}): {e}"
-
-    topic_tag = influx_escape_tag(topic)
-    field_key = influx_escape_field_key(field_key_name or "value")
-    line = f"{measurement},topic={topic_tag} {field_key}={field_value}"
-    if test:
-        line = f"{measurement},topic=mqtt2lox_influx_test {field_key}={field_value}"
-
-    url = (
-        f"http://{host}:{port}/api/v2/write"
-        f"?org={quote(org, safe='')}"
-        f"&bucket={quote(bucket, safe='')}"
-        f"&precision=s"
-    )
-
-    headers = {
-        "Authorization": f"Token {token}",
-        "Content-Type": "text/plain; charset=utf-8"
-    }
-
-    r = requests.post(url, headers=headers, data=line.encode("utf-8"), timeout=5)
-    if r.status_code == 204:
-        return True, "Schreiben erfolgreich"
-
-    body = (r.text or "").strip()
-    if r.status_code == 401:
-        return False, "401 Unauthorized: Token falsch, nicht komplett kopiert oder ohne Schreibrecht fÃ¼r Bucket/Org"
-    if r.status_code == 404:
-        return False, f"404 Nicht gefunden: Bucket/Org prÃ¼fen. Antwort: {body}"
-    if r.status_code == 400:
-        return False, f"400 Fehlerhafte Anfrage: Measurement/Line-Protocol prÃ¼fen. Antwort: {body}"
-    return False, f"HTTP {r.status_code}: {body}"
-
-
-def write_to_influx_field(topic, field_key, value, value_type="auto"):
-    """Schreibt einen einzelnen numerischen Wert direkt nach Influx.
-
-    Wird u.a. fÃ¼r MQTT-Explorer JSON-Keys genutzt:
-    Topic bleibt Tag, JSON-Key wird Field-Key.
-    """
-    config = load_config()
-    influx = config.get("influx", {})
-
-    if not influx.get("enabled", False):
-        return False
-
-    try:
-        version = str(influx.get("version", "2"))
-        clean_field = str(field_key or "value").strip().replace(".", "_").replace("/", "_") or "value"
-
-        if version == "2":
-            ok, msg = influx_v2_write(influx, topic, value, test=False, field_key_name=clean_field, value_type=value_type)
-            if ok:
-                add_log_entry(f"Influx -> {topic} [{clean_field}] = {value}")
-            else:
-                add_log_entry(f"Influx Fehler {topic} [{clean_field}]: {msg}")
-            return ok
-
-        # InfluxDB 1.x Legacy Write API
-        host = str(influx.get("host", "")).strip()
-        port = int(influx.get("port", 8086))
-        database = str(influx.get("database", "")).strip()
-        measurement = influx_escape_measurement(influx.get("measurement", "loxone"))
-        user = str(influx.get("user", "")).strip()
-        password = str(influx.get("password", ""))
-
-        try:
-            field_value = influx_format_field_value(value, value_type)
-        except Exception as e:
-            add_log_entry(f"Influx Ã¼bersprungen {topic} [{clean_field}]: {e}")
-            return False
-
-        if not host or not database:
-            add_log_entry("Influx Fehler: Host oder Datenbank fehlt")
-            return False
-
-        line = f"{measurement},topic={influx_escape_tag(topic)} {influx_escape_field_key(clean_field)}={field_value}"
-        url = f"http://{host}:{port}/write?db={quote(database, safe='')}"
-        auth = (user, password) if user else None
-        r = requests.post(url, data=line.encode("utf-8"), auth=auth, timeout=5)
-        if r.status_code in (200, 204):
-            add_log_entry(f"Influx -> {topic} [{clean_field}] = {value}")
-            return True
-        add_log_entry(f"Influx Fehler: {r.status_code} {r.text}")
-        return False
-
-    except Exception as e:
-        add_log_entry(f"Influx Exception {topic} [{field_key}]: {e}")
-        return False
-
-
-def write_mqtt_explorer_influx(topic, payload):
-    """Schreibt aktivierte MQTT-Explorer Topics/JSON-Keys nach Influx.
-
-    Einstellungen liegen in topic_config.json:
-      influx = ganzes Topic als value-Feld
-      influx_json_keys = einzelne JSON-Keys als eigene Fields
-    """
-    try:
-        topic = str(topic or "").strip()
-        if not topic:
-            return
-
-        topic_settings = load_topic_config()
-        settings = topic_settings.get(topic, {})
-        if not isinstance(settings, dict):
-            settings = {}
-
-        # Optionaler Influx Topic/Alias: Objektverwaltung und Explorer kÃ¶nnen damit
-        # ein sauberes Zieltopic setzen, ohne das echte MQTT-Topic zu verÃ¤ndern.
-        output_topic = str(settings.get("influx_topic", "") or "").strip().strip("/") or topic
-
-        # Komplettes Topic nur schreiben, wenn es numerisch ist.
-        if settings.get("influx", False):
-            write_to_influx(output_topic, payload)
-
-        keys = settings.get("influx_json_keys", [])
-        key_types = settings.get("influx_json_key_types", {})
-        if not isinstance(key_types, dict):
-            key_types = {}
-        if not isinstance(keys, list) or not keys:
-            return
-
-        try:
-            data = json.loads(payload) if isinstance(payload, str) else payload
-        except Exception as e:
-            add_log_entry(f"Influx JSON Fehler {topic}: {e}")
-            return
-
-        for key in keys:
-            key = str(key or "").strip()
-            if not key:
-                continue
-            value = get_nested_value(data, key)
-            if value is None:
-                continue
-            value_type = key_types.get(key, "auto")
-            write_to_influx_field(output_topic, key, value, value_type=value_type)
-
-    except Exception as e:
-        add_log_entry(f"MQTT Explorer Influx Fehler {topic}: {e}")
-
-
-def write_to_influx(topic, value):
-    config = load_config()
-    influx = config.get("influx", {})
-
-    if not influx.get("enabled", False):
-        return
-
-    topic_settings = load_topic_config()
-
-    influx_allowed = False
-
-    # Direktes Topic prÃ¼fen
-    settings = topic_settings.get(topic, {})
-    if not isinstance(settings, dict):
-        settings = {}
-    value_type = settings.get("influx_value_type", "auto")
-    output_topic = str(settings.get("influx_topic", "") or "").strip().strip("/") or topic
-    if settings.get("influx", False):
-        influx_allowed = True
-
-    # Custom Topic rÃ¼ckwÃ¤rts prÃ¼fen
-    for original_topic, s in topic_settings.items():
-        if not isinstance(s, dict):
-            continue
-        custom = str(s.get("custom_name", "") or "").strip()
-        if custom == topic and s.get("influx", False):
-            influx_allowed = True
-            value_type = s.get("influx_value_type", value_type)
-            output_topic = str(s.get("influx_topic", "") or "").strip().strip("/") or topic
-            break
-
-    if not influx_allowed:
-        return
-
-    try:
-        version = str(influx.get("version", "2"))
-
-        if version == "2":
-            ok, msg = influx_v2_write(influx, output_topic, value, test=False, value_type=value_type)
-            if ok:
-                add_log_entry(f"Influx -> {output_topic} = {value}")
-            else:
-                add_log_entry(f"Influx Fehler: {msg}")
-            return
-
-        # InfluxDB 1.x Legacy Write API
-        host = str(influx.get("host", "")).strip()
-        port = int(influx.get("port", 8086))
-        database = str(influx.get("database", "")).strip()
-        measurement = influx_escape_measurement(influx.get("measurement", "loxone"))
-        user = str(influx.get("user", "")).strip()
-        password = str(influx.get("password", ""))
-
-        try:
-            field_value = influx_format_field_value(value, value_type)
-        except Exception:
-            return
-
-        if not host or not database:
-            add_log_entry("Influx Fehler: Host oder Datenbank fehlt")
-            return
-
-        line = f"{measurement},topic={influx_escape_tag(topic)} value={field_value}"
-        url = f"http://{host}:{port}/write?db={quote(database, safe='')}&precision=s"
-        auth = (user, password) if user or password else None
-        r = requests.post(url, data=line.encode("utf-8"), auth=auth, timeout=5)
-
-        if r.status_code == 204:
-            add_log_entry(f"Influx -> {topic} = {value}")
-        else:
-            add_log_entry(f"Influx Fehler: {r.status_code} {r.text}")
-
-    except Exception as e:
-        add_log_entry(f"Influx Exception: {e}")
 
 
 def handle_mqtt_command(config, topic, payload):
@@ -1890,7 +1455,7 @@ def handle_mqtt_command(config, topic, payload):
     # Standard: loxone/bwm_1/set -> bwm_1
     control_name = clean_topic("_".join(parts[1:-1]))
 
-    # Custom-Topic RÃ¼ckwÃ¤rts-Mapping
+    # Custom-Topic Rückwärts-Mapping
     for original_topic, settings in topic_settings.items():
         custom_topic = settings.get("custom_name", "").strip()
 
@@ -1933,7 +1498,7 @@ def handle_mqtt_command(config, topic, payload):
     if direct_settings.get("writable", False):
         writable_allowed = True
 
-    # Schreibrecht Ã¼ber Original-State oder Custom-State prÃ¼fen
+    # Schreibrecht über Original-State oder Custom-State prüfen
     for original_topic, settings in topic_settings.items():
         custom_topic = settings.get("custom_name", "").strip()
 
@@ -2032,7 +1597,7 @@ async def bridge_async(config):
         }
     ]
 
-    # ZusÃ¤tzliche Broker laden
+    # Zusätzliche Broker laden
     for broker in load_mqtt_brokers():
         if broker.get("enabled", True):
             broker["is_main"] = False
@@ -2055,7 +1620,7 @@ async def bridge_async(config):
             bump_sse("mqtt")
 
             # MQTT Explorer -> Influx: direkte Topics und aktivierte JSON-Keys schreiben.
-            write_mqtt_explorer_influx(msg.topic, payload)
+            influx_service.write_mqtt_explorer_influx(msg.topic, payload, load_topic_config, get_nested_value, lambda t, v: influx_service.write_to_influx(t, v, load_config, load_topic_config, add_log_entry), lambda t, f, v, value_type="auto": influx_service.write_to_influx_field(t, f, v, load_config, add_log_entry, value_type=value_type), add_log_entry)
 
             # MQTT -> UDP Weiterleitung
             handle_mqtt_to_udp(msg.topic, payload)
@@ -2064,7 +1629,7 @@ async def bridge_async(config):
             if _handle_mqtt_to_knx_service(msg.topic, payload):
                 return
 
-            # Externe MQTT-Topics -> Loxone virtuelle EingÃ¤nge
+            # Externe MQTT-Topics -> Loxone virtuelle Eingänge
             if loxone_service.handle_mqtt_to_loxone(config, msg.topic, payload, load_mqtt2lox_config, mqtt2lox_last_seen, add_log_entry, requests, get_nested_value, flatten_json):
                 return
 
@@ -2107,7 +1672,7 @@ async def bridge_async(config):
 
             mqtt_clients[broker["name"]] = client
 
-            # Hauptbroker merken fÃ¼r publish
+            # Hauptbroker merken für publish
             if broker.get("is_main"):
                 mqtt_client = client
 
@@ -2170,9 +1735,9 @@ async def bridge_async(config):
     )
 
     bridge_running = True
-    bridge_status = "lÃ¤uft"
+    bridge_status = "läuft"
 
-    print("âœ… Bridge lÃ¤uft")
+    print("✅ Bridge läuft")
 
     while not bridge_stop_requested:
         await asyncio.sleep(1)
@@ -2221,7 +1786,7 @@ APP_LAYOUT = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }} Â· MQTT2Lox</title>
+<title>{{ title }} · MQTT2Lox</title>
 <style>
 :root {
     --bg:#0f1115;
@@ -2372,10 +1937,10 @@ th { background:#202534; }
 <body>
 <div class="app-shell">
     <aside class="sidebar">
-        <div class="brand"><span class="bolt">âš¡</span><span>MQTT2Lox</span></div>
+        <div class="brand"><span class="bolt">⚡</span><span>MQTT2Lox</span></div>
 
         <div>
-            <div class="nav-group-title">HauptmenÃ¼</div>
+            <div class="nav-group-title">Hauptmenü</div>
             <a class="nav-link {{ 'active' if active == 'dashboard' else '' }}" href="/">Dashboard</a>
             <a class="nav-link {{ 'active' if active == 'monitor' else '' }}" href="/monitor">MQTT Monitor</a>
             <a class="nav-link {{ 'active' if active == 'mqtt_hub' else '' }}" href="/mqtt">MQTT Hub</a>
@@ -2386,7 +1951,7 @@ th { background:#202534; }
         <div>
             <div class="nav-group-title">Werkzeuge</div>
             <a class="nav-link {{ 'active' if active == 'global_search' else '' }}" href="/global_search_page">Suche</a>
-            <a class="nav-link {{ 'active' if active == 'conflict_scanner' else '' }}" href="/conflicts_page">Konfig prÃ¼fen</a>
+            <a class="nav-link {{ 'active' if active == 'conflict_scanner' else '' }}" href="/conflicts_page">Konfig prüfen</a>
         </div>
 
         <div>
@@ -2403,7 +1968,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.2.5
+            MQTT2Lox 32.2.9
         </div>
     </aside>
 
@@ -2430,15 +1995,7 @@ def nav_active(name, active):
 
 
 def render_layout(title, content, active="dashboard", subtitle="", message=""):
-    return render_template_string(
-        APP_LAYOUT,
-        title=title,
-        subtitle=subtitle,
-        content=content,
-        active=active,
-        message=message,
-        status=bridge_status
-    )
+    return template_service.render_layout(render_template_string, APP_LAYOUT, bridge_status, title, content, active, subtitle, message)
 
 
 
@@ -2464,7 +2021,7 @@ def collect_global_search_items():
                 continue
             _global_search_add(
                 results,
-                "MQTT â†’ Loxone",
+                "MQTT → Loxone",
                 item.get("source_topic") or item.get("custom_topic") or item.get("loxone_io") or f"Mapping {idx + 1}",
                 [
                     item.get("source_topic"), item.get("custom_topic"), item.get("loxone_io"),
@@ -2483,7 +2040,7 @@ def collect_global_search_items():
                 continue
             _global_search_add(
                 results,
-                "MQTT â†’ UDP",
+                "MQTT → UDP",
                 item.get("source_topic") or item.get("udp_topic") or f"Mapping {idx + 1}",
                 [
                     item.get("source_topic"), item.get("udp_topic"), item.get("udp_ip"),
@@ -2502,7 +2059,7 @@ def collect_global_search_items():
                 continue
             _global_search_add(
                 results,
-                "MQTT â†’ KNX",
+                "MQTT → KNX",
                 item.get("source_topic") or item.get("group_address") or f"Mapping {idx + 1}",
                 [
                     item.get("source_topic"), item.get("group_address"), item.get("dpt"),
@@ -2510,7 +2067,7 @@ def collect_global_search_items():
                     "invert" if item.get("invert", False) else "", "aktiv" if item.get("enabled", True) else "deaktiviert"
                 ],
                 "/mqtt2knx",
-                f"GA: {item.get('group_address', '')} Â· DPT: {item.get('dpt', '')}"
+                f"GA: {item.get('group_address', '')} · DPT: {item.get('dpt', '')}"
             )
     except Exception as e:
         add_log_entry(f"Globale Suche MQTT2KNX Fehler: {e}")
@@ -2521,7 +2078,7 @@ def collect_global_search_items():
                 continue
             _global_search_add(
                 results,
-                "KNX â†’ MQTT",
+                "KNX → MQTT",
                 item.get("group_address") or item.get("mqtt_topic") or f"Mapping {idx + 1}",
                 [
                     item.get("group_address"), item.get("mqtt_topic"), item.get("dpt"),
@@ -2641,7 +2198,7 @@ def global_search_content(query=""):
 
     sections_html = ""
     if q and not matches:
-        sections_html = '<div class="card"><b>Keine Treffer.</b><br><span class="small">Nix gefunden â€” das Topic versteckt sich besser als ein loses WAGO-Kabel im Kabelkanal.</span></div>'
+        sections_html = '<div class="card"><b>Keine Treffer.</b><br><span class="small">Nix gefunden — das Topic versteckt sich besser als ein loses WAGO-Kabel im Kabelkanal.</span></div>'
     elif not q:
         sections_html = '<div class="card"><b>Suchbegriff eingeben.</b><br><span class="small">Durchsucht Mappings, Topics, Broker, KNX-Gruppenadressen, UDP-Ziele und Sidebar-Links.</span></div>'
     else:
@@ -2656,7 +2213,7 @@ def global_search_content(query=""):
 <tr>
     <td><b>{title}</b><br><span class=\"small\">{meta}</span></td>
     <td class=\"search-text\">{text}</td>
-    <td><a class=\"button-link\" href=\"{link}\">Ã–ffnen</a></td>
+    <td><a class=\"button-link\" href=\"{link}\">Öffnen</a></td>
 </tr>"""
             sections_html += f"""
 <div class=\"card\">
@@ -2676,13 +2233,13 @@ def global_search_content(query=""):
 </style>
 <div class=\"card compact-card\">
     <h1>Globale Suche</h1>
-    <p class=\"small\">Ein Suchfeld fÃ¼r alles: MQTT, Loxone, UDP, KNX, Broker und Config-Kram. Endlich kein Versteckspiel mehr.</p>
+    <p class=\"small\">Ein Suchfeld für alles: MQTT, Loxone, UDP, KNX, Broker und Config-Kram. Endlich kein Versteckspiel mehr.</p>
     <form class=\"search-hero\" method=\"get\" action=\"/global_search\">
         <input name=\"q\" value=\"{escape(q)}\" placeholder=\"Topic, IO, Gruppenadresse, IP, Port, Broker...\" autofocus>
         <button type=\"submit\">Suchen</button>
         <a class=\"button-link\" href=\"/global_search\">Leeren</a>
     </form>
-    <div class=\"small search-stats\">Index: {len(all_items)} EintrÃ¤ge Â· Treffer: {len(matches) if q else 0}</div>
+    <div class=\"small search-stats\">Index: {len(all_items)} Einträge · Treffer: {len(matches) if q else 0}</div>
 </div>
 {sections_html}
 """
@@ -2701,13 +2258,13 @@ def _conflict_area_link(area, title="", key="", ref=""):
         except Exception:
             row = ""
     base = "/global_search"
-    if area == "MQTT â†’ Loxone":
+    if area == "MQTT → Loxone":
         base = "/mqtt2lox"
-    elif area == "MQTT â†’ UDP":
+    elif area == "MQTT → UDP":
         base = "/mqtt2udp"
-    elif area == "MQTT â†’ KNX":
+    elif area == "MQTT → KNX":
         base = "/mqtt2knx"
-    elif area == "KNX â†’ MQTT":
+    elif area == "KNX → MQTT":
         base = "/knx2mqtt"
     elif area == "Topic Manager":
         base = "/topics"
@@ -2722,7 +2279,7 @@ def _conflict_area_link(area, title="", key="", ref=""):
         return f"{base}#row_{row}"
     if key and base in ["/mqtt2lox", "/mqtt2udp", "/mqtt2knx", "/knx2mqtt", "/topics"]:
         from urllib.parse import quote
-        param = "group_address" if area in ["KNX", "KNX â†’ MQTT"] else "source_topic"
+        param = "group_address" if area in ["KNX", "KNX → MQTT"] else "source_topic"
         return f"{base}?{param}={quote(key)}"
     return base
 
@@ -2799,15 +2356,15 @@ def collect_config_conflicts():
             custom = str(item.get("custom_topic", "") or "").strip()
             lox = str(item.get("loxone_io", "") or "").strip()
             if enabled and not (source or custom or lox):
-                _issue(issues, "info", "MQTT â†’ Loxone", f"Leere aktive Mapping-Zeile", ref)
+                _issue(issues, "info", "MQTT → Loxone", f"Leere aktive Mapping-Zeile", ref)
             if enabled and (source or custom) and not lox:
-                _issue(issues, "warn", "MQTT â†’ Loxone", "Ziel Loxone IO fehlt", f"{ref}: {source or custom}")
+                _issue(issues, "warn", "MQTT → Loxone", "Ziel Loxone IO fehlt", f"{ref}: {source or custom}")
             if source:
-                _track_seen(mqtt_sources, source, "MQTT â†’ Loxone", ref)
+                _track_seen(mqtt_sources, source, "MQTT → Loxone", ref)
             if custom:
-                _track_seen(custom_topics, custom, "MQTT â†’ Loxone", ref)
+                _track_seen(custom_topics, custom, "MQTT → Loxone", ref)
     except Exception as e:
-        _issue(issues, "error", "MQTT â†’ Loxone", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "MQTT → Loxone", "Prüfung fehlgeschlagen", str(e))
 
     # MQTT -> UDP
     try:
@@ -2821,17 +2378,17 @@ def collect_config_conflicts():
             udp_ip = str(item.get("udp_ip", "") or "").strip()
             udp_port = str(item.get("udp_port", "") or "").strip()
             if enabled and not (source or udp_topic or udp_ip or udp_port):
-                _issue(issues, "info", "MQTT â†’ UDP", "Leere aktive Mapping-Zeile", ref)
+                _issue(issues, "info", "MQTT → UDP", "Leere aktive Mapping-Zeile", ref)
             if enabled and source and not (udp_topic and udp_ip and udp_port):
-                _issue(issues, "warn", "MQTT â†’ UDP", "UDP Ziel unvollstÃ¤ndig", f"{ref}: {source}")
+                _issue(issues, "warn", "MQTT → UDP", "UDP Ziel unvollständig", f"{ref}: {source}")
             if udp_port and not _valid_port(udp_port):
-                _issue(issues, "warn", "MQTT â†’ UDP", "UngÃ¼ltiger UDP Port", f"{ref}: {udp_port}")
+                _issue(issues, "warn", "MQTT → UDP", "Ungültiger UDP Port", f"{ref}: {udp_port}")
             if source:
-                _track_seen(mqtt_sources, source, "MQTT â†’ UDP", ref)
+                _track_seen(mqtt_sources, source, "MQTT → UDP", ref)
             if udp_ip and udp_port and udp_topic:
-                _track_seen(udp_targets, f"{udp_ip}:{udp_port}/{udp_topic}", "MQTT â†’ UDP", ref)
+                _track_seen(udp_targets, f"{udp_ip}:{udp_port}/{udp_topic}", "MQTT → UDP", ref)
     except Exception as e:
-        _issue(issues, "error", "MQTT â†’ UDP", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "MQTT → UDP", "Prüfung fehlgeschlagen", str(e))
 
     # MQTT -> KNX
     try:
@@ -2843,15 +2400,15 @@ def collect_config_conflicts():
             source = str(item.get("source_topic", "") or "").strip()
             ga = knx_service.normalize_knx_ga(item.get("group_address", ""))
             if enabled and not (source or ga):
-                _issue(issues, "info", "MQTT â†’ KNX", "Leere aktive Mapping-Zeile", ref)
+                _issue(issues, "info", "MQTT → KNX", "Leere aktive Mapping-Zeile", ref)
             if enabled and source and not ga:
-                _issue(issues, "warn", "MQTT â†’ KNX", "KNX Gruppenadresse fehlt", f"{ref}: {source}")
+                _issue(issues, "warn", "MQTT → KNX", "KNX Gruppenadresse fehlt", f"{ref}: {source}")
             if source:
-                _track_seen(mqtt_sources, source, "MQTT â†’ KNX", ref)
+                _track_seen(mqtt_sources, source, "MQTT → KNX", ref)
             if ga:
-                _track_seen(knx_ga_tx, ga, "MQTT â†’ KNX", ref)
+                _track_seen(knx_ga_tx, ga, "MQTT → KNX", ref)
     except Exception as e:
-        _issue(issues, "error", "MQTT â†’ KNX", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "MQTT → KNX", "Prüfung fehlgeschlagen", str(e))
 
     # KNX -> MQTT
     try:
@@ -2863,15 +2420,15 @@ def collect_config_conflicts():
             ga = knx_service.normalize_knx_ga(item.get("group_address", ""))
             topic = str(item.get("mqtt_topic", "") or "").strip()
             if enabled and not (ga or topic):
-                _issue(issues, "info", "KNX â†’ MQTT", "Leere aktive Mapping-Zeile", ref)
+                _issue(issues, "info", "KNX → MQTT", "Leere aktive Mapping-Zeile", ref)
             if enabled and ga and not topic:
-                _issue(issues, "warn", "KNX â†’ MQTT", "MQTT Topic fehlt", f"{ref}: {ga}")
+                _issue(issues, "warn", "KNX → MQTT", "MQTT Topic fehlt", f"{ref}: {ga}")
             if ga:
-                _track_seen(knx_ga_rx, ga, "KNX â†’ MQTT", ref)
+                _track_seen(knx_ga_rx, ga, "KNX → MQTT", ref)
             if topic:
-                _track_seen(mqtt_targets, topic, "KNX â†’ MQTT", ref)
+                _track_seen(mqtt_targets, topic, "KNX → MQTT", ref)
     except Exception as e:
-        _issue(issues, "error", "KNX â†’ MQTT", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "KNX → MQTT", "Prüfung fehlgeschlagen", str(e))
 
     # Topic Manager / Custom Topics
     try:
@@ -2884,7 +2441,7 @@ def collect_config_conflicts():
             if topic:
                 _track_seen(mqtt_targets, topic, "Topic Manager", "Original")
     except Exception as e:
-        _issue(issues, "error", "Topic Manager", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "Topic Manager", "Prüfung fehlgeschlagen", str(e))
 
     # Broker
     try:
@@ -2893,7 +2450,7 @@ def collect_config_conflicts():
         _track_seen(broker_names, main_name.lower(), main_name, f"{cfg.get('mqtt',{}).get('host','')}:{cfg.get('mqtt',{}).get('port','')}")
         port = cfg.get("mqtt", {}).get("port", "")
         if port and not _valid_port(port):
-            _issue(issues, "warn", "MQTT Broker", "UngÃ¼ltiger Hauptbroker-Port", str(port))
+            _issue(issues, "warn", "MQTT Broker", "Ungültiger Hauptbroker-Port", str(port))
         for idx, broker in enumerate(load_mqtt_brokers()):
             if not isinstance(broker, dict):
                 continue
@@ -2904,20 +2461,20 @@ def collect_config_conflicts():
             if name:
                 _track_seen(broker_names, name.lower(), name, ref)
             if broker.get("enabled", True) and not (name and host and port):
-                _issue(issues, "warn", "MQTT Broker", "Broker unvollstÃ¤ndig", f"{ref}: {name or '-'}")
+                _issue(issues, "warn", "MQTT Broker", "Broker unvollständig", f"{ref}: {name or '-'}")
             if port and not _valid_port(port):
-                _issue(issues, "warn", "MQTT Broker", "UngÃ¼ltiger Broker-Port", f"{ref}: {port}")
+                _issue(issues, "warn", "MQTT Broker", "Ungültiger Broker-Port", f"{ref}: {port}")
     except Exception as e:
-        _issue(issues, "error", "MQTT Broker", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "MQTT Broker", "Prüfung fehlgeschlagen", str(e))
 
     # Interner Broker
     try:
         ib = load_internal_broker_config()
         port = ib.get("port", "")
         if port and not _valid_port(port):
-            _issue(issues, "warn", "Interner Broker", "UngÃ¼ltiger interner Broker-Port", str(port))
+            _issue(issues, "warn", "Interner Broker", "Ungültiger interner Broker-Port", str(port))
     except Exception as e:
-        _issue(issues, "error", "Interner Broker", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "Interner Broker", "Prüfung fehlgeschlagen", str(e))
 
     # UDP Presets
     try:
@@ -2931,10 +2488,10 @@ def collect_config_conflicts():
             if port:
                 _track_seen(preset_ports, port, label or "UDP Preset", ref)
                 if not _valid_port(port):
-                    _issue(issues, "warn", "UDP Presets", "UngÃ¼ltiger Preset-Port", f"{ref}: {port}")
+                    _issue(issues, "warn", "UDP Presets", "Ungültiger Preset-Port", f"{ref}: {port}")
         _add_duplicate_issues(issues, preset_ports, "UDP Presets", "Doppelter UDP Preset-Port")
     except Exception as e:
-        _issue(issues, "error", "UDP Presets", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "UDP Presets", "Prüfung fehlgeschlagen", str(e))
 
     # Sidebar Links
     try:
@@ -2945,20 +2502,20 @@ def collect_config_conflicts():
             url = str(item.get("url", "") or "").strip()
             ref = f"Link {idx + 1}"
             if item.get("enabled", True) and not (label and url):
-                _issue(issues, "info", "Sidebar Links", "Aktiver Link unvollstÃ¤ndig", ref)
+                _issue(issues, "info", "Sidebar Links", "Aktiver Link unvollständig", ref)
             if label:
                 _track_seen(sidebar_labels, label.lower(), label, ref)
             if url:
                 _track_seen(sidebar_urls, url.lower(), url, ref)
     except Exception as e:
-        _issue(issues, "error", "Sidebar Links", "PrÃ¼fung fehlgeschlagen", str(e))
+        _issue(issues, "error", "Sidebar Links", "Prüfung fehlgeschlagen", str(e))
 
     # Duplicates after collection
-    _add_duplicate_issues(issues, mqtt_sources, "MQTT", "Doppeltes MQTT Source Topic", "Mehrere aktive/konfigurierte Mappings hÃ¶ren auf dasselbe Topic. ")
+    _add_duplicate_issues(issues, mqtt_sources, "MQTT", "Doppeltes MQTT Source Topic", "Mehrere aktive/konfigurierte Mappings hören auf dasselbe Topic. ")
     _add_duplicate_issues(issues, custom_topics, "MQTT", "Doppeltes Custom Topic", "Custom Topics sollten eindeutig bleiben. ")
-    _add_duplicate_issues(issues, knx_ga_tx, "KNX", "Doppelte KNX Sende-Gruppenadresse", "Mehrere MQTTâ†’KNX Mappings schreiben auf dieselbe GA. ")
-    _add_duplicate_issues(issues, knx_ga_rx, "KNX", "Doppelte KNX Empfangs-Gruppenadresse", "Mehrere KNXâ†’MQTT Mappings lesen dieselbe GA. ")
-    _add_duplicate_issues(issues, mqtt_targets, "MQTT", "Doppeltes MQTT Ziel/Topic", "Mehrere Bereiche kÃ¶nnen dasselbe MQTT Topic erzeugen oder verwalten. ")
+    _add_duplicate_issues(issues, knx_ga_tx, "KNX", "Doppelte KNX Sende-Gruppenadresse", "Mehrere MQTT→KNX Mappings schreiben auf dieselbe GA. ")
+    _add_duplicate_issues(issues, knx_ga_rx, "KNX", "Doppelte KNX Empfangs-Gruppenadresse", "Mehrere KNX→MQTT Mappings lesen dieselbe GA. ")
+    _add_duplicate_issues(issues, mqtt_targets, "MQTT", "Doppeltes MQTT Ziel/Topic", "Mehrere Bereiche können dasselbe MQTT Topic erzeugen oder verwalten. ")
     _add_duplicate_issues(issues, udp_targets, "UDP", "Doppeltes UDP Ziel", "Gleiche IP/Port/Topic-Kombination mehrfach vorhanden. ")
     _add_duplicate_issues(issues, broker_names, "MQTT Broker", "Doppelter Brokername")
     _add_duplicate_issues(issues, sidebar_labels, "Sidebar Links", "Doppelter Link-Name")
@@ -2977,12 +2534,12 @@ def conflict_scanner_content():
     if not issues:
         body = """
 <div class=\"card ok-card\">
-    <h2>ðŸŸ¢ Keine Konflikte gefunden</h2>
-    <p class=\"small\">Alles sauber. Kein doppeltes Topic-Gulasch, keine KNX-Geisteradresse, kein UDP-Kabelsalat. TÃœV-Plakette virtuell erteilt.</p>
+    <h2>🟢 Keine Konflikte gefunden</h2>
+    <p class=\"small\">Alles sauber. Kein doppeltes Topic-Gulasch, keine KNX-Geisteradresse, kein UDP-Kabelsalat. TÜV-Plakette virtuell erteilt.</p>
 </div>"""
     else:
         rows = ""
-        icon_map = {"error": "ðŸ”´", "warn": "âš ï¸", "info": "â„¹ï¸"}
+        icon_map = {"error": "🔴", "warn": "⚠️", "info": "ℹ️"}
         label_map = {"error": "Fehler", "warn": "Warnung", "info": "Hinweis"}
         for item in issues:
             level = item.get("level", "warn")
@@ -2992,16 +2549,16 @@ def conflict_scanner_content():
                 rendered_items = []
                 for x in items:
                     if isinstance(x, dict):
-                        rendered_items.append(f"<span class='small'>â€¢ <a class='issue-jump' href='{escape(str(x.get('link', '#')))}'>{escape(str(x.get('text', '')))}</a></span>")
+                        rendered_items.append(f"<span class='small'>• <a class='issue-jump' href='{escape(str(x.get('link', '#')))}'>{escape(str(x.get('text', '')))}</a></span>")
                     else:
-                        rendered_items.append(f"<span class='small'>â€¢ {escape(str(x))}</span>")
+                        rendered_items.append(f"<span class='small'>• {escape(str(x))}</span>")
                 details += "<br>" + "<br>".join(rendered_items)
             jump = escape(item.get("link", "#"))
             rows += f"""
 <tr class="issue-{escape(level)} clickable-issue" onclick="window.location.href='{jump}'" title="Zur Problemstelle springen">
-    <td style="width:90px;"><b>{icon_map.get(level, 'âš ï¸')} {escape(label_map.get(level, level))}</b></td>
+    <td style="width:90px;"><b>{icon_map.get(level, '⚠️')} {escape(label_map.get(level, level))}</b></td>
     <td style="width:150px;">{escape(item.get('area', ''))}</td>
-    <td><b>{escape(item.get('title', ''))}</b><br><span class="small">{details}</span><br><a class="jump-link" href="{jump}" onclick="event.stopPropagation()">â†ª Zur Stelle springen</a></td>
+    <td><b>{escape(item.get('title', ''))}</b><br><span class="small">{details}</span><br><a class="jump-link" href="{jump}" onclick="event.stopPropagation()">↪ Zur Stelle springen</a></td>
 </tr>"""
         body = f"""
 <div class=\"card\">
@@ -3027,8 +2584,8 @@ def conflict_scanner_content():
 .jump-link:hover, .issue-jump:hover {{ text-decoration:underline; }}
 </style>
 <div class=\"card compact-card\">
-    <h1>Konfig prÃ¼fen</h1>
-    <p class=\"small\">Der Konfliktscanner prÃ¼ft deine Mappings auf doppelte Topics, KNX-Gruppenadressen, UDP-Ziele, Broker-Namen, leere Zeilen und kleine Stolperfallen.</p>
+    <h1>Konfig prüfen</h1>
+    <p class=\"small\">Der Konfliktscanner prüft deine Mappings auf doppelte Topics, KNX-Gruppenadressen, UDP-Ziele, Broker-Namen, leere Zeilen und kleine Stolperfallen.</p>
     <div class=\"check-grid\">
         <div class=\"check-stat\"><span class=\"small\">Fehler</span><b>{errors}</b></div>
         <div class=\"check-stat\"><span class=\"small\">Warnungen</span><b>{warnings}</b></div>
@@ -3078,43 +2635,19 @@ def sse_response(event_name, payload_func, version_name, interval=0.2):
 
 
 def live_log_payload(limit=12):
-    return {"logs": [str(x) for x in list(live_log)[:limit]]}
+    return runtime_service.live_log_payload(live_log, limit)
 
 
 def live_log_full_payload(limit=100):
-    return {"logs": [str(x) for x in list(live_log)[:limit]]}
+    return {"logs": runtime_service.get_live_log_entries(live_log, limit)}
 
 
 def shell_status_payload():
-    return {"status": bridge_status}
+    return runtime_service.build_status_payload(bridge_status)
 
 
 def status_sse_response():
-    def event_stream():
-        last_status = None
-        last_heartbeat = 0
-        while True:
-            try:
-                now = time.time()
-                current = str(bridge_status)
-                if current != last_status:
-                    yield "event: status\n"
-                    yield "data: " + json.dumps(shell_status_payload(), ensure_ascii=False) + "\n\n"
-                    last_status = current
-                    last_heartbeat = now
-                elif now - last_heartbeat > 15:
-                    yield ": keepalive\n\n"
-                    last_heartbeat = now
-                time.sleep(0.5)
-            except GeneratorExit:
-                break
-            except Exception as e:
-                yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-                time.sleep(2)
-    return Response(stream_with_context(event_stream()), mimetype="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no"
-    })
+    return runtime_service.status_sse_response(Response, stream_with_context, shell_status_payload, lambda: bridge_status)
 
 
 def knx_monitor_payload():
@@ -3142,7 +2675,7 @@ def dashboard_content():
     plugin_count = len([p for p in load_plugins_config() if p.get("enabled")])
     logs = list(live_log)[:8]
 
-    log_html = "".join(f"<div class='small'>{escape(str(x))}</div>" for x in logs) or "<div class='small'>Noch keine LogeintrÃ¤ge.</div>"
+    log_html = "".join(f"<div class='small'>{escape(str(x))}</div>" for x in logs) or "<div class='small'>Noch keine Logeinträge.</div>"
 
     return f"""
 <div class="card compact-card">
@@ -3150,7 +2683,7 @@ def dashboard_content():
     <div class="system-grid">
         <div><div class="muted">Loxone</div><b>{escape(str(config.get('loxone', {}).get('host', '-')))}</b></div>
         <div><div class="muted">MQTT Hauptbroker</div><b>{escape(str(config.get('mqtt', {}).get('host', '-')))}:{escape(str(config.get('mqtt', {}).get('port', '-')))}</b></div>
-        <div><div class="muted">ZusÃ¤tzliche Broker</div><b>{broker_count}</b></div>
+        <div><div class="muted">Zusätzliche Broker</div><b>{broker_count}</b></div>
         <div><div class="muted">Interner Broker</div><b>{escape(str(get_internal_broker_status().get('state','-')))}</b></div>
         <div><div class="muted">Influx</div><b>{'aktiv' if config.get('influx', {}).get('enabled') else 'aus'}</b></div>
         <div><div class="muted">Plugins aktiv</div><b>{plugin_count}</b></div>
@@ -3159,17 +2692,17 @@ def dashboard_content():
 
 <div class="grid dashboard-grid">
     <a class="card dashboard-tile" href="/mqtt2lox">
-        <div class="muted">MQTT â†’ Loxone</div>
+        <div class="muted">MQTT → Loxone</div>
         <div class="stat-value">{mqtt2lox_count}</div>
         <div class="small">Mappings</div>
     </a>
     <a class="card dashboard-tile" href="/mqtt2udp">
-        <div class="muted">MQTT â†’ UDP</div>
+        <div class="muted">MQTT → UDP</div>
         <div class="stat-value">{mqtt2udp_count}</div>
         <div class="small">Mappings</div>
     </a>
     <a class="card dashboard-tile" href="/mqtt2knx">
-        <div class="muted">MQTT â†’ KNX</div>
+        <div class="muted">MQTT → KNX</div>
         <div class="stat-value">{mqtt2knx_count}</div>
         <div class="small">Mappings</div>
     </a>
@@ -3217,7 +2750,7 @@ function renderLiveLog(data) {{
 
     const logs = (data && data.logs) || [];
     if (!logs.length) {{
-        box.innerHTML = '<div class="small">Noch keine LogeintrÃ¤ge.</div>';
+        box.innerHTML = '<div class="small">Noch keine Logeinträge.</div>';
         return;
     }}
 
@@ -3247,7 +2780,7 @@ startLiveLogStream();
 
 def live_log_console_content():
     logs = list(live_log)[:100]
-    log_html = "".join(f"<div class='log-line'>{escape(str(x))}</div>" for x in logs) or "<div class='small'>Noch keine LogeintrÃ¤ge.</div>"
+    log_html = "".join(f"<div class='log-line'>{escape(str(x))}</div>" for x in logs) or "<div class='small'>Noch keine Logeinträge.</div>"
     return f"""
 <h1>Live-Log</h1>
 <div class="card compact-card">
@@ -3259,7 +2792,7 @@ def live_log_console_content():
     </div>
     <label>Suche / Filter</label>
     <input id="logSearch" placeholder="z.B. MQTT2LOX, Fehler, KNX, Topic..." oninput="renderLog()">
-    <div class="small" id="logSummary" style="margin-top:8px;">Live per SSE Â· Anzeige pausierbar</div>
+    <div class="small" id="logSummary" style="margin-top:8px;">Live per SSE · Anzeige pausierbar</div>
 </div>
 
 <div class="card">
@@ -3326,12 +2859,12 @@ function renderLog() {{
     if (q) rows = rows.filter(x => String(x).toLowerCase().includes(q));
 
     if (!rows.length) {{
-        box.innerHTML = '<div class="small">Keine LogeintrÃ¤ge in dieser Ansicht.</div>';
+        box.innerHTML = '<div class="small">Keine Logeinträge in dieser Ansicht.</div>';
     }} else {{
         box.innerHTML = rows.map(x => '<div class="log-line' + (q ? ' hit' : '') + '">' + escLog(x) + '</div>').join("");
     }}
 
-    summary.textContent = `${{rows.length}} angezeigt Â· ${{allLogs.length}} im Speicher Â· ` + (paused ? "Anzeige pausiert" : "Live") + " Â· Auto-Scroll " + (autoScroll ? "an" : "aus");
+    summary.textContent = `${{rows.length}} angezeigt · ${{allLogs.length}} im Speicher · ` + (paused ? "Anzeige pausiert" : "Live") + " · Auto-Scroll " + (autoScroll ? "an" : "aus");
     if (autoScroll && !paused) box.scrollTop = 0;
 }}
 
@@ -3387,7 +2920,7 @@ def core_settings_content(config, notice=""):
         <label>Rundung Nachkommastellen</label>
         <input name="round_digits" value="{escape(str(bridge.get('round_digits', 4)))}">
         <label><input type="checkbox" name="retain" {checked(bridge.get('retain'))}> Letzten Wert speichern</label>
-        <label><input type="checkbox" name="change_only" {checked(bridge.get('change_only'))}> Nur bei Ã„nderung senden</label>
+        <label><input type="checkbox" name="change_only" {checked(bridge.get('change_only'))}> Nur bei Änderung senden</label>
 
         <div class="button-row" style="margin-top:14px;">
             <button type="submit">Speichern</button>
@@ -3429,14 +2962,14 @@ def sidebar_links_settings_content():
 <form method="post" action="/sidebar_links/save">
     <div class="card">
         <h2 class="section-title">Sidebar Buttons</h2>
-        <p class="small">Hier kannst du eigene VerknÃ¼pfungen in der linken Seitenleiste anlegen, z.B. Node-RED, Zigbee2MQTT, InfluxDB oder ioBroker.</p>
+        <p class="small">Hier kannst du eigene Verknüpfungen in der linken Seitenleiste anlegen, z.B. Node-RED, Zigbee2MQTT, InfluxDB oder ioBroker.</p>
         <table>
             <tr>
                 <th>Aktiv</th>
                 <th>Name</th>
                 <th>URL</th>
                 <th>Neuer Tab</th>
-                <th>LÃ¶schen</th>
+                <th>Löschen</th>
             </tr>
             {rows}
         </table>
@@ -3458,8 +2991,8 @@ def settings_content(config, notice=""):
 
     modules = [
         {"name": "Bridge / Loxone", "status": bridge_status, "desc": f"Miniserver {lox.get('host', '-')}, Bridge-Basiswerte", "route": "/core_settings_embed"},
-        {"name": "MQTT Broker", "status": f"{mqtt.get('host', '-')}:{mqtt.get('port', '-')}", "desc": "Hauptbroker, zusÃ¤tzliche Broker und Prefix", "route": "/mqtt_settings_embed"},
-        {"name": "UDP", "status": "aktiv" if udp_cfg.get("enabled") else "aus", "desc": f"UDP â†’ MQTT Eingang auf Port {udp_cfg.get('port', '-')}; MQTT â†’ UDP Mappings bleiben links unter Mappings", "route": "/udp_input"},
+        {"name": "MQTT Broker", "status": f"{mqtt.get('host', '-')}:{mqtt.get('port', '-')}", "desc": "Hauptbroker, zusätzliche Broker und Prefix", "route": "/mqtt_settings_embed"},
+        {"name": "UDP", "status": "aktiv" if udp_cfg.get("enabled") else "aus", "desc": f"UDP → MQTT Eingang auf Port {udp_cfg.get('port', '-')}; MQTT → UDP Mappings bleiben links unter Mappings", "route": "/udp_input"},
         {"name": "InfluxDB", "status": "aktiv" if influx.get("enabled") else "aus", "desc": "Zeitreihen-Ausgabe / Logging", "route": "/influx_settings_embed"},
         {"name": "KNX", "status": "aktiv" if knx_cfg.get("enabled") else "aus", "desc": f"Gateway {knx_cfg.get('gateway_ip', '-')}:{knx_cfg.get('gateway_port', '-')}; Mappings liegen im KNX Hub", "route": "/knx_settings_embed"}
     ]
@@ -3471,14 +3004,14 @@ def settings_content(config, notice=""):
     <td><b>{escape(str(m["name"]))}</b></td>
     <td>{escape(str(m["status"]))}</td>
     <td>{escape(str(m["desc"]))}</td>
-    <td><a class="button-link" href="{escape(str(m["route"]))}">Ã–ffnen</a></td>
+    <td><a class="button-link" href="{escape(str(m["route"]))}">Öffnen</a></td>
 </tr>'''
 
     return f'''
 {notice or ""}
 <div class="card compact-card">
     <h2 class="section-title">Einstellungen</h2>
-    <p class="small">Zentrale Modul-Ãœbersicht. Die Sidebar bleibt fÃ¼r Dashboard, Monitor und die Mapping-Seiten frei.</p>
+    <p class="small">Zentrale Modul-Übersicht. Die Sidebar bleibt für Dashboard, Monitor und die Mapping-Seiten frei.</p>
 </div>
 
 <div class="card">
@@ -3497,7 +3030,7 @@ def settings_content(config, notice=""):
 
 <div class="card">
     <h2 class="section-title">Template Export / Import</h2>
-    <p class="small">Gezielte Mapping-Pakete fÃ¼r einzelne Integrationen exportieren oder importieren. Das ist unabhÃ¤ngig vom kompletten Backup.</p>
+    <p class="small">Gezielte Mapping-Pakete für einzelne Integrationen exportieren oder importieren. Das ist unabhängig vom kompletten Backup.</p>
     <div class="button-row">
         <a href="/templates" class="button-link">Template exportieren / importieren</a>
     </div>
@@ -3525,7 +3058,7 @@ def internal_broker_settings_block(notice=""):
         return "checked" if value else ""
     state_class = "ok" if status.get("running") else "bad"
     state_text = escape(str(status.get("state", "-")))
-    exe_hint = "" if status.get("exe_found") else '<div class="small bad">Mosquitto wurde nicht gefunden. Pfad unten eintragen oder PATH prÃ¼fen.</div>'
+    exe_hint = "" if status.get("exe_found") else '<div class="small bad">Mosquitto wurde nicht gefunden. Pfad unten eintragen oder PATH prüfen.</div>'
     return f"""
 <form method="post" action="/internal_broker/save">
     <div class="card">
@@ -3540,7 +3073,7 @@ def internal_broker_settings_block(notice=""):
         <label><input type="checkbox" name="internal_enabled" {checked(cfg.get('enabled'))}> Internen Broker aktivieren</label>
         <label><input type="checkbox" name="internal_use_as_main" {checked(cfg.get('use_as_main'))}> Internen Broker als Hauptbroker der Bridge verwenden</label>
         <label>Listener Host</label><input name="internal_host" value="{escape(str(cfg.get('host','0.0.0.0')))}">
-        <label>Connect Host fÃ¼r Bridge</label><input name="internal_connect_host" value="{escape(str(cfg.get('connect_host','127.0.0.1')))}">
+        <label>Connect Host für Bridge</label><input name="internal_connect_host" value="{escape(str(cfg.get('connect_host','127.0.0.1')))}">
         <label>Port</label><input name="internal_port" value="{escape(str(cfg.get('port',1883)))}">
         <label>Mosquitto Pfad</label><input name="internal_mosquitto_path" value="{escape(str(cfg.get('mosquitto_path','mosquitto')))}">
         <label><input type="checkbox" name="internal_allow_anonymous" {checked(cfg.get('allow_anonymous'))}> Anonyme Anmeldung erlauben</label>
@@ -3592,8 +3125,8 @@ def mqtt_settings_content(config, notice=""):
 
 <form method="post" action="/mqtt_brokers/save">
     <div class="card">
-        <h2 class="section-title">ZusÃ¤tzliche MQTT Broker</h2>
-        <p class="small">Diese Broker werden zusÃ¤tzlich abonniert. Der Hauptbroker bleibt der Broker, auf den die Bridge aktiv publisht.</p>
+        <h2 class="section-title">Zusätzliche MQTT Broker</h2>
+        <p class="small">Diese Broker werden zusätzlich abonniert. Der Hauptbroker bleibt der Broker, auf den die Bridge aktiv publisht.</p>
         <table>
             <tr>
                 <th>Aktiv</th>
@@ -3603,7 +3136,7 @@ def mqtt_settings_content(config, notice=""):
                 <th>User</th>
                 <th>Passwort</th>
                 <th>Test</th>
-                <th>LÃ¶schen</th>
+                <th>Löschen</th>
             </tr>
 """
 
@@ -3637,7 +3170,7 @@ def mqtt_settings_content(config, notice=""):
         </table>
         <input type="hidden" name="count" value="{len(brokers)+1}">
         <div class="button-row" style="margin-top:14px;">
-            <button type="submit">ZusÃ¤tzliche Broker speichern</button>
+            <button type="submit">Zusätzliche Broker speichern</button>
         </div>
     </div>
 </form>
@@ -3908,7 +3441,7 @@ html, body {
             <a href="/knx" target="contentFrame" onclick="setActive(this)">KNX</a>
             <a href="/knx_monitor" target="contentFrame" onclick="setActive(this)">KNX Monitor</a>
             <a href="/global_search" target="contentFrame" onclick="setActive(this)">Suche</a>
-            <a href="/conflicts" target="contentFrame" onclick="setActive(this)">Konfig prÃ¼fen</a>
+            <a href="/conflicts" target="contentFrame" onclick="setActive(this)">Konfig prüfen</a>
             <span class="spacer"></span>
             {{ sidebar_links_html|safe }}
             <a href="/settings_embed" target="contentFrame" onclick="setActive(this)">Einstellungen</a>
@@ -3981,145 +3514,9 @@ startStatusStream();
 
 
 def embedded_page(title, content):
-    return f"""
-<!doctype html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(str(title))}</title>
-<style>
-:root {{
-    --bg:#202830;
-    --panel:#1b2229;
-    --panel2:#222b34;
-    --border:#303b45;
-    --text:#f4f7fb;
-    --muted:#aeb8c4;
-    --blue:#5f686f;
-    --blue2:#727d85;
-    --red:#a94a4a;
-    --green:#7CFF75;
-}}
-* {{ box-sizing:border-box; }}
-body {{
-    margin:0;
-    padding:22px;
-    background:var(--bg);
-    color:var(--text);
-    font-family:Arial, sans-serif;
-}}
-h1 {{ margin:0 0 18px; }}
-.card {{
-    background:var(--panel);
-    border:1px solid var(--border);
-    border-radius:8px;
-    padding:18px;
-    margin-bottom:16px;
-}}
+    return template_service.embedded_page(title, content)
 
-.knx-action-table {{
-    border-collapse: separate !important;
-    border-spacing: 10px 8px !important;
-    margin: -8px 0 !important;
-    background: transparent !important;
-    width: auto !important;
-}}
 
-.knx-action-table td {{
-    border: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: transparent !important;
-    vertical-align: middle !important;
-}}
-
-.knx-action-table a,
-.knx-action-table button {{
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    margin: 0 !important;
-    white-space: nowrap !important;
-    line-height: 1 !important;
-    height: 28px !important;
-    min-width: 88px !important;
-    padding: 0 10px !important;
-    box-sizing: border-box !important;
-}}
-
-td.actions,
-th.actions,
-.knx-monitor-table td.actions {{
-    min-width: 230px !important;
-    width: 230px !important;
-    vertical-align: middle !important;
-    padding-top: 8px !important;
-    padding-bottom: 8px !important;
-}}
-.grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px; }}
-.dashboard-grid {{ grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); }}
-.system-grid {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:4px 28px; }}
-.compact-card {{ padding:10px 18px; margin-bottom:14px; }}
-.compact-card .section-title {{ margin:0 0 8px; font-size:22px; }}
-.compact-card .muted {{ line-height:1.1; }}
-.compact-card b {{ line-height:1.05; }}
-.dashboard-tile {{
-    display:block;
-    color:var(--text);
-    text-decoration:none;
-    min-height:116px;
-    transition:.12s ease;
-}}
-.dashboard-tile:hover {{
-    background:var(--panel2);
-    border-color:#53606d;
-    transform:translateY(-1px);
-}}
-.stat-value {{ font-size:24px; font-weight:800; margin-top:6px; }}
-.muted {{ color:var(--muted); }}
-.small {{ color:var(--muted); font-size:13px; }}
-.ok {{ color:var(--green); }}
-.bad {{ color:#ff8a8a; }}
-button, .button-link, a.button-link {{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    min-height:32px;
-    padding:0 14px;
-    border:0;
-    border-radius:4px;
-    background:var(--blue);
-    color:white;
-    cursor:pointer;
-    text-decoration:none;
-    font-family:Arial, sans-serif;
-    font-size:14px;
-    font-weight:700;
-}}
-button:hover, .button-link:hover {{ background:var(--blue2); }}
-.stop {{ background:var(--red); }}
-.button-row {{ display:flex; gap:9px; flex-wrap:wrap; align-items:center; }}
-input, select {{
-    width:100%;
-    padding:8px;
-    border-radius:5px;
-    border:1px solid #4a5663;
-    background:#111820;
-    color:white;
-}}
-input[type=checkbox] {{ width:auto; }}
-label {{ display:block; margin-top:11px; margin-bottom:5px; }}
-table {{ width:100%; border-collapse:collapse; background:#151c23; }}
-th, td {{ border:1px solid var(--border); padding:7px; }}
-th {{ background:#2a333d; }}
-</style>
-</head>
-<body>
-{content}
-</body>
-</html>
-"""
 
 
 @app.route("/dashboard_embed")
@@ -4164,17 +3561,17 @@ def global_search():
 
 @app.route("/conflicts")
 def conflicts():
-    return embedded_page("Konfig prÃ¼fen", conflict_scanner_content())
+    return embedded_page("Konfig prüfen", conflict_scanner_content())
 
 
 @app.route("/conflicts_page")
 def conflicts_page():
-    return render_layout("Konfig prÃ¼fen", conflict_scanner_content(), active="conflict_scanner", subtitle="Konfliktscanner fÃ¼r Mappings und Einstellungen")
+    return render_layout("Konfig prüfen", conflict_scanner_content(), active="conflict_scanner", subtitle="Konfliktscanner für Mappings und Einstellungen")
 
 
 @app.route("/global_search_page")
 def global_search_page():
-    return render_layout("Globale Suche", global_search_content(request.args.get("q", "")), active="global_search", subtitle="Suche Ã¼ber alle Mappings und Einstellungen")
+    return render_layout("Globale Suche", global_search_content(request.args.get("q", "")), active="global_search", subtitle="Suche über alle Mappings und Einstellungen")
 
 
 def plugins_content(notice=""):
@@ -4190,7 +3587,7 @@ def plugins_content(notice=""):
         route = str(item.get("route", "")).strip()
         checked_state = "checked" if item.get("enabled") else ""
         if route:
-            route_html = f'<a class="button-link" href="{escape(route)}">Ã–ffnen</a>'
+            route_html = f'<a class="button-link" href="{escape(route)}">Öffnen</a>'
         else:
             route_html = '<span class="small">noch kein Modul</span>'
 
@@ -4210,7 +3607,7 @@ def plugins_content(notice=""):
 {notice or ""}
 <div class="card compact-card">
     <h2 class="section-title">Plugins</h2>
-    <p class="small">V13 erweitert KNX: MQTT â†’ KNX und KNX â†’ MQTT. Zigbee bleibt vorbereitet.</p>
+    <p class="small">V13 erweitert KNX: MQTT → KNX und KNX → MQTT. Zigbee bleibt vorbereitet.</p>
 </div>
 
 <form method="post" action="/plugins/save">
@@ -4271,13 +3668,13 @@ def sidebar_links_save():
     add_log_entry("Sidebar Buttons gespeichert")
 
     # Die Sidebar sitzt im Parent-Shell. Nach dem Speichern muss die Hauptseite neu laden,
-    # sonst sieht man neue/geÃ¤nderte Buttons erst nach manuellem Refresh.
+    # sonst sieht man neue/geänderte Buttons erst nach manuellem Refresh.
     return """
 <!doctype html>
 <html lang="de">
 <head><meta charset="utf-8"><title>Sidebar Buttons gespeichert</title></head>
 <body style="background:#202830;color:#f4f7fb;font-family:Arial,sans-serif;padding:22px;">
-    Sidebar Buttons gespeichert. OberflÃ¤che wird neu geladen...
+    Sidebar Buttons gespeichert. Oberfläche wird neu geladen...
     <script>
         setTimeout(function() {
             try {
@@ -4301,7 +3698,7 @@ def save_plugins():
 
     save_plugins_config(plugins)
     add_log_entry("Plugin-Konfiguration gespeichert")
-    notice = '<div class="card ok">âœ… Plugins gespeichert</div>'
+    notice = '<div class="card ok">✅ Plugins gespeichert</div>'
     return embedded_page("Plugins", plugins_content(notice))
 
 
@@ -4322,7 +3719,7 @@ def index(message=""):
 
 @app.route("/settings")
 def settings_page(message=""):
-    return render_layout("Einstellungen", settings_content(load_config()), active="settings", subtitle="Modul-Ãœbersicht und Grundeinstellungen", message=message)
+    return render_layout("Einstellungen", settings_content(load_config()), active="settings", subtitle="Modul-Übersicht und Grundeinstellungen", message=message)
 
 
 @app.route("/save", methods=["POST"])
@@ -4470,7 +3867,7 @@ def save_influx():
 @app.route("/test/loxone", methods=["POST"])
 def test_loxone():
     try:
-        # Mit aktuellen Formularwerten testen, ohne vorher speichern zu mÃ¼ssen
+        # Mit aktuellen Formularwerten testen, ohne vorher speichern zu müssen
         cfg = load_config()
         cfg["loxone"] = {
             "host": request.form.get("loxone_host", cfg.get("loxone", {}).get("host", "")),
@@ -4480,10 +3877,10 @@ def test_loxone():
         data = load_mapping(cfg)
         project = data.get("msInfo", {}).get("projectName", "unbekannt")
         controls = len(data.get("controls", {}))
-        notice = f'<div class="card ok">âœ… Loxone OK<br>Projekt: {escape(str(project))}<br>Controls: {controls}</div>'
+        notice = f'<div class="card ok">✅ Loxone OK<br>Projekt: {escape(str(project))}<br>Controls: {controls}</div>'
         return embedded_page('Bridge / Loxone', core_settings_content(load_config(), notice))
     except Exception as e:
-        notice = f'<div class="card bad">âŒ Loxone Fehler: {escape(str(e))}</div>'
+        notice = f'<div class="card bad">❌ Loxone Fehler: {escape(str(e))}</div>'
         return embedded_page('Bridge / Loxone', core_settings_content(load_config(), notice))
 
 
@@ -4506,10 +3903,10 @@ def test_mqtt():
             mqtt_cfg.get("password", ""),
             5,
         )
-        notice = '<div class="card ok">âœ… MQTT Hauptbroker erreichbar</div>'
+        notice = '<div class="card ok">✅ MQTT Hauptbroker erreichbar</div>'
         return embedded_page('MQTT Broker', mqtt_settings_content(load_config(), notice))
     except Exception as e:
-        notice = f'<div class="card bad">âŒ MQTT Fehler: {escape(str(e))}</div>'
+        notice = f'<div class="card bad">❌ MQTT Fehler: {escape(str(e))}</div>'
         return embedded_page('MQTT Broker', mqtt_settings_content(load_config(), notice))
 
 
@@ -4957,11 +4354,11 @@ header h1 {
     </div>
 
     <div class="details">
-        <h2 id="tm2DetailTitle">Kein Topic gewÃ¤hlt</h2>
+        <h2 id="tm2DetailTitle">Kein Topic gewählt</h2>
 
         <div class="meta" id="tm2DetailMeta">-</div>
         <div class="payload-box" id="tm2Detail">
-            Links ein Topic auswÃ¤hlen.
+            Links ein Topic auswählen.
         </div>
     </div>
 </div>
@@ -5032,7 +4429,7 @@ function tm2RenderNode(name, node, depth=0) {
 
     let html = `<div class="${nodeClass}">
         <div class="${rowClass}" onclick="${isLeaf ? `tm2Select('${encodeURIComponent(node.item.topic)}')` : `tm2Toggle('${tm2Esc(node.key)}')`}">
-            <span class="tm2-caret">${hasChildren ? (collapsed ? "â–¸" : "â–¾") : "â€¢"}</span>
+            <span class="tm2-caret">${hasChildren ? (collapsed ? "▸" : "▾") : "•"}</span>
             <span class="tm2-topic-label">${tm2Esc(name)}</span>
             <span class="tm2-badges">${tm2Badges(node.item)}</span>
         </div>`;
@@ -5173,16 +4570,16 @@ function tm2RenderDetail(item) {
 
         <div class="tm2-actions">
             <button type="button" class="action-btn tm2-save" onclick="tm2SaveSelected()">Speichern</button>
-            <button type="button" class="action-btn object-main-btn" onclick="tm2CreateObjectSelected()">Objekt erstellen / verknÃ¼pfen</button>
+            <button type="button" class="action-btn object-main-btn" onclick="tm2CreateObjectSelected()">Objekt erstellen / verknüpfen</button>
             <button type="button" class="action-btn" onclick="tm2CopySelected()">Topic kopieren</button>
         </div>
 
         <details class="expert-actions" style="margin-top:12px;">
-            <summary>âš™ Expertenmapping anzeigen</summary>
+            <summary>⚙ Expertenmapping anzeigen</summary>
             <div class="expert-actions-row">
-                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2lox')">MQTTâ†’Loxone</button>
-                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2udp')">MQTTâ†’UDP</button>
-                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2knx')">MQTTâ†’KNX</button>
+                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2lox')">MQTT→Loxone</button>
+                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2udp')">MQTT→UDP</button>
+                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2knx')">MQTT→KNX</button>
             </div>
         </details>
 
@@ -5195,7 +4592,7 @@ function tm2CopyText(text) {
 
     function showCopyState(ok) {
         const box = document.getElementById("tm2SaveState");
-        if (box) box.textContent = ok ? "Topic kopiert âœ…" : "Kopieren fehlgeschlagen âŒ";
+        if (box) box.textContent = ok ? "Topic kopiert ✅" : "Kopieren fehlgeschlagen ❌";
     }
 
     if (!text) {
@@ -5282,7 +4679,7 @@ function tm2SaveSelected() {
         .then(r => r.json())
         .then(data => {
             const box = document.getElementById("tm2SaveState");
-            box.textContent = data.message || "Gespeichert âœ…";
+            box.textContent = data.message || "Gespeichert ✅";
 
             tm2Selected.enabled = document.getElementById("tm2Enabled").checked;
             tm2Selected.writable = document.getElementById("tm2Writable").checked;
@@ -5296,7 +4693,7 @@ function tm2SaveSelected() {
             tm2RenderDetail(tm2Selected);
         })
         .catch(err => {
-            document.getElementById("tm2SaveState").textContent = "Fehler beim Speichern âŒ " + err;
+            document.getElementById("tm2SaveState").textContent = "Fehler beim Speichern ❌ " + err;
         });
 }
 
@@ -5320,8 +4717,8 @@ function tm2Reload(keepSelection=true) {
 
                 if (fresh) {
                     if (userIsEditing && tm2Selected) {
-                        // WÃ¤hrend der Eingabe nicht den Detailbereich neu zeichnen,
-                        // sonst wird das Alias-Feld wieder Ã¼berschrieben.
+                        // Während der Eingabe nicht den Detailbereich neu zeichnen,
+                        // sonst wird das Alias-Feld wieder überschrieben.
                         tm2Selected.value = fresh.value;
                         tm2Selected.enabled = fresh.enabled;
                         tm2Selected.writable = fresh.writable;
@@ -5365,7 +4762,7 @@ def topics2_data():
 def topics2_save():
     topic = request.form.get("topic", "").strip()
     if not topic:
-        return {"success": False, "message": "Topic fehlt âŒ"}, 400
+        return {"success": False, "message": "Topic fehlt ❌"}, 400
 
     topic_settings = load_topic_config()
     current = topic_settings.get(topic, {})
@@ -5380,7 +4777,7 @@ def topics2_save():
     topic_settings[topic] = current
     save_topic_config(topic_settings)
 
-    return {"success": True, "message": "Topic gespeichert âœ…"}
+    return {"success": True, "message": "Topic gespeichert ✅"}
 
 
 
@@ -5438,7 +4835,7 @@ button, .button-link {
 
 <h1>Topic Manager</h1>
 
-<div id="saveMessage">Gespeichert âœ…</div>
+<div id="saveMessage">Gespeichert ✅</div>
 
 <div class="toolbar">
     <input type="text" id="searchInput" placeholder="Topic suchen...">
@@ -5595,7 +4992,7 @@ function saveTopics(event) {{
     .then(response => response.json())
     .then(data => {{
         const msg = document.getElementById("saveMessage");
-        msg.innerText = data.message || "Gespeichert âœ…";
+        msg.innerText = data.message || "Gespeichert ✅";
         msg.style.display = "block";
 
         setTimeout(() => {{
@@ -5604,7 +5001,7 @@ function saveTopics(event) {{
     }})
     .catch(err => {{
         const msg = document.getElementById("saveMessage");
-        msg.innerText = "Fehler beim Speichern âŒ";
+        msg.innerText = "Fehler beim Speichern ❌";
         msg.style.display = "block";
         console.log(err);
     }});
@@ -5656,7 +5053,7 @@ def topics_save():
 
     return {
         "success": True,
-        "message": "Topic Manager gespeichert âœ…"
+        "message": "Topic Manager gespeichert ✅"
     }
 
 
@@ -5679,11 +5076,11 @@ def shared_mapping_explorer_script(
     current_time_id_prefix,
         extra_js=""
 ):
-    """Gemeinsamer JS-Kern fÃ¼r Mapping-Explorer-Seiten.
+    """Gemeinsamer JS-Kern für Mapping-Explorer-Seiten.
 
-    Wird aktuell von MQTTâ†’Loxone und MQTTâ†’UDP genutzt. Die Seiten behalten ihre
-    eigenen IDs/Routes, aber Auf-/Zuklappen, Suche, Set-Auswahl, LÃ¶schen,
-    Live-Werte und LocalStorage laufen nur noch Ã¼ber diese eine Engine.
+    Wird aktuell von MQTT→Loxone und MQTT→UDP genutzt. Die Seiten behalten ihre
+    eigenen IDs/Routes, aber Auf-/Zuklappen, Suche, Set-Auswahl, Löschen,
+    Live-Werte und LocalStorage laufen nur noch über diese eine Engine.
     """
     template = """
 <script>
@@ -5730,7 +5127,7 @@ function applyTreeState() {
         if (!body || !arrow) return;
         const collapsed = !!state[key];
         body.classList.toggle("collapsed", collapsed);
-        arrow.textContent = collapsed ? "â–¸" : "â–¾";
+        arrow.textContent = collapsed ? "▸" : "▾";
     });
 }
 
@@ -5741,7 +5138,7 @@ function applySetSubitemState() {
         const arrow = document.getElementById("set_arrow_" + key);
         const collapsed = !!state[key];
         box.classList.toggle("collapsed", collapsed);
-        if (arrow) arrow.textContent = collapsed ? "â–¸" : "â–¾";
+        if (arrow) arrow.textContent = collapsed ? "▸" : "▾";
     });
 }
 
@@ -5840,7 +5237,7 @@ function markDeleteAndHide(index) {
 }
 
 function deleteWholeSet(setKey) {
-    if (!confirm("Dieses komplette Set beim nÃ¤chsten Speichern lÃ¶schen?")) return;
+    if (!confirm("Dieses komplette Set beim nächsten Speichern löschen?")) return;
     document.querySelectorAll("[data-set-panel='" + cssEscapeSafe(setKey) + "'] [id^='delete_']").forEach(cb => cb.checked = true);
     const panel = document.querySelector("[data-set-panel='" + cssEscapeSafe(setKey) + "']");
     if (panel) panel.style.opacity = "0.45";
@@ -5972,7 +5369,7 @@ def mqtt2lox():
 
     first_set_key = "__new__"
     # Legacy: Kommt man direkt aus dem MQTT Explorer, soll sofort das neue
-    # vorbefÃ¼llte MQTTâ†’UDP Mapping geÃ¶ffnet sein - nicht irgendein vorhandenes Set.
+    # vorbefüllte MQTT→UDP Mapping geöffnet sein - nicht irgendein vorhandenes Set.
     if not prefill_source_topic:
         for gk in sorted(tree.keys(), key=lambda x: tree[x]["name"].casefold()):
             for sk in sorted(tree[gk]["sets"].keys(), key=lambda x: tree[gk]["sets"][x]["name"].casefold()):
@@ -5988,7 +5385,7 @@ def mqtt2lox():
 <!doctype html>
 <html>
 <head>
-    <title>MQTT â†’ Loxone Mapping Explorer</title>
+    <title>MQTT → Loxone Mapping Explorer</title>
     <style>
         :root {
             --bg:#202830;
@@ -6448,9 +5845,9 @@ def mqtt2lox():
 <body>
 
 <header>
-    <h1>MQTT â†’ Loxone Mapping Explorer</h1>
+    <h1>MQTT → Loxone Mapping Explorer</h1>
     <div class="header-tools">
-        <a class="button-link" href="/mqtt">â† ZurÃ¼ck zum MQTT Hub</a>
+        <a class="button-link" href="/mqtt">← Zurück zum MQTT Hub</a>
         <button type="button" onclick="expandAllTree()">Alles aufklappen</button>
         <button type="button" onclick="collapseAllTree()">Alles einklappen</button>
     </div>
@@ -6460,14 +5857,14 @@ def mqtt2lox():
 <div class="page">
     <aside class="sidebar">
         <div class="search-box">
-            <span class="search-icon">ðŸ”Ž</span>
+            <span class="search-icon">🔎</span>
             <input id="treeSearch" type="text" placeholder="Suchen..." oninput="filterTree()">
         </div>
 
-        <button type="button" style="width:100%; margin:0 0 12px 0; justify-content:center;" onclick="showSet('__new__')">ï¼‹ Neues Set erstellen</button>
+        <button type="button" style="width:100%; margin:0 0 12px 0; justify-content:center;" onclick="showSet('__new__')">＋ Neues Set erstellen</button>
 
         <div class="small" style="margin-bottom:12px;">
-            Links Gruppen und Sets. Rechts bearbeitest du das gewÃ¤hlte GerÃ¤t/Objekt mit mehreren Topics.
+            Links Gruppen und Sets. Rechts bearbeitest du das gewählte Gerät/Objekt mit mehreren Topics.
         </div>
 """
 
@@ -6476,7 +5873,7 @@ def mqtt2lox():
         html += f"""
         <div class="tree-group" data-tree-group="{escape(group_key)}" data-search="{escape(group["name"].lower())}">
             <div class="tree-group-title" onclick="toggleTreeGroup('{escape(group_key)}')">
-                <span><span id="tree_arrow_{escape(group_key)}">â–¾</span> {escape(group["name"])}</span>
+                <span><span id="tree_arrow_{escape(group_key)}">▾</span> {escape(group["name"])}</span>
                 <span class="badge">{len(group["sets"])} Set(s)</span>
             </div>
             <div class="group-body" id="tree_body_{escape(group_key)}">
@@ -6496,7 +5893,7 @@ def mqtt2lox():
             html += f"""
                 <div class="tree-set{active_cls}" data-set-link="{escape(set_key)}" data-search="{escape(search_text)}" onclick="showSet('{escape(set_key)}')">
                     <span class="tree-set-main">
-                        <span class="tree-set-arrow" id="set_arrow_{escape(set_key)}" onclick="event.stopPropagation(); toggleSetSubitems('{escape(set_key)}')">â–¾</span>
+                        <span class="tree-set-arrow" id="set_arrow_{escape(set_key)}" onclick="event.stopPropagation(); toggleSetSubitems('{escape(set_key)}')">▾</span>
                         <span class="tree-set-name">{escape(set_obj["name"])}</span>
                     </span>
                     <span class="badge">{len(set_obj["rows"])}</span>
@@ -6511,7 +5908,7 @@ def mqtt2lox():
                 live_cls = "" if live_value and live_value != "-" else " empty"
                 html += f"""
                     <div class="tree-subitem" data-set-link="{escape(set_key)}" data-search="{escape((group['name'] + ' ' + set_obj['name'] + ' ' + alias).lower())}" onclick="showSet('{escape(set_key)}')">
-                        <span class="tree-subitem-name">â†³ {escape(alias)}</span>
+                        <span class="tree-subitem-name">↳ {escape(alias)}</span>
                         <span class="tree-live-value{live_cls}" id="tree_value_{row_index}">{escape(live_value if live_value != "-" else "")}</span>
                     </div>
 """
@@ -6555,7 +5952,7 @@ def mqtt2lox():
         group_hidden = f'<input type="hidden" name="group_{i}" value="{escape(group_name)}" data-group-sync="{escape(set_key)}">'
         set_hidden = f'<input type="hidden" name="set_name_{i}" value="{escape(set_name)}" data-set-sync="{escape(set_key)}">'
         test_button = "-" if is_new else f'<button class="testbtn" type="submit" formaction="/mqtt2lox/test/{i}" formmethod="post">Test</button>'
-        delete_cell = "-" if is_new else f'<button type="button" class="delete-btn" onclick="markDeleteAndHide({i})">ðŸ—‘</button><input type="checkbox" name="delete_{i}" id="delete_{i}" style="display:none;">'
+        delete_cell = "-" if is_new else f'<button type="button" class="delete-btn" onclick="markDeleteAndHide({i})">🗑</button><input type="checkbox" name="delete_{i}" id="delete_{i}" style="display:none;">'
 
         return f"""
                     <div class="mapping-card" id="mapping_card_{i}">
@@ -6650,13 +6047,13 @@ def mqtt2lox():
                         <input type="text" value="{escape(set_obj["name"])}" oninput="syncSetName('{escape(set_key)}', this.value)">
                     </div>
                     <div>
-                        <button type="button" title="Nur Name/Gruppe Ã¤ndern">âœŽ</button>
+                        <button type="button" title="Nur Name/Gruppe ändern">✎</button>
                     </div>
                     <div class="small">
-                        Ein Set kann mehrere Datenpunkte eines GerÃ¤tes enthalten, z.B. Temperatur, Luftfeuchte und Batterie.
+                        Ein Set kann mehrere Datenpunkte eines Gerätes enthalten, z.B. Temperatur, Luftfeuchte und Batterie.
                     </div>
                     <div>
-                        <button type="button" class="delete-btn" onclick="deleteWholeSet('{escape(set_key)}')">Set lÃ¶schen</button>
+                        <button type="button" class="delete-btn" onclick="deleteWholeSet('{escape(set_key)}')">Set löschen</button>
                     </div>
                 </div>
             </div>
@@ -6667,7 +6064,7 @@ def mqtt2lox():
                         <h2 style="margin:0;">Mappings in diesem Set</h2>
                         <div class="small">{len(set_obj["rows"])} gespeicherte Mapping(s)</div>
                     </div>
-                    <button type="button" onclick="showExtraMapping('{escape(set_key)}')">ï¼‹ Topic / Mapping hinzufÃ¼gen</button>
+                    <button type="button" onclick="showExtraMapping('{escape(set_key)}')">＋ Topic / Mapping hinzufügen</button>
                 </div>
 
                 <div class="mapping-list">
@@ -6697,7 +6094,7 @@ def mqtt2lox():
                 </div>
 
                 <div class="info-box small">
-                    Payload RAW = Wert direkt senden Â· JSON alle = alle Felder aus Payload verwenden Â· JSON Key = einzelnes Feld, z.B. <b>em.apower</b> Â· Sammeln = eine UDP-Zeile Â· Einzeln = mehrere UDP-Zeilen
+                    Payload RAW = Wert direkt senden · JSON alle = alle Felder aus Payload verwenden · JSON Key = einzelnes Feld, z.B. <b>em.apower</b> · Sammeln = eine UDP-Zeile · Einzeln = mehrere UDP-Zeilen
                 </div>
             </div>
         </section>
@@ -6715,11 +6112,11 @@ def mqtt2lox():
                     </div>
                     <div>
                         <label>Name / Pseudonym</label>
-                        <input type="text" name="set_name_{extra_index}" value="{escape(prefill_set)}" placeholder="z.B. Sensor KÃ¼che">
+                        <input type="text" name="set_name_{extra_index}" value="{escape(prefill_set)}" placeholder="z.B. Sensor Küche">
                     </div>
                     <div></div>
                     <div class="small">
-                        Neues GerÃ¤t/Objekt anlegen. Danach erscheint es links im Explorer.
+                        Neues Gerät/Objekt anlegen. Danach erscheint es links im Explorer.
                     </div>
                     <div></div>
                 </div>
@@ -6729,7 +6126,7 @@ def mqtt2lox():
                 <div class="mapping-header">
                     <div>
                         <h2 style="margin:0;">Erstes Mapping</h2>
-                        <div class="small">Nach dem Speichern kannst du weitere Topics im Set ergÃ¤nzen.</div>
+                        <div class="small">Nach dem Speichern kannst du weitere Topics im Set ergänzen.</div>
                     </div>
                 </div>
                 <div class="mapping-list">
@@ -6752,7 +6149,7 @@ def mqtt2lox():
         <input type="hidden" name="count" value="{extra_index + 1}">
 
         <div class="footer-actions">
-            <button type="submit" class="save-bottom">ðŸ’¾ Speichern</button>
+            <button type="submit" class="save-bottom">💾 Speichern</button>
         </div>
         </div>
     </main>
@@ -6831,8 +6228,8 @@ def mqtt2lox_save():
 
         enabled = f"enabled_{i}" in request.form
 
-        # Legacy: Versteckte/angefangene Extra-Zeilen dÃ¼rfen nicht als leere technische Mappings gespeichert werden.
-        # Gruppe/Set allein ist nur UI-Struktur und kein echtes MQTTâ†’Loxone Mapping.
+        # Legacy: Versteckte/angefangene Extra-Zeilen dürfen nicht als leere technische Mappings gespeichert werden.
+        # Gruppe/Set allein ist nur UI-Struktur und kein echtes MQTT→Loxone Mapping.
         # Sonst entsteht bei jedem Speichern wieder ein leeres Mapping-Goblinchen.
         has_real_mapping = bool(source_topic or loxone_io)
         if not has_real_mapping:
@@ -6856,7 +6253,7 @@ def mqtt2lox_save():
 
     save_mqtt2lox_config(new_data)
     # Legacy: Kein automatischer Objekt-Sync beim Speichern technischer Mappings.
-    # Sonst entstehen aus Alt-/Test-Mappings plÃ¶tzlich hunderte Objekte.
+    # Sonst entstehen aus Alt-/Test-Mappings plötzlich hunderte Objekte.
     return redirect("/mqtt2lox")
 
 
@@ -6966,7 +6363,7 @@ def mqtt2udp():
 <!doctype html>
 <html>
 <head>
-    <title>MQTT â†’ UDP Explorer</title>
+    <title>MQTT → UDP Explorer</title>
     <style>
         :root {
             --bg:#202830; --panel:#1b2229; --panel2:#111820; --border:#303b45;
@@ -7040,9 +6437,9 @@ def mqtt2udp():
 </head>
 <body>
 <header>
-    <h1>MQTT â†’ UDP Explorer</h1>
+    <h1>MQTT → UDP Explorer</h1>
     <div class="header-tools">
-        <a class="button-link" href="/mqtt">â† ZurÃ¼ck zum MQTT Hub</a>
+        <a class="button-link" href="/mqtt">← Zurück zum MQTT Hub</a>
         <button type="button" onclick="expandAllTree()">Alles aufklappen</button>
         <button type="button" onclick="collapseAllTree()">Alles einklappen</button>
     </div>
@@ -7051,9 +6448,9 @@ def mqtt2udp():
 <form method="post" action="/mqtt2udp/save" id="mappingForm">
 <div class="page">
     <aside class="sidebar">
-        <div class="search-box"><span class="search-icon">ðŸ”Ž</span><input id="treeSearch" type="text" placeholder="Suchen..." oninput="filterTree()"></div>
-        <button type="button" style="width:100%; margin:0 0 12px 0; justify-content:center;" onclick="showSet('__new__')">ï¼‹ Neues Set erstellen</button>
-        <div class="small" style="margin-bottom:12px;">Links Gruppen und UDP-Sets. Rechts bearbeitest du das gewÃ¤hlte Objekt mit mehreren MQTT â†’ UDP Zuordnungen.</div>
+        <div class="search-box"><span class="search-icon">🔎</span><input id="treeSearch" type="text" placeholder="Suchen..." oninput="filterTree()"></div>
+        <button type="button" style="width:100%; margin:0 0 12px 0; justify-content:center;" onclick="showSet('__new__')">＋ Neues Set erstellen</button>
+        <div class="small" style="margin-bottom:12px;">Links Gruppen und UDP-Sets. Rechts bearbeitest du das gewählte Objekt mit mehreren MQTT → UDP Zuordnungen.</div>
 """
 
     for group_key in sorted(tree.keys(), key=lambda x: tree[x]["name"].casefold()):
@@ -7061,7 +6458,7 @@ def mqtt2udp():
         html += f"""
         <div class="tree-group" data-tree-group="{escape(group_key)}" data-search="{escape(group["name"].lower())}">
             <div class="tree-group-title" onclick="toggleTreeGroup('{escape(group_key)}')">
-                <span><span id="tree_arrow_{escape(group_key)}">â–¾</span> {escape(group["name"])}</span>
+                <span><span id="tree_arrow_{escape(group_key)}">▾</span> {escape(group["name"])}</span>
                 <span class="badge">{len(group["sets"])} Set(s)</span>
             </div>
             <div class="group-body" id="tree_body_{escape(group_key)}">
@@ -7081,7 +6478,7 @@ def mqtt2udp():
             html += f"""
                 <div class="tree-set{active_cls}" data-set-link="{escape(set_key)}" data-search="{escape(search_text)}" onclick="showSet('{escape(set_key)}')">
                     <span class="tree-set-main">
-                        <span class="tree-set-arrow" id="set_arrow_{escape(set_key)}" onclick="event.stopPropagation(); toggleSetSubitems('{escape(set_key)}')">â–¾</span>
+                        <span class="tree-set-arrow" id="set_arrow_{escape(set_key)}" onclick="event.stopPropagation(); toggleSetSubitems('{escape(set_key)}')">▾</span>
                         <span class="tree-set-name">{escape(set_obj["name"])}</span>
                     </span>
                     <span class="badge">{len(set_obj["rows"])}</span>
@@ -7095,7 +6492,7 @@ def mqtt2udp():
                 live_cls = "" if live_value and live_value != "-" else " empty"
                 html += f"""
                     <div class="tree-subitem" data-set-link="{escape(set_key)}" data-search="{escape((group['name'] + ' ' + set_obj['name'] + ' ' + alias).lower())}" onclick="showSet('{escape(set_key)}')">
-                        <span class="tree-subitem-name">â†³ {escape(alias)}</span>
+                        <span class="tree-subitem-name">↳ {escape(alias)}</span>
                         <span class="tree-live-value{live_cls}" id="mqtt2udp_tree_value_{row_index}">{escape(live_value if live_value != "-" else "")}</span>
                     </div>
 """
@@ -7147,7 +6544,7 @@ def mqtt2udp():
         set_hidden = f'<input type="hidden" name="set_name_{i}" value="{escape(set_name)}" data-set-sync="{escape(set_key)}">'
         test_button = "-" if is_new else f'<button class="testbtn" type="submit" formaction="/mqtt2udp/test/{i}" formmethod="post">Test</button>'
         copy_button = "-" if is_new else f'<button class="testbtn" type="submit" formaction="/mqtt2udp/copy/{i}" formmethod="post">Kopie</button>'
-        delete_cell = "-" if is_new else f'<button type="button" class="delete-btn" onclick="markDeleteAndHide({i})">ðŸ—‘</button><input type="checkbox" name="delete_{i}" id="delete_{i}" style="display:none;">'
+        delete_cell = "-" if is_new else f'<button type="button" class="delete-btn" onclick="markDeleteAndHide({i})">🗑</button><input type="checkbox" name="delete_{i}" id="delete_{i}" style="display:none;">'
         return f"""
                     <div class="mapping-card" id="mqtt2udp_mapping_card_{i}">
                         {group_hidden}
@@ -7247,16 +6644,16 @@ def mqtt2udp():
                         <input type="text" value="{escape(set_obj["name"])}" oninput="syncSetName('{escape(set_key)}', this.value)">
                     </div>
                     <div class="small">Ein UDP-Set kann mehrere MQTT Topics an UDP/Loxone senden.</div>
-                    <div><button type="button" class="delete-btn" onclick="deleteWholeSet('{escape(set_key)}')">Set lÃ¶schen</button></div>
+                    <div><button type="button" class="delete-btn" onclick="deleteWholeSet('{escape(set_key)}')">Set löschen</button></div>
                 </div>
             </div>
             <div class="card">
                 <div class="mapping-header">
                     <div>
-                        <h2 style="margin:0;">MQTT â†’ UDP Mappings</h2>
+                        <h2 style="margin:0;">MQTT → UDP Mappings</h2>
                         <div class="small">{len(set_obj["rows"])} Mapping(s) in diesem Set</div>
                     </div>
-                    <button type="button" onclick="showExtraMapping('{escape(set_key)}')">ï¼‹ Topic / UDP Mapping hinzufÃ¼gen</button>
+                    <button type="button" onclick="showExtraMapping('{escape(set_key)}')">＋ Topic / UDP Mapping hinzufügen</button>
                 </div>
                 <div class="mapping-list">
 """
@@ -7275,7 +6672,7 @@ def mqtt2udp():
             html += """
                     </div>
                 </div>
-                <div class="info-box small">UDP Format: <b>topic:value</b> fÃ¼r Loxone, JSON Text/Zahl oder nur Wert. Mehrere Ziel-IPs kommasepariert eintragen.</div>
+                <div class="info-box small">UDP Format: <b>topic:value</b> für Loxone, JSON Text/Zahl oder nur Wert. Mehrere Ziel-IPs kommasepariert eintragen.</div>
             </div>
         </section>
 """
@@ -7286,13 +6683,13 @@ def mqtt2udp():
             <div class="card">
                 <div class="set-head">
                     <div><label>Gruppe</label><input type="text" name="group_{extra_index}" value="{escape(prefill_group)}" list="mappingGroups" placeholder="z.B. Loxone UDP"></div>
-                    <div><label>Name / Pseudonym</label><input type="text" name="set_name_{extra_index}" value="{escape(prefill_set)}" placeholder="z.B. StromzÃ¤hler"></div>
+                    <div><label>Name / Pseudonym</label><input type="text" name="set_name_{extra_index}" value="{escape(prefill_set)}" placeholder="z.B. Stromzähler"></div>
                     <div class="small">Neues UDP-Set anlegen. Danach erscheint es links im Explorer.</div>
                     <div></div>
                 </div>
             </div>
             <div class="card">
-                <div class="mapping-header"><div><h2 style="margin:0;">Erstes UDP Mapping</h2><div class="small">Nach dem Speichern kannst du weitere Topics ergÃ¤nzen.</div></div></div>
+                <div class="mapping-header"><div><h2 style="margin:0;">Erstes UDP Mapping</h2><div class="small">Nach dem Speichern kannst du weitere Topics ergänzen.</div></div></div>
                 <div class="mapping-list">
 """
     html += render_mapping_card(extra_index, {
@@ -7307,7 +6704,7 @@ def mqtt2udp():
 
         <input type="hidden" name="count" value="{extra_index + 1}">
 
-        <div class="footer-actions"><button type="submit" class="save-bottom">ðŸ’¾ Speichern</button></div>
+        <div class="footer-actions"><button type="submit" class="save-bottom">💾 Speichern</button></div>
     </div></main>
 </div>
 """
@@ -7377,7 +6774,7 @@ def mqtt2udp_save():
         test_value = request.form.get(f"test_value_{i}", "123").strip()
         enabled = f"enabled_{i}" in request.form
 
-        # Legacy: Keine leeren Draft-/UI-Zeilen als technische MQTTâ†’UDP Mappings speichern.
+        # Legacy: Keine leeren Draft-/UI-Zeilen als technische MQTT→UDP Mappings speichern.
         # Gruppe/Set/Alias alleine ist nur Struktur und darf kein neues Mapping erzeugen.
         # Ein echtes Mapping braucht mindestens Quelle + Zielname oder Ziel-IP.
         has_real_mapping = bool(source_topic or udp_topic or udp_ip)
@@ -7478,7 +6875,7 @@ button,a { background:#5f686f; color:white; padding:10px 15px; text-decoration:n
 <tr>
     <th>Port</th>
     <th>Bezeichnung</th>
-    <th>LÃ¶schen</th>
+    <th>Löschen</th>
 </tr>
 """
 
@@ -7554,10 +6951,10 @@ def mqtt2udp_copy(index):
 
     item = mappings[index].copy()
 
-    # optional Testwert zurÃ¼cksetzen
+    # optional Testwert zurücksetzen
     item["test_value"] = item.get("test_value", "123")
 
-    # direkt unter Original einfÃ¼gen
+    # direkt unter Original einfügen
     mappings.insert(index + 1, item)
 
     save_mqtt2udp_config(mappings)
@@ -7576,7 +6973,7 @@ def test_influx():
     config = load_config()
     influx = config.get("influx", {}).copy()
 
-    # Mit aktuellen Formularwerten testen, ohne vorher speichern zu mÃ¼ssen
+    # Mit aktuellen Formularwerten testen, ohne vorher speichern zu müssen
     if request.form:
         influx = get_influx_form_config(config)
 
@@ -7586,51 +6983,51 @@ def test_influx():
         version = str(influx.get("version", "2"))
 
         if not host:
-            notice = '<div class="card bad">âŒ Influx Fehler: Host fehlt</div>'
+            notice = '<div class="card bad">❌ Influx Fehler: Host fehlt</div>'
             return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
         if version == "1":
             ping_url = f"http://{host}:{port}/ping"
             r = requests.get(ping_url, timeout=5)
             if r.status_code not in [200, 204]:
-                notice = f'<div class="card bad">âŒ InfluxDB 1.x nicht erreichbar: HTTP {r.status_code}</div>'
+                notice = f'<div class="card bad">❌ InfluxDB 1.x nicht erreichbar: HTTP {r.status_code}</div>'
                 return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
-            # Schreibtest fÃ¼r 1.x
+            # Schreibtest für 1.x
             test_cfg = dict(influx)
             if not test_cfg.get("database"):
-                notice = '<div class="card bad">âŒ InfluxDB 1.x: Datenbank fehlt</div>'
+                notice = '<div class="card bad">❌ InfluxDB 1.x: Datenbank fehlt</div>'
                 return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
-            line = f"{influx_escape_measurement(test_cfg.get('measurement', 'loxone'))},topic=mqtt2lox_influx_test value=1"
+            line = f"{influx_service.influx_escape_measurement(test_cfg.get('measurement', 'loxone'))},topic=mqtt2lox_influx_test value=1"
             url = f"http://{host}:{port}/write?db={quote(str(test_cfg.get('database')), safe='')}&precision=s"
             auth = (test_cfg.get("user", ""), test_cfg.get("password", "")) if test_cfg.get("user") or test_cfg.get("password") else None
             wr = requests.post(url, data=line.encode("utf-8"), auth=auth, timeout=5)
             if wr.status_code == 204:
-                notice = '<div class="card ok">âœ… InfluxDB 1.x erreichbar und Testwert geschrieben</div>'
+                notice = '<div class="card ok">✅ InfluxDB 1.x erreichbar und Testwert geschrieben</div>'
             else:
-                notice = f'<div class="card bad">âŒ InfluxDB 1.x Schreibtest Fehler: HTTP {wr.status_code} {escape(wr.text)}</div>'
+                notice = f'<div class="card bad">❌ InfluxDB 1.x Schreibtest Fehler: HTTP {wr.status_code} {escape(wr.text)}</div>'
 
         else:
             # Health zeigt nur, ob Influx lebt. Der echte Test ist danach der Write mit Token/Bucket/Org.
             health_url = f"http://{host}:{port}/health"
             hr = requests.get(health_url, timeout=5)
             if hr.status_code != 200:
-                notice = f'<div class="card bad">âŒ InfluxDB 2.x nicht erreichbar: HTTP {hr.status_code}</div>'
+                notice = f'<div class="card bad">❌ InfluxDB 2.x nicht erreichbar: HTTP {hr.status_code}</div>'
                 return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
-            ok, msg = influx_v2_write(influx, "mqtt2lox_influx_test", 1, test=True)
+            ok, msg = influx_service.influx_v2_write(influx, "mqtt2lox_influx_test", 1, test=True)
             if ok:
-                notice = '<div class="card ok">âœ… InfluxDB 2.x erreichbar, Token/Bucket/Org OK, Testwert geschrieben</div>'
+                notice = '<div class="card ok">✅ InfluxDB 2.x erreichbar, Token/Bucket/Org OK, Testwert geschrieben</div>'
                 add_log_entry("Influx Test OK: Testwert geschrieben")
             else:
-                notice = f'<div class="card bad">âŒ InfluxDB 2.x Schreibtest Fehler: {escape(msg)}</div>'
+                notice = f'<div class="card bad">❌ InfluxDB 2.x Schreibtest Fehler: {escape(msg)}</div>'
                 add_log_entry(f"Influx Test Fehler: {msg}")
 
         return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
     except Exception as e:
-        notice = f'<div class="card bad">âŒ Influx Fehler: {escape(str(e))}</div>'
+        notice = f'<div class="card bad">❌ Influx Fehler: {escape(str(e))}</div>'
         add_log_entry(f"Influx Test Exception: {e}")
         return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
@@ -7954,10 +7351,10 @@ def monitor():
     <input id="search" placeholder="Topic oder Payload suchen...">
     <button type="button" class="action-btn" onclick="expandAllExplorerNodes()">Alles aufklappen</button>
     <button type="button" class="action-btn" onclick="collapseAllExplorerNodes()">Alles einklappen</button>
-    <label class="discovery-toggle" title="Legacy UDPâ†’MQTT Discovery: unbekannte UDP Telegramme automatisch im MQTT Monitor sichtbar machen">
+    <label class="discovery-toggle" title="Legacy UDP→MQTT Discovery: unbekannte UDP Telegramme automatisch im MQTT Monitor sichtbar machen">
         <input type="checkbox" id="udpDiscoveryToggle" onchange="setUdpDiscovery(this.checked)">
         UDP Discovery
-        <span id="udpDiscoveryState" class="discovery-state">lÃ¤dtâ€¦</span>
+        <span id="udpDiscoveryState" class="discovery-state">lädt…</span>
     </label>
 </header>
 
@@ -7965,33 +7362,33 @@ def monitor():
     <div class="tree" id="tree"></div>
 
     <div class="details">
-        <h2 id="detailTopic">Kein Topic gewÃ¤hlt</h2>
+        <h2 id="detailTopic">Kein Topic gewählt</h2>
 
         <div class="object-primary-actions">
-            <button onclick="createObjectFromSelectedMqtt()" class="action-btn object-main-btn">Objekt erstellen / verknÃ¼pfen</button>
+            <button onclick="createObjectFromSelectedMqtt()" class="action-btn object-main-btn">Objekt erstellen / verknüpfen</button>
             <button onclick="copyTopic()" class="action-btn">Topic kopieren</button>
         </div>
 
         <details class="expert-actions">
-            <summary>âš™ Expertenmapping anzeigen</summary>
+            <summary>⚙ Expertenmapping anzeigen</summary>
             <div class="expert-actions-row">
-                <button onclick="sendToMqtt2Lox()" class="action-btn">MQTTâ†’Loxone</button>
-                <button onclick="sendToMqtt2Udp()" class="action-btn">MQTTâ†’UDP</button>
-                <button onclick="sendToMqtt2Knx()" class="action-btn">MQTTâ†’KNX</button>
-                <button onclick="sendToUdp2Mqtt()" class="action-btn">UDPâ†’MQTT</button>
+                <button onclick="sendToMqtt2Lox()" class="action-btn">MQTT→Loxone</button>
+                <button onclick="sendToMqtt2Udp()" class="action-btn">MQTT→UDP</button>
+                <button onclick="sendToMqtt2Knx()" class="action-btn">MQTT→KNX</button>
+                <button onclick="sendToUdp2Mqtt()" class="action-btn">UDP→MQTT</button>
             </div>
         </details>
         
         <div style="margin:0 0 15px 0; display:flex; gap:10px; flex-wrap:wrap;">
-            <button onclick="toggleFavorite()" class="action-btn">â­ Favorit</button>
-            <button onclick="setAlias()" class="action-btn">ðŸ·ï¸ Alias</button>
-            <button id="topicInfluxBtn" onclick="toggleSelectedTopicInflux()" class="action-btn inactive">ðŸ“ˆ Topic â†’ Influx</button>
+            <button onclick="toggleFavorite()" class="action-btn">⭐ Favorit</button>
+            <button onclick="setAlias()" class="action-btn">🏷️ Alias</button>
+            <button id="topicInfluxBtn" onclick="toggleSelectedTopicInflux()" class="action-btn inactive">📈 Topic → Influx</button>
         </div>
 
         <div id="favoritesBox" class="json-box" style="display:none;"></div>
 
         <div class="meta" id="detailMeta">-</div>
-        <div class="payload-box" id="detailPayload">Links ein Topic auswÃ¤hlen.</div>
+        <div class="payload-box" id="detailPayload">Links ein Topic auswählen.</div>
         <div id="jsonKeysBox"></div>
         <div id="historyBox" class="json-box" style="display:none;"></div>
     </div>
@@ -8130,7 +7527,7 @@ function renderNode(name, node, path, search) {
 
     const hasChildren = childrenKeys.length > 0;
     const collapsed = collapsedNodes[fullPath] === true;
-    const icon = hasChildren ? (collapsed ? "â–¶" : "â–¼") : "â€¢";
+    const icon = hasChildren ? (collapsed ? "▶" : "▼") : "•";
     const cls = hasTopic ? "node topic" : "node";
 
     let valueText = "";
@@ -8263,8 +7660,8 @@ function updateSelectedTopicInfluxButton() {
     const active = isSelectedTopicInfluxActive();
     btn.classList.toggle("active", active);
     btn.classList.toggle("inactive", !active);
-    btn.innerText = active ? "âœ“ Topic â†’ Influx" : "ðŸ“ˆ Topic â†’ Influx";
-    btn.title = active ? "Ganzes Topic aus Influx entfernen" : "Ganzes Topic fÃ¼r Influx aktivieren";
+    btn.innerText = active ? "✓ Topic → Influx" : "📈 Topic → Influx";
+    btn.title = active ? "Ganzes Topic aus Influx entfernen" : "Ganzes Topic für Influx aktivieren";
 }
 
 function buildJsonKeyButtons(obj, prefix = "") {
@@ -8289,8 +7686,8 @@ function buildJsonKeyButtons(obj, prefix = "") {
 
             const influxActive = isJsonKeyInfluxActive(path);
             const influxClass = influxActive ? "json-influx-btn active" : "json-influx-btn inactive";
-            const influxLabel = influxActive ? "âœ“ Influx" : "Influx";
-            const influxTitle = influxActive ? "Aus Influx entfernen" : "FÃ¼r Influx aktivieren";
+            const influxLabel = influxActive ? "✓ Influx" : "Influx";
+            const influxTitle = influxActive ? "Aus Influx entfernen" : "Für Influx aktivieren";
             const influxState = influxActive ? '<span class="json-influx-state">aktiv</span>' : '';
             const influxType = getJsonKeyInfluxType(path);
 
@@ -8309,11 +7706,11 @@ function buildJsonKeyButtons(obj, prefix = "") {
                         </select>
                         <button type="button" class="json-influx-btn object-main-btn" onclick="sendJsonKeyToTarget('${encodeURIComponent(path)}', 'object')">+ Objekt</button>
                         <select class="json-map-select" title="Expertenmapping" onchange="sendJsonKeyToTarget('${encodeURIComponent(path)}', this.value); this.value='';">
-                            <option value="">âš™ Mappingâ€¦</option>
-                            <option value="lox">MQTT â†’ Loxone</option>
-                            <option value="udp">MQTT â†’ UDP</option>
-                            <option value="knx">MQTT â†’ KNX</option>
-                            <option value="udp2mqtt">UDP â†’ MQTT</option>
+                            <option value="">⚙ Mapping…</option>
+                            <option value="lox">MQTT → Loxone</option>
+                            <option value="udp">MQTT → UDP</option>
+                            <option value="knx">MQTT → KNX</option>
+                            <option value="udp2mqtt">UDP → MQTT</option>
                         </select>
                     </div>
                 </div>
@@ -8374,7 +7771,7 @@ function selectTopic(key, fromRefresh = false) {
             if (buttons) {
                 jsonKeysHtml = `
                     <div class="json-box">
-                        <h3>JSON Keys â†’ Mapping</h3>
+                        <h3>JSON Keys → Mapping</h3>
                         ${buttons}
                     </div>
                 `;
@@ -8392,7 +7789,7 @@ function selectTopic(key, fromRefresh = false) {
 
 function getSelectedTopic() {
     if (!selectedKey || !latestData[selectedKey]) {
-        alert("Bitte erst links ein Topic auswÃ¤hlen.");
+        alert("Bitte erst links ein Topic auswählen.");
         return null;
     }
 
@@ -8504,10 +7901,10 @@ function toggleSelectedTopicInflux() {
             cfg.influx = !!data.enabled;
             cfg.enabled = true;
             updateSelectedTopicInfluxButton();
-            document.getElementById("detailMeta").innerText = data.message || (nextState ? "Topic fÃ¼r Influx aktiviert âœ…" : "Topic fÃ¼r Influx deaktiviert âœ…");
+            document.getElementById("detailMeta").innerText = data.message || (nextState ? "Topic für Influx aktiviert ✅" : "Topic für Influx deaktiviert ✅");
         })
         .catch(err => {
-            document.getElementById("detailMeta").innerText = "Influx speichern fehlgeschlagen âŒ " + err;
+            document.getElementById("detailMeta").innerText = "Influx speichern fehlgeschlagen ❌ " + err;
         });
 }
 
@@ -8539,7 +7936,7 @@ function toggleJsonKeyInflux(encodedJsonKey) {
             document.getElementById("detailMeta").innerText = data.message || (nextState ? "Influx Key aktiviert: " + jsonKey : "Influx Key deaktiviert: " + jsonKey);
         })
         .catch(err => {
-            document.getElementById("detailMeta").innerText = "Influx Key Fehler âŒ " + err;
+            document.getElementById("detailMeta").innerText = "Influx Key Fehler ❌ " + err;
         });
 }
 
@@ -8564,7 +7961,7 @@ function setJsonKeyInfluxType(encodedJsonKey, valueType) {
             document.getElementById("detailMeta").innerText = data.message || ("Influx Typ gespeichert: " + jsonKey);
         })
         .catch(err => {
-            document.getElementById("detailMeta").innerText = "Influx Typ Fehler âŒ " + err;
+            document.getElementById("detailMeta").innerText = "Influx Typ Fehler ❌ " + err;
         });
 }
 
@@ -8598,7 +7995,7 @@ function fallbackCopyTopic(text) {
         document.getElementById("detailMeta").innerText =
             "Topic kopiert: " + text;
     } catch (e) {
-        alert("Kopieren nicht mÃ¶glich: " + text);
+        alert("Kopieren nicht möglich: " + text);
     }
 
     document.body.removeChild(textarea);
@@ -8654,7 +8051,7 @@ function getAlias(topic) {
 
 function getDisplayName(item) {
     const alias = getAlias(item.topic);
-    return alias ? alias + "  â€”  " + item.topic : item.topic;
+    return alias ? alias + "  —  " + item.topic : item.topic;
 }
 
 function loadMonitorSettings() {
@@ -8696,7 +8093,7 @@ function renderFavorites() {
         return;
     }
 
-    let html = "<h3>â­ Favoriten</h3>";
+    let html = "<h3>⭐ Favoriten</h3>";
 
     for (const topic of favs) {
         let foundKey = null;
@@ -8751,7 +8148,7 @@ function setAlias() {
     if (!topic) return;
 
     const oldAlias = monitorSettings.aliases?.[topic] || "";
-    const alias = prompt("Alias fÃ¼r dieses Topic:", oldAlias);
+    const alias = prompt("Alias für dieses Topic:", oldAlias);
 
     if (alias === null) return;
 
@@ -8807,7 +8204,7 @@ function renderPayloadHistory(topic) {
         return;
     }
 
-    let html = "<h3>ðŸ“ˆ Verlauf</h3>";
+    let html = "<h3>📈 Verlauf</h3>";
 
     for (const entry of list.slice().reverse()) {
         let value = entry.value;
@@ -8819,7 +8216,7 @@ function renderPayloadHistory(topic) {
         html += `
             <div style="font-family:Consolas, monospace; font-size:13px; margin:4px 0;">
                 <span style="color:#aeb8c4;">${esc(entry.time)}</span>
-                â†’ ${esc(value)}
+                → ${esc(value)}
             </div>
         `;
     }
@@ -8904,7 +8301,7 @@ function loadUdpDiscoveryState() {
 
 function setUdpDiscovery(enabled) {
     const label = document.getElementById("udpDiscoveryState");
-    if (label) label.textContent = enabled ? "schalte anâ€¦" : "schalte ausâ€¦";
+    if (label) label.textContent = enabled ? "schalte an…" : "schalte aus…";
 
     const form = new FormData();
     form.append("legacy_fallback", enabled ? "1" : "0");
@@ -8919,7 +8316,7 @@ function setUdpDiscovery(enabled) {
             const meta = document.getElementById("detailMeta");
             if (meta) meta.innerText = on
                 ? "UDP Discovery aktiv: unbekannte UDP Telegramme werden als MQTT Topics sichtbar."
-                : "UDP Discovery aus: nur explizite UDPâ†’MQTT Mappings werden verÃ¶ffentlicht.";
+                : "UDP Discovery aus: nur explizite UDP→MQTT Mappings werden veröffentlicht.";
         })
         .catch(() => {
             if (label) label.textContent = "Fehler";
@@ -8985,18 +8382,18 @@ def mqtt_hub_content():
     mqtt = get_effective_mqtt_config(config)
     udp_cfg = config.get("udp_input", {})
     cards = [
-        ("Loxone Explorer", "/topics2", len(_topic_manager_2_collect_topics()), "Explorer-Ansicht fÃ¼r Loxone Topics: suchen, auswÃ¤hlen, Alias setzen, Influx/Writable schalten und direkt weiter mappen."),
+        ("Loxone Explorer", "/topics2", len(_topic_manager_2_collect_topics()), "Explorer-Ansicht für Loxone Topics: suchen, auswählen, Alias setzen, Influx/Writable schalten und direkt weiter mappen."),
         ("MQTT Monitor", "/monitor", len(mqtt_monitor_values), "Live MQTT Topics ansehen, filtern und kopieren. Discovery kannst du direkt dort ein- und ausschalten."),
-        ("MQTT â†’ Loxone", "/mqtt2lox", len(load_mqtt2lox_config()), "MQTT Topics an Loxone EingÃ¤nge/Controls schicken."),
-        ("MQTT â†’ UDP", "/mqtt2udp", len(load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
-        ("UDP â†’ MQTT", "/udp2mqtt", len(load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics verÃ¶ffentlichen und gezielt mappen."),
-        ("MQTT â†’ KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
-        ("Influx Explorer", "/influx_explorer", "DB", "InfluxDB direkt aus MQTT2Lox verwalten: Topics finden, prÃ¼fen und gezielt lÃ¶schen."),
-        ("Objektmanager", "/objects", len(load_objects_config()), "Datenpunkte aus MQTT, Loxone, KNX, UDP und Influx zu einer Smart-Home-Objektansicht bÃ¼ndeln."),
+        ("MQTT → Loxone", "/mqtt2lox", len(load_mqtt2lox_config()), "MQTT Topics an Loxone Eingänge/Controls schicken."),
+        ("MQTT → UDP", "/mqtt2udp", len(load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
+        ("UDP → MQTT", "/udp2mqtt", len(load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics veröffentlichen und gezielt mappen."),
+        ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
+        ("Influx Explorer", "/influx_explorer", "DB", "InfluxDB direkt aus MQTT2Lox verwalten: Topics finden, prüfen und gezielt löschen."),
+        ("Objektmanager", "/objects", len(load_objects_config()), "Datenpunkte aus MQTT, Loxone, KNX, UDP und Influx zu einer Smart-Home-Objektansicht bündeln."),
     ]
     html_cards = ""
     for title, url, count, desc in cards:
-        if title == "UDP â†’ MQTT" and udp_cfg.get("enabled"):
+        if title == "UDP → MQTT" and udp_cfg.get("enabled"):
             status = "aktiv"
         else:
             status = str(count)
@@ -9023,7 +8420,7 @@ a {{ color:inherit; text-decoration:none; }}
 <div class="card">
     <span class="badge">Broker: {escape(str(mqtt.get('host','-')))}:{escape(str(mqtt.get('port','-')))}</span>
     <span class="badge">UDP Eingang: {escape('aktiv' if udp_cfg.get('enabled') else 'aus')}</span>
-    <p class="small">Alle MQTT-BrÃ¼cken an einem Ort: Loxone, UDP, KNX, Objektmanager und Monitor. UDP Discovery schaltest du direkt im MQTT Monitor ein und aus.</p>
+    <p class="small">Alle MQTT-Brücken an einem Ort: Loxone, UDP, KNX, Objektmanager und Monitor. UDP Discovery schaltest du direkt im MQTT Monitor ein und aus.</p>
 </div>
 <div class="grid">{html_cards}</div>
 </body></html>"""
@@ -9037,10 +8434,10 @@ def mqtt_hub():
 def knx_hub_content():
     knx_cfg = load_knx_config()
     cards = [
-        ("MQTT â†’ KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
-        ("KNX â†’ MQTT", "/knx2mqtt", len(load_knx2mqtt_config()), "KNX Telegramme als MQTT Topics verÃ¶ffentlichen."),
-        ("UDP â†’ KNX", "/udp2knx", len(load_udp2knx_config()), "UDP Telegramme direkt auf KNX Gruppenadressen senden."),
-        ("KNX â†’ Loxone", "/knx2lox", len(load_knx2lox_config()), "KNX Telegramme direkt an Loxone EingÃ¤nge/Controls schicken."),
+        ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
+        ("KNX → MQTT", "/knx2mqtt", len(load_knx2mqtt_config()), "KNX Telegramme als MQTT Topics veröffentlichen."),
+        ("UDP → KNX", "/udp2knx", len(load_udp2knx_config()), "UDP Telegramme direkt auf KNX Gruppenadressen senden."),
+        ("KNX → Loxone", "/knx2lox", len(load_knx2lox_config()), "KNX Telegramme direkt an Loxone Eingänge/Controls schicken."),
         ("KNX Gateway", "/knx_settings_embed", 1 if knx_cfg.get("enabled") else 0, "Gateway, Tunneling/Routing und lokale Schnittstelle einstellen."),
         ("KNX Monitor", "/knx_monitor", len(knx_monitor_values), "Live Telegramme ansehen und debuggen."),
     ]
@@ -9069,7 +8466,7 @@ a {{ color:inherit; text-decoration:none; }}
 <h1>KNX Hub</h1>
 <div class="card">
     <span class="badge">Gateway: {escape('aktiv' if knx_cfg.get('enabled') else 'aus')}</span>
-    <p class="small">Alle KNX BrÃ¼cken an einem Ort: MQTT, UDP, Loxone, Gateway und Monitor. Der KNX Monitor bleibt zusÃ¤tzlich direkt in der Sidebar erreichbar.</p>
+    <p class="small">Alle KNX Brücken an einem Ort: MQTT, UDP, Loxone, Gateway und Monitor. Der KNX Monitor bleibt zusätzlich direkt in der Sidebar erreichbar.</p>
 </div>
 <div class="grid">{html_cards}</div>
 </body></html>'''
@@ -9102,7 +8499,7 @@ document.addEventListener("submit",()=>{ document.querySelectorAll(".knx-ga-inpu
 
 
 # -----------------------------------------------------------------------------
-# Legacy: Shared Explorer Layout auch fÃ¼r KNX/UDP Mapping-Seiten
+# Legacy: Shared Explorer Layout auch für KNX/UDP Mapping-Seiten
 # -----------------------------------------------------------------------------
 def mapping_safe_key(value):
     return clean_topic(str(value or "")) or "ohne_name"
@@ -9117,21 +8514,13 @@ def mapping_dpt_select(name, selected="1.001"):
         ("5.010", "5.010 0-255"),
         ("9.001", "9.001 Temperatur"),
     ]
-    html = f'<select name="{escape(name)}">'
-    for val, label in opts:
-        html += f'<option value="{escape(val)}" {"selected" if selected == val else ""}>{escape(label)}</option>'
-    html += '</select>'
-    return html
+    return template_service.build_select_html(name, opts, selected)
 
 
 def mapping_payload_select(name, selected="raw"):
     selected = str(selected or "raw")
     opts = [("raw", "Raw Payload"), ("json_key", "JSON Key")]
-    html = f'<select name="{escape(name)}">'
-    for val, label in opts:
-        html += f'<option value="{escape(val)}" {"selected" if selected == val else ""}>{escape(label)}</option>'
-    html += '</select>'
-    return html
+    return template_service.build_select_html(name, opts, selected)
 
 
 def get_mapping_group_set(item, fallback_set="Importiert"):
@@ -9162,17 +8551,17 @@ def render_shared_mapping_explorer_page(page_id, title, description, back_url, f
         group = tree[group_key]
         total_rows = sum(len(st["rows"]) for st in group["sets"].values())
         tree_html += f"""<div class="tree-group" data-tree-group="{escape(group_key)}" data-search="{escape(group['name'])}">
-    <div class="tree-group-title" onclick="toggleTreeGroup('{escape(group_key)}')"><span id="tree_arrow_{escape(group_key)}">â–¾</span><span>{escape(group['name'])}</span><span class="tree-count">{total_rows}</span></div>
+    <div class="tree-group-title" onclick="toggleTreeGroup('{escape(group_key)}')"><span id="tree_arrow_{escape(group_key)}">▾</span><span>{escape(group['name'])}</span><span class="tree-count">{total_rows}</span></div>
     <div id="tree_body_{escape(group_key)}" class="tree-body">"""
         for set_key in sorted(group["sets"].keys(), key=lambda x: group["sets"][x]["name"].casefold()):
             st = group["sets"][set_key]
             rows = st["rows"]
             search = " ".join([group["name"], st["name"]] + [r["alias"] for r in rows])
             tree_html += f"""<div class="tree-set" data-set-link="{escape(set_key)}" data-search="{escape(search)}">
-    <div class="tree-set-main" onclick="showSet('{escape(set_key)}')"><span>â–¸ {escape(st['name'])}</span><span class="tree-count">{len(rows)}</span></div>
+    <div class="tree-set-main" onclick="showSet('{escape(set_key)}')"><span>▸ {escape(st['name'])}</span><span class="tree-count">{len(rows)}</span></div>
     <div class="tree-subitems" data-subitems-for="{escape(set_key)}">"""
             for r in rows:
-                tree_html += f"""<div class="tree-subitem" data-row-index="{r['index']}" data-search="{escape(search)}" onclick="selectTreeRow('{escape(set_key)}', {r['index']})">â†³ {escape(r['alias'])}<span id="{escape(page_id)}_tree_value_{r['index']}" class="tree-value empty"></span></div>"""
+                tree_html += f"""<div class="tree-subitem" data-row-index="{r['index']}" data-search="{escape(search)}" onclick="selectTreeRow('{escape(set_key)}', {r['index']})">↳ {escape(r['alias'])}<span id="{escape(page_id)}_tree_value_{r['index']}" class="tree-value empty"></span></div>"""
             tree_html += "</div></div>"
         tree_html += "</div></div>"
     if not tree_html:
@@ -9190,18 +8579,18 @@ def render_shared_mapping_explorer_page(page_id, title, description, back_url, f
             rows_html += f'<div id="extra_wrap_{escape(set_key)}" style="display:none;">' + build_new_card_fn(next_index, group["name"], st["name"], set_key) + '</div>'
             panels += f"""
 <section class="set-panel{active}" data-set-panel="{escape(set_key)}">
-    <div class="card compact-card"><div class="set-head lox-style-head"><div><label>Gruppe</label><input type="text" data-set-header-group="{escape(set_key)}" value="{escape(group['name'] if group['name'] != 'Ohne Gruppe' else '')}" list="mappingGroups" oninput="syncPanelGroup('{escape(set_key)}', this.value)"></div><div><label>Name / Pseudonym</label><input type="text" data-set-header-name="{escape(set_key)}" value="{escape(st['name'])}" oninput="syncPanelSetName('{escape(set_key)}', this.value)"></div><div><button type="button" title="Name/Gruppe auf alle Mappings Ã¼bernehmen" onclick="syncPanelHeader('{escape(set_key)}')">âœŽ</button></div><div class="small">Ein Set kann mehrere Datenpunkte eines GerÃ¤tes enthalten, z.B. Schalten, Temperatur, Status oder Leistung.</div><div><button type="button" class="delete-btn" onclick="deleteWholeSet('{escape(set_key)}')">Set lÃ¶schen</button></div></div></div>
-    <div class="card"><div class="mapping-header"><div><h2 style="margin:0;">Mappings in diesem Set</h2><div class="small">{len(st['rows'])} gespeicherte Mapping(s)</div></div><button type="button" onclick="showExtraMapping('{escape(set_key)}')">ï¼‹ Topic / Mapping hinzufÃ¼gen</button></div><div class="mapping-list">{rows_html}</div><div class="info-box small">Aktiv = Mapping aktiv Â· Letzter Wert/Zeit werden live aktualisiert Â· Gruppe und Name bilden links den Explorer-Baum.</div></div>
+    <div class="card compact-card"><div class="set-head lox-style-head"><div><label>Gruppe</label><input type="text" data-set-header-group="{escape(set_key)}" value="{escape(group['name'] if group['name'] != 'Ohne Gruppe' else '')}" list="mappingGroups" oninput="syncPanelGroup('{escape(set_key)}', this.value)"></div><div><label>Name / Pseudonym</label><input type="text" data-set-header-name="{escape(set_key)}" value="{escape(st['name'])}" oninput="syncPanelSetName('{escape(set_key)}', this.value)"></div><div><button type="button" title="Name/Gruppe auf alle Mappings übernehmen" onclick="syncPanelHeader('{escape(set_key)}')">✎</button></div><div class="small">Ein Set kann mehrere Datenpunkte eines Gerätes enthalten, z.B. Schalten, Temperatur, Status oder Leistung.</div><div><button type="button" class="delete-btn" onclick="deleteWholeSet('{escape(set_key)}')">Set löschen</button></div></div></div>
+    <div class="card"><div class="mapping-header"><div><h2 style="margin:0;">Mappings in diesem Set</h2><div class="small">{len(st['rows'])} gespeicherte Mapping(s)</div></div><button type="button" onclick="showExtraMapping('{escape(set_key)}')">＋ Topic / Mapping hinzufügen</button></div><div class="mapping-list">{rows_html}</div><div class="info-box small">Aktiv = Mapping aktiv · Letzter Wert/Zeit werden live aktualisiert · Gruppe und Name bilden links den Explorer-Baum.</div></div>
 </section>"""
             next_index += 1
     new_active = " active" if first_panel else ""
     panels += f"""
-<section class="set-panel{new_active}" data-set-panel="__new__"><div class="card compact-card"><div class="set-head lox-style-head"><div><label>Gruppe</label><input type="text" data-set-header-group="__new__" value="" list="mappingGroups" placeholder="z.B. Strom ZÃ¤hler" oninput="syncPanelGroup('__new__', this.value)"></div><div><label>Name / Pseudonym</label><input type="text" data-set-header-name="__new__" value="Neues {escape(title)} Set" oninput="syncPanelSetName('__new__', this.value)"></div><div></div><div class="small">Neues GerÃ¤t/Objekt anlegen. Danach erscheint es links im Explorer.</div><div></div></div></div><div class="card"><div class="mapping-header"><div><h2 style="margin:0;">Erstes Mapping</h2><div class="small">Nach dem Speichern kannst du weitere Topics im Set ergÃ¤nzen.</div></div></div><div class="mapping-list">{build_new_card_fn(next_index, '', f'Neues {title} Set', '__new__')}</div></div></section>"""
+<section class="set-panel{new_active}" data-set-panel="__new__"><div class="card compact-card"><div class="set-head lox-style-head"><div><label>Gruppe</label><input type="text" data-set-header-group="__new__" value="" list="mappingGroups" placeholder="z.B. Strom Zähler" oninput="syncPanelGroup('__new__', this.value)"></div><div><label>Name / Pseudonym</label><input type="text" data-set-header-name="__new__" value="Neues {escape(title)} Set" oninput="syncPanelSetName('__new__', this.value)"></div><div></div><div class="small">Neues Gerät/Objekt anlegen. Danach erscheint es links im Explorer.</div><div></div></div></div><div class="card"><div class="mapping-header"><div><h2 style="margin:0;">Erstes Mapping</h2><div class="small">Nach dem Speichern kannst du weitere Topics im Set ergänzen.</div></div></div><div class="mapping-list">{build_new_card_fn(next_index, '', f'Neues {title} Set', '__new__')}</div></div></section>"""
     mapping_groups_html = '<datalist id="mappingGroups">' + ''.join(f'<option value="{escape(g)}">' for g in sorted([g for g in known_groups if g and g != "Ohne Gruppe"], key=lambda x: x.casefold())) + '</datalist>'
     extra = (extra_script or "") + "\n" + knx_ga_script().replace("<script>", "").replace("</script>", "") + """
 // Legacy: Gruppe/Set-Name robust speichern.
 // Wichtig: nicht per CSS.escape in Attribut-Selektoren suchen, sondern per getAttribute vergleichen.
-// Sonst greifen Sonderzeichen in Set-Namen wie '/', Leerzeichen usw. nicht zuverlÃ¤ssig.
+// Sonst greifen Sonderzeichen in Set-Namen wie '/', Leerzeichen usw. nicht zuverlässig.
 function findByAttr(attr, value){
     return Array.from(document.querySelectorAll('[' + attr + ']')).filter(function(el){
         return el.getAttribute(attr) === String(value);
@@ -9227,7 +8616,7 @@ function syncAllPanelHeaders(){
 
 // Legacy: Neues Set aus dem aktuell angeklickten Explorer-Eintrag vorbereiten.
 // Das kopiert gezielt die Quell-Adresse/Topic-Daten in das __new__ Panel,
-// statt nur ein leeres neues Set zu Ã¶ffnen.
+// statt nur ein leeres neues Set zu öffnen.
 function firstNamedInput(panel, baseName){
     if(!panel) return null;
     return Array.from(panel.querySelectorAll('input[name], select[name]')).find(function(el){
@@ -9259,8 +8648,8 @@ function createNewSetFromCurrentSelection(){
         });
     }
 
-    // Legacy: URL-/Explorer-Ãœbernahme immer anwenden, auch wenn gerade kein bestehendes Set aktiv ist.
-    // Besonders wichtig fÃ¼r KNXâ†’MQTT: /knx2mqtt?group_address=1/2/10 soll direkt das neue Mapping Ã¶ffnen.
+    // Legacy: URL-/Explorer-Übernahme immer anwenden, auch wenn gerade kein bestehendes Set aktiv ist.
+    // Besonders wichtig für KNX→MQTT: /knx2mqtt?group_address=1/2/10 soll direkt das neue Mapping öffnen.
     try {
         var params = new URLSearchParams(window.location.search || '');
         ['group_address','source_topic','mqtt_topic','udp_topic','dpt','payload_mode','json_key'].forEach(function(name){
@@ -9329,22 +8718,22 @@ document.addEventListener('DOMContentLoaded', function(){
     return f"""<!doctype html><html><head><title>{escape(title)} Mapping Explorer</title><style>
 :root {{ --bg:#202830; --panel:#1b2229; --border:#303b45; --muted:#aeb8c4; --text:#f4f7fb; --accent:#5f686f; --green:#1fa342; }}
 * {{ box-sizing:border-box; }} html,body {{ height:100%; overflow:hidden; }} body {{ font-family:Arial,sans-serif; background:var(--bg); color:var(--text); margin:0; }} header {{ height:74px; background:#1b2229; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 20px; }} h1 {{ margin:0; font-size:28px; }} .header-tools {{ display:flex; gap:8px; align-items:center; }} .page {{ display:grid; grid-template-columns:330px minmax(0,1fr); height:calc(100vh - 74px); overflow:hidden; }} .sidebar {{ background:#111820; border-right:1px solid var(--border); overflow:auto; padding:14px; }} .editor {{ overflow:auto; padding:18px; }} .editor-inner {{ width:max(100%, 1080px); padding-right:18px; }} button,a.button-link {{ background:var(--accent); color:white; padding:9px 13px; text-decoration:none; border:none; border-radius:8px; cursor:pointer; display:inline-block; font-size:14px; font-weight:700; }} button:hover,a.button-link:hover {{ background:#737d86; }} .save-bottom {{ background:var(--green); min-width:230px; font-size:16px; padding:13px 20px; }} .delete-btn {{ background:transparent; border:1px solid #e05050; color:#ff7777; }} input[type=text],select {{ width:100%; background:#0f1720; color:white; border:1px solid #4a5663; border-radius:6px; padding:8px; font-size:14px; }} input[type=checkbox] {{ width:18px; height:18px; accent-color:#35c75a; }} label {{ display:block; color:#cfe0f5; font-size:12px; margin-bottom:4px; }} .small {{ color:#cfe0f5; font-size:13px; line-height:1.35; }} .tree-tools {{ margin-bottom:12px; }} .tree-group-title {{ padding:8px 10px; cursor:pointer; font-weight:900; color:#ffe66a; display:flex; justify-content:space-between; gap:8px; align-items:center; }} .tree-body {{ padding-left:18px; }} .collapsed {{ display:none !important; }} .tree-set-main {{ padding:8px 10px; cursor:pointer; display:flex; justify-content:space-between; border-radius:8px; }} [data-set-link].active .tree-set-main {{ background:#6f7a81; color:#fff; }} .tree-count {{ background:#2f4156; color:#d8eaff; border-radius:999px; padding:2px 8px; font-size:12px; }} .tree-subitems {{ padding:2px 0 4px 22px; }} .tree-subitem {{ padding:5px 0; color:#dce6ef; font-size:12px; cursor:pointer; display:flex; justify-content:space-between; }} .tree-subitem.active-row {{ background:rgba(95,104,111,.35); border-radius:6px; padding-left:6px; }} .tree-value {{ color:#24e36d; background:#143b26; border-radius:6px; padding:1px 6px; font-family:Consolas,monospace; }} .tree-value.empty,.hidden-by-search {{ display:none !important; }} .empty-tree {{ color:var(--muted); padding:14px; }} .card {{ background:#1b2229; border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }} .set-panel {{ display:none; }} .set-panel.active {{ display:block; }} .set-head.lox-style-head {{ display:grid; grid-template-columns:230px 280px 46px 1fr auto; gap:12px; align-items:end; }} .mapping-header {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }} .mapping-list {{ display:grid; gap:14px; }} .mapping-row,.mapping-card {{ background:#121922; border:1px solid #303b45; border-radius:12px; padding:14px; }} .mapping-alias {{ display:grid; grid-template-columns:1fr auto; gap:12px; align-items:end; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--border); }} .mapping-card-top.shared-live-card {{ display:grid; grid-template-columns:240px 42px repeat(4,minmax(150px,1fr)) auto; gap:12px; align-items:end; margin-bottom:12px; }} .current-value-box {{ border:1px solid var(--border); border-radius:10px; background:rgba(255,255,255,.02); padding:10px 12px; min-height:82px; display:flex; flex-direction:column; justify-content:center; }} .current-value-title {{ color:var(--muted); font-size:12px; margin-bottom:7px; }} .current-value-main {{ color:#35d05b; font-size:22px; font-weight:900; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }} .current-value-main.empty {{ color:var(--muted); }} .current-value-time {{ color:var(--muted); font-size:12px; margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }} .mapping-card-bottom.shared-live-bottom {{ display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:12px; align-items:end; }} .mapping-actions {{ display:flex; gap:8px; align-items:center; justify-content:flex-end; }} .mapping-grid {{ display:grid; grid-template-columns:80px 1.5fr 1fr 1fr 1fr 90px 90px; gap:10px; align-items:end; }} .mapping-grid.wide {{ grid-template-columns:80px 1.4fr 1fr 1fr 1fr 1fr 90px 90px; }} .mapping-grid.mqtt-knx {{ grid-template-columns:70px 1.4fr 1fr .9fr 1fr 1fr 70px 105px 90px 130px; }} .live-pill {{ background:#101820; border:1px solid #31404f; border-radius:8px; padding:8px; min-height:37px; font-family:Consolas,monospace; }} .live-pill.empty {{ color:var(--muted); }} .info-box {{ margin-top:14px; border:1px solid #24456f; background:#12233b; border-radius:9px; padding:12px 14px; }} .form-bottom {{ position:sticky; bottom:0; background:rgba(32,40,48,.96); border-top:1px solid var(--border); padding:14px 0; display:flex; justify-content:flex-end; }} @media (max-width:1100px) {{ .page {{ grid-template-columns:1fr; }} .sidebar {{ display:none; }} html,body {{ overflow:auto; }} .editor {{ overflow:visible; }} .mapping-grid,.mapping-grid.wide,.mapping-grid.mqtt-knx,.mapping-card-top.shared-live-card,.mapping-card-bottom.shared-live-bottom,.set-head.lox-style-head,.mapping-alias {{ grid-template-columns:1fr; }} }}
-</style></head><body><header><div><h1>{escape(title)} Mapping Explorer</h1><div class="small">{description}</div></div><div class="header-tools"><a class="button-link" href="{escape(back_url)}">â† ZurÃ¼ck zum {escape(hub_label)}</a><button type="button" onclick="expandAllTree()">Alles aufklappen</button><button type="button" onclick="collapseAllTree()">Alles einklappen</button></div></header><div class="page"><aside class="sidebar"><div class="tree-tools"><input id="treeSearch" type="text" placeholder="Suchen..." oninput="filterTree()"><button type="button" style="width:100%; margin-top:9px; justify-content:center;" onclick="createNewSetFromCurrentSelection()">ï¼‹ Neues Set erstellen</button></div>{tree_html}</aside><main class="editor"><div class="editor-inner"><form id="mappingForm" method="post" action="{escape(form_action)}">{panels}<input type="hidden" name="count" value="{next_index+1}">{mapping_groups_html}{datalist_html}<div class="form-bottom"><button type="submit" class="save-bottom">ðŸ’¾ Speichern</button></div></form></div></main></div>{script}</body></html>"""
+</style></head><body><header><div><h1>{escape(title)} Mapping Explorer</h1><div class="small">{description}</div></div><div class="header-tools"><a class="button-link" href="{escape(back_url)}">← Zurück zum {escape(hub_label)}</a><button type="button" onclick="expandAllTree()">Alles aufklappen</button><button type="button" onclick="collapseAllTree()">Alles einklappen</button></div></header><div class="page"><aside class="sidebar"><div class="tree-tools"><input id="treeSearch" type="text" placeholder="Suchen..." oninput="filterTree()"><button type="button" style="width:100%; margin-top:9px; justify-content:center;" onclick="createNewSetFromCurrentSelection()">＋ Neues Set erstellen</button></div>{tree_html}</aside><main class="editor"><div class="editor-inner"><form id="mappingForm" method="post" action="{escape(form_action)}">{panels}<input type="hidden" name="count" value="{next_index+1}">{mapping_groups_html}{datalist_html}<div class="form-bottom"><button type="submit" class="save-bottom">💾 Speichern</button></div></form></div></main></div>{script}</body></html>"""
 
 
 
 
 
 def render_shared_live_mapping_card(page_id, i, group_name, set_name, set_key, alias, enabled=True, current_value='-', current_time='-', top_html='', bottom_html='', actions_html='', is_new=False):
-    """Shared Mapping-Card im MQTTâ†’Loxone-Stil mit groÃŸem Live-Wert links."""
+    """Shared Mapping-Card im MQTT→Loxone-Stil mit großem Live-Wert links."""
     checked = 'checked' if enabled else ''
     current_text = str(current_value if current_value not in [None, ''] else '-')
     time_text = str(current_time if current_time not in [None, ''] else '-')
     empty_cls = ' empty' if current_text == '-' else ''
     group_hidden = f'<input type="hidden" name="group_{i}" value="{escape(group_name if group_name != "Ohne Gruppe" else "")}" data-group-sync="{escape(set_key)}">'
     set_hidden = f'<input type="hidden" name="set_name_{i}" value="{escape(set_name)}" data-set-sync="{escape(set_key)}">'
-    # Legacy: Neue/zusÃ¤tzliche Mapping-Karten werden erst gespeichert, wenn sie wirklich geÃ¶ffnet/benutzt wurden.
-    # Sonst erzeugt jeder Speichern-Klick aus dem versteckten __new__-Panel wieder leere "Neues Mapping"-EintrÃ¤ge.
+    # Legacy: Neue/zusätzliche Mapping-Karten werden erst gespeichert, wenn sie wirklich geöffnet/benutzt wurden.
+    # Sonst erzeugt jeder Speichern-Klick aus dem versteckten __new__-Panel wieder leere "Neues Mapping"-Einträge.
     save_marker = '0' if is_new else '1'
     save_hidden = f'<input type="hidden" name="save_row_{i}" value="{save_marker}" data-save-marker="{i}">'
     return f"""
@@ -9379,7 +8768,7 @@ def render_shared_live_mapping_card(page_id, i, group_name, set_name, set_key, a
 """
 
 def shared_mapping_set_header(i, group_name, set_name, set_key, alias):
-    return f'''<div class="set-head"><div><h2 style="margin:0 0 4px 0;">{escape(set_name)}</h2><div class="small">{escape(alias)}</div></div><div><button type="button" class="delete-btn" onclick="markDeleteAndHide({i})">Mapping lÃ¶schen</button></div></div>
+    return f'''<div class="set-head"><div><h2 style="margin:0 0 4px 0;">{escape(set_name)}</h2><div class="small">{escape(alias)}</div></div><div><button type="button" class="delete-btn" onclick="markDeleteAndHide({i})">Mapping löschen</button></div></div>
 <div class="set-grid">
     <div><label>Gruppe</label><input type="text" name="group_{i}" value="{escape(group_name)}" data-group-sync="{escape(set_key)}" oninput="syncSetGroup('{escape(set_key)}', this.value)"></div>
     <div><label>Set Name</label><input type="text" name="set_name_{i}" value="{escape(set_name)}" data-set-sync="{escape(set_key)}" oninput="syncSetName('{escape(set_key)}', this.value)"></div>
@@ -9400,7 +8789,7 @@ def udp2knx():
         last = udp2knx_last_seen.get(item.get('source_topic',''), {})
         top = f'''<div><label>UDP Topic</label><input type="text" name="source_topic_{i}" value="{escape(str(item.get('source_topic','')))}" placeholder="topic vor Doppelpunkt"></div><div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div><div><label>Testwert</label><input type="text" name="test_value_{i}" value="{escape(str(item.get('test_value','1')))}"></div>'''
         bottom = f'''<div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="udp2knx_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="udp2knx_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
-        actions = f'''<button type="submit" formaction="/udp2knx/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">ðŸ—‘</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
+        actions = f'''<button type="submit" formaction="/udp2knx/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
         return render_shared_live_mapping_card('udp2knx', i, group_name, set_name, set_key, alias, item.get('enabled', True), last.get('value','-'), last.get('time','-'), top, bottom, actions)
 
     def new_card(i, group_name='', set_name='', set_key='__new__'):
@@ -9408,7 +8797,7 @@ def udp2knx():
         bottom = f'''<div><label>Invert</label><input type="checkbox" name="invert_{i}"></div><div><label>Letzter Wert</label><div class="small" id="udp2knx_value_{i}">-</div></div><div><label>Zuletzt</label><div class="small" id="udp2knx_time_{i}">-</div></div>'''
         return render_shared_live_mapping_card('udp2knx', i, group_name, set_name, set_key, 'Neues Mapping', True, '-', '-', top, bottom, '', is_new=True)
 
-    return render_shared_mapping_explorer_page('udp2knx', 'UDP â†’ KNX', 'UDP topic:value direkt auf KNX Gruppenadressen senden.', '/knx', '/udp2knx/save', mappings, card, new_card, '/udp2knx_data', 'udp2knx_value_', 'udp2knx_time_')
+    return render_shared_mapping_explorer_page('udp2knx', 'UDP → KNX', 'UDP topic:value direkt auf KNX Gruppenadressen senden.', '/knx', '/udp2knx/save', mappings, card, new_card, '/udp2knx_data', 'udp2knx_value_', 'udp2knx_time_')
 
 @app.route('/udp2knx_data')
 def udp2knx_data():
@@ -9455,7 +8844,7 @@ def knx2lox():
         last = knx2lox_last_seen.get(knx_service.normalize_knx_ga(item.get('group_address','')), {})
         top = f'''<div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>Loxone IO</label><input type="text" name="loxone_io_{i}" value="{escape(str(item.get('loxone_io','')))}" list="loxoneInputs" placeholder="Virtueller Eingang / Control"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div>'''
         bottom = f'''<div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="knx2lox_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="knx2lox_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
-        actions = f'''<button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">ðŸ—‘</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
+        actions = f'''<button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
         return render_shared_live_mapping_card('knx2lox', i, group_name, set_name, set_key, alias, item.get('enabled', True), last.get('value','-'), last.get('time','-'), top, bottom, actions)
 
     def new_card(i, group_name='', set_name='', set_key='__new__'):
@@ -9463,7 +8852,7 @@ def knx2lox():
         bottom = f'''<div><label>Invert</label><input type="checkbox" name="invert_{i}"></div><div><label>Letzter Wert</label><div class="small" id="knx2lox_value_{i}">-</div></div><div><label>Zuletzt</label><div class="small" id="knx2lox_time_{i}">-</div></div>'''
         return render_shared_live_mapping_card('knx2lox', i, group_name, set_name, set_key, 'Neues Mapping', True, '-', '-', top, bottom, '', is_new=True)
 
-    return render_shared_mapping_explorer_page('knx2lox', 'KNX â†’ Loxone', 'KNX Telegramme direkt an Loxone EingÃ¤nge/Controls schicken.', '/knx', '/knx2lox/save', mappings, card, new_card, '/knx2lox_data', 'knx2lox_value_', 'knx2lox_time_', lox_io_datalist)
+    return render_shared_mapping_explorer_page('knx2lox', 'KNX → Loxone', 'KNX Telegramme direkt an Loxone Eingänge/Controls schicken.', '/knx', '/knx2lox/save', mappings, card, new_card, '/knx2lox_data', 'knx2lox_value_', 'knx2lox_time_', lox_io_datalist)
 
 @app.route('/knx2lox_data')
 def knx2lox_data():
@@ -9537,7 +8926,7 @@ def mqtt2knx():
         last = mqtt2knx_last_seen.get(item.get('source_topic',''), {})
         top = f'''<div><label>MQTT Topic</label><input type="text" name="source_topic_{i}" value="{escape(str(item.get('source_topic','')))}"></div><div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div><div><label>Testwert</label><input type="text" name="test_value_{i}" value="{escape(str(item.get('test_value','1')))}"></div>'''
         bottom = f'''<div><label>Payload</label>{mapping_payload_select(f'payload_mode_{i}', item.get('payload_mode','raw'))}</div><div><label>JSON Key optional</label><input type="text" name="json_key_{i}" value="{escape(str(item.get('json_key','')))}" placeholder="z.B. contact"></div><div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="mqtt2knx_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="mqtt2knx_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
-        actions = f'''<button type="submit" formaction="/mqtt2knx/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">ðŸ—‘</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
+        actions = f'''<button type="submit" formaction="/mqtt2knx/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
         return render_shared_live_mapping_card('mqtt2knx', i, group_name, set_name, set_key, alias, item.get('enabled', True), last.get('value','-'), last.get('time','-'), top, bottom, actions)
 
     def new_card(i, group_name='', set_name='', set_key='__new__'):
@@ -9545,7 +8934,7 @@ def mqtt2knx():
         bottom = f'''<div><label>Payload</label>{mapping_payload_select(f'payload_mode_{i}', prefill_payload_mode)}</div><div><label>JSON Key optional</label><input type="text" name="json_key_{i}" value="{escape(str(prefill_json_key))}" placeholder="z.B. contact"></div><div><label>Invert</label><input type="checkbox" name="invert_{i}"></div><div><label>Letzter Wert</label><div class="small" id="mqtt2knx_value_{i}">-</div></div><div><label>Zuletzt</label><div class="small" id="mqtt2knx_time_{i}">-</div></div>'''
         return render_shared_live_mapping_card('mqtt2knx', i, group_name, set_name, set_key, 'Neues Mapping', True, '-', '-', top, bottom, '', is_new=True)
 
-    return render_shared_mapping_explorer_page('mqtt2knx', 'MQTT â†’ KNX', 'MQTT Topics direkt auf KNX Gruppenadressen senden.', '/knx', '/mqtt2knx/save', mappings, card, new_card, '/mqtt2knx_data', 'mqtt2knx_value_', 'mqtt2knx_time_')
+    return render_shared_mapping_explorer_page('mqtt2knx', 'MQTT → KNX', 'MQTT Topics direkt auf KNX Gruppenadressen senden.', '/knx', '/mqtt2knx/save', mappings, card, new_card, '/mqtt2knx_data', 'mqtt2knx_value_', 'mqtt2knx_time_')
 
 @app.route('/knx/save', methods=['POST'])
 def knx_save():
@@ -9631,7 +9020,7 @@ def knx2mqtt():
         last = knx2mqtt_last_seen.get(item.get('group_address',''), {})
         top = f'''<div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>MQTT Topic</label><input type="text" name="mqtt_topic_{i}" value="{escape(str(item.get('mqtt_topic','')))}" placeholder="knx/licht/flur"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div>'''
         bottom = f'''<div><label>Retain</label><input type="checkbox" name="retain_{i}" {'checked' if item.get('retain', True) else ''}></div><div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="knx2mqtt_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="knx2mqtt_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
-        actions = f'''<button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">ðŸ—‘</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
+        actions = f'''<button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
         return render_shared_live_mapping_card('knx2mqtt', i, group_name, set_name, set_key, alias, item.get('enabled', True), last.get('value','-'), last.get('time','-'), top, bottom, actions)
 
     def new_card(i, group_name='', set_name='', set_key='__new__'):
@@ -9641,8 +9030,8 @@ def knx2mqtt():
 
     return render_shared_mapping_explorer_page(
         'knx2mqtt',
-        'KNX â†’ MQTT',
-        'KNX Telegramme als MQTT Topics verÃ¶ffentlichen.',
+        'KNX → MQTT',
+        'KNX Telegramme als MQTT Topics veröffentlichen.',
         '/knx',
         '/knx2mqtt/save',
         mappings,
@@ -9658,7 +9047,7 @@ function autoOpenKnx2MqttNewMapping(){
         if(params.get('group_address') || params.get('ga')){
             var ga = params.get('group_address') || params.get('ga') || '';
             if(ga && !params.get('group_address')){
-                // ga als Kurzalias unterstÃ¼tzen
+                // ga als Kurzalias unterstützen
                 var newUrl = new URL(window.location.href);
                 newUrl.searchParams.set('group_address', ga);
                 history.replaceState(null, '', newUrl.toString());
@@ -9697,7 +9086,7 @@ def knx2mqtt_data():
 
 @app.route("/knx_monitor")
 def knx_monitor():
-    ensure_knx_listener_started("Monitor geÃ¶ffnet")
+    ensure_knx_listener_started("Monitor geöffnet")
     return """
 <!doctype html>
 <html lang="de">
@@ -9887,7 +9276,7 @@ function toggleKnxInflux(ga) {
             cfg.influx = !!data.enabled;
             cfg.enabled = true;
             renderLast(window.lastKnxData || {});
-            showCopyHint(data.message || (nextState ? "KNX â†’ Influx aktiviert" : "KNX â†’ Influx deaktiviert"));
+            showCopyHint(data.message || (nextState ? "KNX → Influx aktiviert" : "KNX → Influx deaktiviert"));
         })
         .catch(err => showCopyHint("Influx Fehler: " + err));
 }
@@ -9955,7 +9344,7 @@ function togglePause() {
 function clearView() {
     localClearedAt = Date.now();
     document.getElementById("rows").innerHTML = "";
-    document.getElementById("summary").textContent = "Ansicht geleert â€“ neue Daten laufen weiter ein.";
+    document.getElementById("summary").textContent = "Ansicht geleert – neue Daten laufen weiter ein.";
 }
 
 function selectGa(ga) {
@@ -9966,7 +9355,7 @@ function selectGa(ga) {
 function renderLast(data) {
     window.lastKnxData = data;
 
-    // Legacy: WÃ¤hrend ein KNX Influx Topic/Alias editiert wird, die Tabelle nicht
+    // Legacy: Während ein KNX Influx Topic/Alias editiert wird, die Tabelle nicht
     // durch Live-Telegramme neu rendern. Sonst verliert das Eingabefeld den Fokus
     // und halbfertige Aliase landen versehentlich in der Config/Influx.
     const active = document.activeElement;
@@ -9991,7 +9380,7 @@ function renderLast(data) {
         const match = !search || ga.toLowerCase().includes(search) || String(e.value || "").toLowerCase().includes(search);
         if (!match) return "";
         const alias = getKnxInfluxTopicAlias(ga);
-        const aliasMark = alias ? ` â†’ ${esc(alias)}` : '';
+        const aliasMark = alias ? ` → ${esc(alias)}` : '';
         const influxMark = isKnxInfluxActive(ga) ? `<span class="small" style="color:#7dff9e;font-weight:700;">Influx${aliasMark}</span><br>` : '';
         return `<div class="ga ${selectedGa===ga?'active':''}" onclick="selectGa('${esc(ga)}')">
             <span><span class="ga-main">${esc(ga)}</span><br>${influxMark}<span class="ga-sub">${esc(e.value || "")}</span></span>
@@ -10012,14 +9401,14 @@ function renderLast(data) {
     });
 
     document.getElementById("summary").textContent =
-        `${filtered.length} angezeigt Â· max. 15 im Verlauf Â· ${gas.length} Gruppenadressen`;
+        `${filtered.length} angezeigt · max. 15 im Verlauf · ${gas.length} Gruppenadressen`;
 
     document.getElementById("rows").innerHTML = filtered.map(e => {
         const qga = encodeURIComponent(e.ga || "");
         const gaJson = JSON.stringify(String(e.ga || ""));
         const influxActive = isKnxInfluxActive(e.ga);
         const influxClass = influxActive ? "influx-btn active" : "influx-btn inactive";
-        const influxLabel = influxActive ? "âœ“ Influx" : "Influx";
+        const influxLabel = influxActive ? "✓ Influx" : "Influx";
         const influxType = getKnxInfluxType(e.ga);
         const influxTopicAlias = getKnxInfluxTopicAlias(e.ga);
         const aliasEditActive = knxAliasEditGa === String(e.ga || "");
@@ -10036,11 +9425,11 @@ function renderLast(data) {
                     <a class="object-main-btn" href="/objects/edit/new?source=knx&value=${qga}&influx_topic=${encodeURIComponent(influxTopicAlias || ('knx/' + (e.ga || '')))}&name=${qga}">+ Objekt</a>
                 </div>
                 <details class="expert-map-box">
-                    <summary>âš™ Expertenmapping anzeigen</summary>
+                    <summary>⚙ Expertenmapping anzeigen</summary>
                     <table class="knx-action-table" style="margin-top:6px;">
                         <tr>
-                            <td><a href="/mqtt2knx?group_address=${qga}">MQTTâ†’KNX</a></td>
-                            <td><a href="/knx2lox?group_address=${qga}">KNXâ†’Loxone</a></td>
+                            <td><a href="/mqtt2knx?group_address=${qga}">MQTT→KNX</a></td>
+                            <td><a href="/knx2lox?group_address=${qga}">KNX→Loxone</a></td>
                         </tr>
                         <tr>
                             <td><button class="${influxClass}" onclick='toggleKnxInflux(${gaJson})'>${influxLabel}</button></td>
@@ -10059,14 +9448,14 @@ function renderLast(data) {
                                     onkeydown='if(event.key === "Enter"){event.preventDefault(); setKnxAliasDraft(${gaJson}, this.value); saveKnxAliasEdit(${gaJson}); this.blur();} if(event.key === "Escape"){event.preventDefault(); cancelKnxAliasEdit(${gaJson}); this.blur();}'
                                     title="Leer = knx/${esc(e.ga)}">
                                 <button class="knx-alias-save-btn" title="Alias speichern" onclick='saveKnxAliasEdit(${gaJson})'>OK</button>
-                                <button class="knx-alias-cancel-btn" title="Ã„nderung verwerfen" onclick='cancelKnxAliasEdit(${gaJson})'>Ã—</button>
+                                <button class="knx-alias-cancel-btn" title="Änderung verwerfen" onclick='cancelKnxAliasEdit(${gaJson})'>×</button>
                             </td>
                         </tr>
                     </table>
                 </details>
             </td>
         </tr>`;
-    }).join("") || '<tr><td colspan="6" class="small">Keine passenden EintrÃ¤ge.</td></tr>';
+    }).join("") || '<tr><td colspan="6" class="small">Keine passenden Einträge.</td></tr>';
 }
 
 function refresh() {
@@ -10114,7 +9503,7 @@ def knx_monitor_influx():
     enabled = request.form.get("enabled", "1") == "1"
 
     if not group_address:
-        return {"ok": False, "message": "KNX Gruppenadresse fehlt âŒ"}, 400
+        return {"ok": False, "message": "KNX Gruppenadresse fehlt ❌"}, 400
 
     topic = knx_influx_topic(group_address)
     topic_settings = load_topic_config()
@@ -10133,7 +9522,7 @@ def knx_monitor_influx():
         "ok": True,
         "topic": topic,
         "enabled": bool(enabled),
-        "message": f"KNX {group_address} fÃ¼r Influx {'aktiviert' if enabled else 'deaktiviert'} âœ…"
+        "message": f"KNX {group_address} für Influx {'aktiviert' if enabled else 'deaktiviert'} ✅"
     }
 
 
@@ -10147,7 +9536,7 @@ def knx_monitor_influx_type():
         value_type = "auto"
 
     if not group_address:
-        return {"ok": False, "message": "KNX Gruppenadresse fehlt âŒ"}, 400
+        return {"ok": False, "message": "KNX Gruppenadresse fehlt ❌"}, 400
 
     topic = knx_influx_topic(group_address)
     topic_settings = load_topic_config()
@@ -10167,7 +9556,7 @@ def knx_monitor_influx_type():
         "ok": True,
         "topic": topic,
         "value_type": value_type,
-        "message": f"KNX Influx Typ {group_address} = {labels.get(value_type, value_type)} âœ…"
+        "message": f"KNX Influx Typ {group_address} = {labels.get(value_type, value_type)} ✅"
     }
 
 
@@ -10177,7 +9566,7 @@ def knx_monitor_influx_topic():
     influx_topic = str(request.form.get("influx_topic", "") or "").strip().strip("/")
 
     if not group_address:
-        return {"ok": False, "message": "KNX Gruppenadresse fehlt âŒ"}, 400
+        return {"ok": False, "message": "KNX Gruppenadresse fehlt ❌"}, 400
 
     topic = knx_influx_topic(group_address)
     topic_settings = load_topic_config()
@@ -10202,7 +9591,7 @@ def knx_monitor_influx_topic():
         "topic": topic,
         "influx_topic": influx_topic,
         "output_topic": output_topic,
-        "message": f"KNX Influx Topic {group_address} â†’ {output_topic} âœ…"
+        "message": f"KNX Influx Topic {group_address} → {output_topic} ✅"
     }
 
 
@@ -10259,7 +9648,7 @@ def templates_export():
         if request.form.get(f"section_{section_id}"):
             selected.append(section_id)
     if not selected:
-        return mapping_templates_page('<div class="message">Kein Bereich ausgewÃ¤hlt.</div>')
+        return mapping_templates_page('<div class="message">Kein Bereich ausgewählt.</div>')
     template_name = request.form.get("template_name", "MQTT2Lox Mapping Template")
     package = make_template_package(template_name, selected)
     safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(package.get("name", "template")).strip()).strip("_") or "template"
@@ -10281,7 +9670,7 @@ def templates_import():
         return mapping_templates_page('<div class="message">Keine Template-Datei empfangen.</div>')
     file = request.files["template_file"]
     if file.filename == "":
-        return mapping_templates_page('<div class="message">Keine Datei ausgewÃ¤hlt.</div>')
+        return mapping_templates_page('<div class="message">Keine Datei ausgewählt.</div>')
     mode = request.form.get("mode", "append")
     if mode not in ["append", "replace"]:
         mode = "append"
@@ -10293,7 +9682,7 @@ def templates_import():
         if ok:
             add_log_entry(f"Template importiert: {package.get('name', file.filename)} | Modus {mode}")
             restart_bridge_async()
-            msg_html = '<div class="message">Template importiert âœ…<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
+            msg_html = '<div class="message">Template importiert ✅<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
         else:
             msg_html = '<div class="message">Template nicht importiert.<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
         return mapping_templates_page(msg_html)
@@ -10304,31 +9693,7 @@ def templates_import():
 @app.route("/backup")
 def backup_config():
     files_to_backup = get_backup_files()
-
-    memory_file = io.BytesIO()
-
-    try:
-        with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as zf:
-            for backup_name, file_path in files_to_backup.items():
-                if os.path.exists(file_path):
-                    zf.write(file_path, backup_name)
-                    add_log_entry(f"Backup: {backup_name} gesichert")
-                else:
-                    add_log_entry(f"Backup: {backup_name} fehlt, Ã¼bersprungen")
-
-        memory_file.seek(0)
-        add_log_entry("Backup vollstÃ¤ndig erstellt")
-
-        return send_file(
-            memory_file,
-            as_attachment=True,
-            download_name="mqtt2lox_backup.zip",
-            mimetype="application/zip"
-        )
-
-    except Exception as e:
-        add_log_entry(f"Backup Fehler: {e}")
-        return redirect("/")   
+    return backup_service.backup_config(files_to_backup, add_log_entry, send_file, redirect)
 
 
 
@@ -10346,33 +9711,7 @@ def restore_config():
         return redirect("/")
 
     allowed_files = get_backup_files()
-
-    try:
-        memory_file = io.BytesIO(file.read())
-
-        with zipfile.ZipFile(memory_file, "r") as zf:
-            for filename in zf.namelist():
-
-                # Schutz gegen Pfad-Trickserei
-                clean_name = os.path.basename(filename)
-
-                if clean_name not in allowed_files:
-                    add_log_entry(f"Restore: {filename} ignoriert")
-                    continue
-
-                target_path = allowed_files[clean_name]
-
-                with open(target_path, "wb") as f:
-                    f.write(zf.read(filename))
-
-                add_log_entry(f"Restore: {clean_name} wiederhergestellt")
-
-        add_log_entry("Backup vollstÃ¤ndig wiederhergestellt")
-
-    except Exception as e:
-        add_log_entry(f"Restore Fehler: {e}")
-
-    return redirect("/")
+    return backup_service.restore_config(file, allowed_files, add_log_entry, redirect)
 
 
 @app.route("/udp2mqtt")
@@ -10390,7 +9729,7 @@ def udp2mqtt():
 
     legacy_state = "AN" if load_config().get("udp_input", {}).get("legacy_fallback") else "AUS"
     description = (
-        "Eingehende UDP Telegramme im Format topic:value gezielt auf MQTT Topics verÃ¶ffentlichen. "
+        "Eingehende UDP Telegramme im Format topic:value gezielt auf MQTT Topics veröffentlichen. "
         f"Legacy Discovery aktuell: {legacy_state}."
     )
 
@@ -10398,7 +9737,7 @@ def udp2mqtt():
         last = udp2mqtt_last_seen.get(str(item.get("udp_topic", "")).strip(), {})
         top = f'''<div><label>UDP Topic</label><input type="text" name="udp_topic_{i}" value="{escape(str(item.get('udp_topic','')))}" placeholder="z.B. licht/eg/flur"></div><div><label>MQTT Topic</label><input type="text" name="mqtt_topic_{i}" value="{escape(str(item.get('mqtt_topic','')))}" placeholder="z.B. loxone/licht/flur/set"></div>'''
         bottom = f'''<div><label>Retain</label><input type="checkbox" name="retain_{i}" {'checked' if item.get('retain', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="udp2mqtt_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="udp2mqtt_time_{i}">{escape(str(last.get('time','-')))}</div></div><div><label>Testwert</label><input type="text" name="test_value_{i}" value="{escape(str(item.get('test_value','123')))}"></div>'''
-        actions = f'''<button type="submit" formaction="/udp2mqtt/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">ðŸ—‘</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
+        actions = f'''<button type="submit" formaction="/udp2mqtt/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
         return render_shared_live_mapping_card(
             'udp2mqtt', i, group_name, set_name, set_key, alias,
             item.get('enabled', True), last.get('value','-'), last.get('time','-'),
@@ -10427,7 +9766,7 @@ setTimeout(autoOpenUdp2MqttNewMapping, 0);
 
     return render_shared_mapping_explorer_page(
         'udp2mqtt',
-        'UDP â†’ MQTT',
+        'UDP → MQTT',
         description,
         '/mqtt',
         '/udp2mqtt/save',
@@ -10460,7 +9799,7 @@ def udp2mqtt_save():
         if not any([udp_topic, mqtt_topic, group, set_name, mapping_alias]):
             continue
         if not set_name:
-            set_name = udp_topic or mqtt_topic or mapping_alias or "Neues UDP â†’ MQTT Set"
+            set_name = udp_topic or mqtt_topic or mapping_alias or "Neues UDP → MQTT Set"
 
         new_data.append({
             "enabled": f"enabled_{i}" in request.form,
@@ -10523,7 +9862,7 @@ def udp_input_page():
 <!doctype html>
 <html>
 <head>
-    <title>UDP â†’ MQTT Input</title>
+    <title>UDP → MQTT Input</title>
     <style>
         body {{
             font-family: Arial;
@@ -10575,7 +9914,7 @@ def udp_input_page():
 </head>
 <body>
 
-<h1>UDP â†’ MQTT Input</h1>
+<h1>UDP → MQTT Input</h1>
 
 <form method="post" action="/udp_input/save">
 
@@ -10606,9 +9945,9 @@ def udp_input_page():
     <p>
         <label>
             <input type="checkbox" name="legacy_fallback" {checked_legacy}>
-            Legacy UDPâ†’MQTT Discovery aktiv
+            Legacy UDP→MQTT Discovery aktiv
         </label><br>
-        <span style="color:#aeb8c4;font-size:13px;">Wenn aktiv, werden UDP Telegramme ohne passendes Mapping zusÃ¤tzlich automatisch mit Prefix nach MQTT verÃ¶ffentlicht. Praktisch zum Finden/Kopieren, standardmÃ¤ÃŸig lieber aus.</span>
+        <span style="color:#aeb8c4;font-size:13px;">Wenn aktiv, werden UDP Telegramme ohne passendes Mapping zusätzlich automatisch mit Prefix nach MQTT veröffentlicht. Praktisch zum Finden/Kopieren, standardmäßig lieber aus.</span>
     </p>
 
     <p>
@@ -10617,8 +9956,8 @@ def udp_input_page():
     </p>
 
     <button type="submit">Speichern</button>
-    <a href="/mqtt" style="margin-left:8px;">ZurÃ¼ck zum MQTT Hub</a>
-    <a href="/udp2mqtt" style="margin-left:8px;">UDPâ†’MQTT Mappings</a>
+    <a href="/mqtt" style="margin-left:8px;">Zurück zum MQTT Hub</a>
+    <a href="/udp2mqtt" style="margin-left:8px;">UDP→MQTT Mappings</a>
 
 </form>
 
@@ -10777,11 +10116,11 @@ def mqtt_brokers_page():
 </head>
 <body>
 
-<h1>ZusÃ¤tzliche MQTT Broker</h1>
+<h1>Zusätzliche MQTT Broker</h1>
 
 <p>
 Der Hauptbroker bleibt weiterhin in den Bridge Einstellungen.<br>
-Hier kannst du zusÃ¤tzliche Broker hinzufÃ¼gen, von denen ebenfalls empfangen wird.
+Hier kannst du zusätzliche Broker hinzufügen, von denen ebenfalls empfangen wird.
 </p>
 
 <form method="post" action="/mqtt_brokers/save">
@@ -10794,7 +10133,7 @@ Hier kannst du zusÃ¤tzliche Broker hinzufÃ¼gen, von denen ebenfalls empfange
     <th>Port</th>
     <th>User</th>
     <th>Passwort</th>
-    <th>LÃ¶schen</th>
+    <th>Löschen</th>
 </tr>
 """
     for i, item in enumerate(brokers):
@@ -10896,11 +10235,11 @@ def test_mqtt_broker(index):
 
         mqtt_module.test_connection(mqtt, host, port, user, password, 5)
 
-        notice = f'<div class="card ok">âœ… MQTT Broker erreichbar<br>{escape(str(name))} Â· {escape(str(host))}:{port}</div>'
+        notice = f'<div class="card ok">✅ MQTT Broker erreichbar<br>{escape(str(name))} · {escape(str(host))}:{port}</div>'
         return embedded_page('MQTT Broker', mqtt_settings_content(load_config(), notice))
 
     except Exception as e:
-        notice = f'<div class="card bad">âŒ MQTT Broker Test Fehler: {escape(str(e))}</div>'
+        notice = f'<div class="card bad">❌ MQTT Broker Test Fehler: {escape(str(e))}</div>'
         return embedded_page('MQTT Broker', mqtt_settings_content(load_config(), notice))
 
 
@@ -10986,7 +10325,7 @@ def monitor_influx_topic():
     enabled = request.form.get("enabled", "1") == "1"
 
     if not topic:
-        return {"ok": False, "message": "Topic fehlt âŒ"}, 400
+        return {"ok": False, "message": "Topic fehlt ❌"}, 400
 
     topic_settings = load_topic_config()
     current = topic_settings.get(topic, {})
@@ -10998,7 +10337,7 @@ def monitor_influx_topic():
     topic_settings[topic] = current
     save_topic_config(topic_settings)
 
-    return {"ok": True, "enabled": bool(enabled), "message": f"Topic fÃ¼r Influx {'aktiviert' if enabled else 'deaktiviert'} âœ…"}
+    return {"ok": True, "enabled": bool(enabled), "message": f"Topic für Influx {'aktiviert' if enabled else 'deaktiviert'} ✅"}
 
 
 @app.route("/monitor/influx_json_key", methods=["POST"])
@@ -11008,9 +10347,9 @@ def monitor_influx_json_key():
     enabled = request.form.get("enabled", "1") == "1"
 
     if not topic:
-        return {"ok": False, "message": "Topic fehlt âŒ"}, 400
+        return {"ok": False, "message": "Topic fehlt ❌"}, 400
     if not json_key:
-        return {"ok": False, "message": "JSON-Key fehlt âŒ"}, 400
+        return {"ok": False, "message": "JSON-Key fehlt ❌"}, 400
 
     topic_settings = load_topic_config()
     current = topic_settings.get(topic, {})
@@ -11030,7 +10369,7 @@ def monitor_influx_json_key():
         types.setdefault(json_key, "auto")
     if not enabled and json_key in keys:
         keys = [k for k in keys if k != json_key]
-        # Typ merken wir absichtlich, falls man den Key spÃ¤ter wieder aktiviert.
+        # Typ merken wir absichtlich, falls man den Key später wieder aktiviert.
 
     current["influx_json_keys"] = keys
     current["influx_json_key_types"] = types
@@ -11038,7 +10377,7 @@ def monitor_influx_json_key():
     topic_settings[topic] = current
     save_topic_config(topic_settings)
 
-    return {"ok": True, "message": f"JSON-Key '{json_key}' fÃ¼r Influx {'aktiviert' if enabled else 'deaktiviert'} âœ…", "keys": keys, "types": types}
+    return {"ok": True, "message": f"JSON-Key '{json_key}' für Influx {'aktiviert' if enabled else 'deaktiviert'} ✅", "keys": keys, "types": types}
 
 
 @app.route("/monitor/influx_json_key_type", methods=["POST"])
@@ -11052,9 +10391,9 @@ def monitor_influx_json_key_type():
         value_type = "auto"
 
     if not topic:
-        return {"ok": False, "message": "Topic fehlt âŒ"}, 400
+        return {"ok": False, "message": "Topic fehlt ❌"}, 400
     if not json_key:
-        return {"ok": False, "message": "JSON-Key fehlt âŒ"}, 400
+        return {"ok": False, "message": "JSON-Key fehlt ❌"}, 400
 
     topic_settings = load_topic_config()
     current = topic_settings.get(topic, {})
@@ -11072,7 +10411,7 @@ def monitor_influx_json_key_type():
     save_topic_config(topic_settings)
 
     labels = {"auto": "Auto", "bool01": "Bool 0/1", "number": "Zahl", "text": "Text"}
-    return {"ok": True, "message": f"Influx Typ fÃ¼r '{json_key}' = {labels.get(value_type, value_type)} âœ…", "types": types}
+    return {"ok": True, "message": f"Influx Typ für '{json_key}' = {labels.get(value_type, value_type)} ✅", "types": types}
 
 
 @app.route("/monitor/favorite", methods=["POST"])
@@ -11115,182 +10454,13 @@ def monitor_alias():
     return {"ok": True, "aliases": aliases}
 
 # -----------------------------------------------------------------------------
-# Legacy Influx Explorer / Datenverwaltung + MenÃ¼punkt im Shell-MenÃ¼
+# Legacy Influx Explorer / Datenverwaltung + Menüpunkt im Shell-Menü
 # -----------------------------------------------------------------------------
-
-def influx_v2_request_config():
-    """Return (ok, msg, cfg) for InfluxDB 2.x management calls."""
-    cfg = load_config().get("influx", {})
-    if not cfg.get("enabled", False):
-        return False, "InfluxDB ist in den Einstellungen nicht aktiviert", cfg
-    if str(cfg.get("version", "2")) != "2":
-        return False, "Influx Explorer unterstÃ¼tzt in dieser Version nur InfluxDB 2.x", cfg
-    for key, label in [("host", "Host"), ("bucket", "Bucket"), ("org", "Organisation"), ("token", "Token")]:
-        if not str(cfg.get(key, "") or "").strip():
-            return False, f"Influx {label} fehlt", cfg
-    return True, "ok", cfg
-
-
-def influx_v2_query(flux, timeout=10):
-    ok, msg, cfg = influx_v2_request_config()
-    if not ok:
-        return False, msg, ""
-    host = str(cfg.get("host", "")).strip()
-    port = int(cfg.get("port", 8086))
-    org = str(cfg.get("org", "")).strip()
-    token = str(cfg.get("token", "")).strip()
-    url = f"http://{host}:{port}/api/v2/query?org={quote(org, safe='')}"
-    headers = {
-        "Authorization": f"Token {token}",
-        "Accept": "application/csv",
-        "Content-Type": "application/vnd.flux",
-    }
-    try:
-        r = requests.post(url, headers=headers, data=flux.encode("utf-8"), timeout=timeout)
-    except Exception as e:
-        return False, f"Influx Query Fehler: {e}", ""
-    if r.status_code == 200:
-        return True, "ok", r.text or ""
-    if r.status_code == 401:
-        return False, "401 Unauthorized: Token falsch/abgelaufen oder ohne Leserecht", r.text or ""
-    return False, f"Influx Query HTTP {r.status_code}: {(r.text or '').strip()}", r.text or ""
-
-
-def influx_csv_dicts(csv_text):
-    """Influx CSV in Dicts umwandeln, Annotation-Zeilen ignorieren."""
-    import csv
-    rows = []
-    clean_lines = []
-    for line in str(csv_text or "").splitlines():
-        if not line.strip() or line.startswith("#"):
-            continue
-        clean_lines.append(line)
-    if not clean_lines:
-        return rows
-    try:
-        reader = csv.DictReader(clean_lines)
-        for row in reader:
-            rows.append(row)
-    except Exception:
-        return []
-    return rows
-
-
-def influx_flux_string(value):
-    return json.dumps(str(value or ""), ensure_ascii=False)
-
-
-def influx_get_topics(search="", limit=500):
-    ok, msg, cfg = influx_v2_request_config()
-    if not ok:
-        return False, msg, []
-    bucket = str(cfg.get("bucket", "")).strip()
-    measurement = str(cfg.get("measurement", "loxone") or "loxone").strip()
-    start = str(request.args.get("start", "-30d") if request else "-30d") or "-30d"
-    search = str(search or "").strip().lower()
-
-    flux = f'''
-import "influxdata/influxdb/schema"
-schema.tagValues(
-  bucket: {influx_flux_string(bucket)},
-  tag: "topic",
-  predicate: (r) => r._measurement == {influx_flux_string(measurement)},
-  start: {start}
-)
-'''
-    ok, msg, csv_text = influx_v2_query(flux)
-    if not ok:
-        return False, msg, []
-    topics = []
-    for row in influx_csv_dicts(csv_text):
-        t = str(row.get("_value", "") or "").strip()
-        if not t:
-            continue
-        if search and search not in t.lower():
-            continue
-        topics.append(t)
-    topics = sorted(set(topics), key=lambda x: x.casefold())[:int(limit)]
-
-    result = []
-    for topic in topics:
-        last_value = "-"
-        last_time = "-"
-        fields = ""
-        count = "-"
-        try:
-            topic_json = influx_flux_string(topic)
-            flux_last = f'''
-from(bucket: {influx_flux_string(bucket)})
-  |> range(start: {start})
-  |> filter(fn: (r) => r._measurement == {influx_flux_string(measurement)} and r.topic == {topic_json})
-  |> last()
-  |> keep(columns: ["_time", "_field", "_value"])
-'''
-            ok2, _msg2, csv_last = influx_v2_query(flux_last, timeout=5)
-            last_rows = influx_csv_dicts(csv_last) if ok2 else []
-            if last_rows:
-                lr = last_rows[0]
-                last_value = str(lr.get("_value", "-") or "-")
-                last_time = str(lr.get("_time", "-") or "-")
-                fields = ", ".join(sorted(set(str(x.get("_field", "") or "") for x in last_rows if x.get("_field"))))
-
-            flux_count = f'''
-from(bucket: {influx_flux_string(bucket)})
-  |> range(start: {start})
-  |> filter(fn: (r) => r._measurement == {influx_flux_string(measurement)} and r.topic == {topic_json})
-  |> count()
-  |> sum()
-'''
-            ok3, _msg3, csv_count = influx_v2_query(flux_count, timeout=5)
-            count_rows = influx_csv_dicts(csv_count) if ok3 else []
-            if count_rows:
-                count = str(count_rows[0].get("_value", "-") or "-")
-        except Exception as e:
-            last_value = f"Fehler: {e}"
-        result.append({
-            "topic": topic,
-            "fields": fields or "value",
-            "last_value": last_value,
-            "last_time": last_time,
-            "count": count,
-        })
-    return True, "ok", result
-
-
-def influx_delete_topic(topic, start="1970-01-01T00:00:00Z", stop=None):
-    ok, msg, cfg = influx_v2_request_config()
-    if not ok:
-        return False, msg
-    topic = str(topic or "").strip()
-    if not topic:
-        return False, "Topic fehlt"
-    host = str(cfg.get("host", "")).strip()
-    port = int(cfg.get("port", 8086))
-    org = str(cfg.get("org", "")).strip()
-    bucket = str(cfg.get("bucket", "")).strip()
-    token = str(cfg.get("token", "")).strip()
-    if not stop:
-        from datetime import datetime, timezone, timedelta
-        stop = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
-    url = f"http://{host}:{port}/api/v2/delete?org={quote(org, safe='')}&bucket={quote(bucket, safe='')}"
-    headers = {"Authorization": f"Token {token}", "Content-Type": "application/json"}
-    safe_topic = topic.replace('"', '\\"')
-    body = {"start": start, "stop": stop, "predicate": f'topic="{safe_topic}"'}
-    try:
-        r = requests.post(url, headers=headers, json=body, timeout=10)
-    except Exception as e:
-        return False, f"Influx Delete Fehler: {e}"
-    if r.status_code in (200, 202, 204):
-        add_log_entry(f"Influx gelÃ¶scht: topic={topic}")
-        return True, f"GelÃ¶scht: {topic}"
-    if r.status_code == 401:
-        return False, "401 Unauthorized: Token braucht Delete/Write-Recht fÃ¼r Bucket/Org"
-    return False, f"Influx Delete HTTP {r.status_code}: {(r.text or '').strip()}"
 
 
 def influx_explorer_page(notice=""):
     search = str(request.args.get("q", "") or "").strip()
-    ok, msg, topics = influx_get_topics(search=search, limit=400)
+    ok, msg, topics = influx_service.influx_get_topics(search=search, limit=400, load_config=load_config, start=str(request.args.get("start", "-30d") if request else "-30d") or "-30d")
     cfg = load_config().get("influx", {})
     bucket = str(cfg.get("bucket", "") or "")
     org = str(cfg.get("org", "") or "")
@@ -11311,10 +10481,10 @@ def influx_explorer_page(notice=""):
   <td>{escape(item.get('last_value',''))}</td>
   <td>{escape(item.get('last_time',''))}</td>
   <td style="text-align:right;">{escape(item.get('count',''))}</td>
-  <td><form method="post" action="/influx_explorer/delete" onsubmit="return confirm('Topic wirklich lÃ¶schen?\\n{et}');"><input type="hidden" name="topic" value="{et}"><button type="submit" class="danger">LÃ¶schen</button></form></td>
+  <td><form method="post" action="/influx_explorer/delete" onsubmit="return confirm('Topic wirklich löschen?\\n{et}');"><input type="hidden" name="topic" value="{et}"><button type="submit" class="danger">Löschen</button></form></td>
 </tr>'''
     if not rows:
-        rows = '<tr><td colspan="7" class="small">Keine Topics gefunden. Zeitraum/Search prÃ¼fen oder erst neue Werte schreiben lassen.</td></tr>'
+        rows = '<tr><td colspan="7" class="small">Keine Topics gefunden. Zeitraum/Search prüfen oder erst neue Werte schreiben lassen.</td></tr>'
     return f'''
 <!doctype html><html><head><meta charset="utf-8"><title>Influx Explorer</title><style>
 body {{ font-family:Arial; background:#202830; color:#f4f7fb; margin:24px; }}
@@ -11334,24 +10504,24 @@ table {{ width:100%; border-collapse:collapse; background:#151c23; }} th,td {{ b
 .toolbar {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }}
 </style></head><body>
 <div class="header">
-  <div><h1>Influx Explorer</h1><div class="small">Datenbank direkt aus MQTT2Lox verwalten. Erste Ausbaustufe: Topics anzeigen, suchen und gezielt lÃ¶schen.</div></div>
-  <a class="button-link" href="/mqtt">â† MQTT Hub</a>
+  <div><h1>Influx Explorer</h1><div class="small">Datenbank direkt aus MQTT2Lox verwalten. Erste Ausbaustufe: Topics anzeigen, suchen und gezielt löschen.</div></div>
+  <a class="button-link" href="/mqtt">← MQTT Hub</a>
 </div>
 <div class="card">
   <span class="badge">Bucket: {escape(bucket)}</span><span class="badge">Org: {escape(org)}</span><span class="badge">Measurement: {escape(measurement)}</span>
-  <p class="small">Tipp: falsch getippte KNX-Aliase Ã¼ber Suche markieren und lÃ¶schen. LÃ¶schen nutzt die Influx Delete-API mit Predicate <code>topic="..."</code>.</p>
+  <p class="small">Tipp: falsch getippte KNX-Aliase über Suche markieren und löschen. Löschen nutzt die Influx Delete-API mit Predicate <code>topic="..."</code>.</p>
 </div>
 {notice_html}
 <div class="card">
   <form method="get" action="/influx_explorer" class="toolbar">
     <input type="text" name="q" value="{escape(search)}" placeholder="Topic suchen..." style="min-width:340px; flex:1;">
     <button type="submit">Suchen</button>
-    <a class="button-link" href="/influx_explorer">ZurÃ¼cksetzen</a>
+    <a class="button-link" href="/influx_explorer">Zurücksetzen</a>
   </form>
 </div>
-<form method="post" action="/influx_explorer/delete_selected" onsubmit="return confirm('Markierte Topics wirklich lÃ¶schen?');">
+<form method="post" action="/influx_explorer/delete_selected" onsubmit="return confirm('Markierte Topics wirklich löschen?');">
 <div class="card">
-  <div class="toolbar" style="margin-bottom:12px;"><button type="button" onclick="document.querySelectorAll('input[name=topic]').forEach(x=>x.checked=true)">Alle markieren</button><button type="button" onclick="document.querySelectorAll('input[name=topic]').forEach(x=>x.checked=false)">Alle abwÃ¤hlen</button><button type="submit" class="danger">Markierte lÃ¶schen</button></div>
+  <div class="toolbar" style="margin-bottom:12px;"><button type="button" onclick="document.querySelectorAll('input[name=topic]').forEach(x=>x.checked=true)">Alle markieren</button><button type="button" onclick="document.querySelectorAll('input[name=topic]').forEach(x=>x.checked=false)">Alle abwählen</button><button type="submit" class="danger">Markierte löschen</button></div>
   <table><tr><th style="width:40px;"></th><th>Topic</th><th>Fields</th><th>Letzter Wert</th><th>Letzte Zeit</th><th style="width:100px; text-align:right;">Werte</th><th style="width:115px;">Aktion</th></tr>{rows}</table>
 </div>
 </form>
@@ -11366,24 +10536,24 @@ def influx_explorer():
 @app.route("/influx_explorer/delete", methods=["POST"])
 def influx_explorer_delete():
     topic = request.form.get("topic", "")
-    ok, msg = influx_delete_topic(topic)
-    return influx_explorer_page(("âœ… " if ok else "âŒ ") + msg)
+    ok, msg = influx_service.influx_delete_topic(topic, load_config, add_log_entry)
+    return influx_explorer_page(("✅ " if ok else "❌ ") + msg)
 
 
 @app.route("/influx_explorer/delete_selected", methods=["POST"])
 def influx_explorer_delete_selected():
     topics = request.form.getlist("topic")
     if not topics:
-        return influx_explorer_page("Keine Topics ausgewÃ¤hlt")
+        return influx_explorer_page("Keine Topics ausgewählt")
     ok_count = 0
     errors = []
     for topic in topics:
-        ok, msg = influx_delete_topic(topic)
+        ok, msg = influx_service.influx_delete_topic(topic, load_config, add_log_entry)
         if ok:
             ok_count += 1
         else:
             errors.append(msg)
-    notice = f"âœ… {ok_count} Topic(s) gelÃ¶scht"
+    notice = f"✅ {ok_count} Topic(s) gelöscht"
     if errors:
         notice += " | Fehler: " + "; ".join(errors[:3])
     return influx_explorer_page(notice)
@@ -11417,14 +10587,14 @@ def objects_page(notice=""):
                 badges += f'<span class="badge off">{escape(label)}</span>'
         rows += f'''
 <tr>
-  <td>{'âœ…' if item.get('enabled', True) else 'â¸'}</td>
+  <td>{'✅' if item.get('enabled', True) else '⏸'}</td>
   <td><b>{escape(item.get('name') or '(ohne Name)')}</b><br><span class="small">{escape(item.get('room',''))} {escape(item.get('type',''))}</span></td>
   <td>{badges}</td>
   <td><b>{escape(str(value))}</b><br><span class="small">{escape(src)} {escape(str(tm or ''))}</span></td>
   <td><a class="button-link" href="/objects/edit/{escape(str(item.get('id')))}">Bearbeiten</a></td>
 </tr>'''
     if not rows:
-        rows = '<tr><td colspan="5" class="small">Noch keine Objekte gefunden. Leg das erste Objekt an â€” dann wird aus Kabelsalat langsam Spaghetti Bolognese.</td></tr>'
+        rows = '<tr><td colspan="5" class="small">Noch keine Objekte gefunden. Leg das erste Objekt an — dann wird aus Kabelsalat langsam Spaghetti Bolognese.</td></tr>'
     return f'''
 <!doctype html><html><head><meta charset="utf-8"><title>Objektmanager</title><style>
 body {{ font-family:Arial; background:#202830; color:#f4f7fb; margin:24px; }}
@@ -11441,16 +10611,16 @@ table {{ width:100%; border-collapse:collapse; background:#151c23; }} th,td {{ b
 .badge {{ display:inline-block; padding:4px 8px; border-radius:999px; margin:2px; font-size:12px; text-decoration:none; }}
 .badge.active {{ background:#143b26; color:#6dff91; border:1px solid #276b3c; }} .badge.off {{ background:#2a333d; color:#8793a0; }}
 </style></head><body>
-<div class="header"><div><h1>Objektmanager</h1><div class="small">Objektmanager: Ein Objekt bÃ¼ndelt MQTT, Loxone, KNX, UDP und Influx. Expertenmapping-Ãœbernahme lÃ¤uft nur noch manuell.</div></div><a class="button-link" href="/">â† Dashboard</a></div>
+<div class="header"><div><h1>Objektmanager</h1><div class="small">Objektmanager: Ein Objekt bündelt MQTT, Loxone, KNX, UDP und Influx. Expertenmapping-Übernahme läuft nur noch manuell.</div></div><a class="button-link" href="/">← Dashboard</a></div>
 <div class="card toolbar">
-<a class="button-link" href="/objects/edit/new">ï¼‹ Neues Objekt</a>
-<form method="post" action="/objects/sync_from_mappings" onsubmit="return confirm('Experten-Mappings als Objekte Ã¼bernehmen?');"><button type="submit">â†” Expertenmapping Ã¼bernehmen</button></form>
+<a class="button-link" href="/objects/edit/new">＋ Neues Objekt</a>
+<form method="post" action="/objects/sync_from_mappings" onsubmit="return confirm('Experten-Mappings als Objekte übernehmen?');"><button type="submit">↔ Expertenmapping übernehmen</button></form>
 <form method="post" action="/objects/rebuild_mappings" onsubmit="return confirm('Alle technischen Mappings leeren und sauber aus den Objekten neu erzeugen?');"><button type="submit" class="danger">Mappings aus Objekten neu bauen</button></form>
-<form method="post" action="/objects/delete_all" onsubmit="return confirm('Wirklich ALLE Objekte lÃ¶schen? Technische Mappings bleiben nur bestehen, wenn du sie nicht separat leerst.');"><button type="submit" class="danger">Alle Test-Objekte lÃ¶schen</button></form>
-<form method="get" action="/objects" class="toolbar" style="flex:1;"><input type="text" name="q" value="{escape(search)}" placeholder="Objekt, Topic, Raum suchen..." style="min-width:320px; flex:1;"><button type="submit">Suchen</button><a class="button-link" href="/objects">ZurÃ¼cksetzen</a></form>
+<form method="post" action="/objects/delete_all" onsubmit="return confirm('Wirklich ALLE Objekte löschen? Technische Mappings bleiben nur bestehen, wenn du sie nicht separat leerst.');"><button type="submit" class="danger">Alle Test-Objekte löschen</button></form>
+<form method="get" action="/objects" class="toolbar" style="flex:1;"><input type="text" name="q" value="{escape(search)}" placeholder="Objekt, Topic, Raum suchen..." style="min-width:320px; flex:1;"><button type="submit">Suchen</button><a class="button-link" href="/objects">Zurücksetzen</a></form>
 </div>
 {notice_html}
-<div class="card"><table><tr><th style="width:45px;">Aktiv</th><th>Objekt</th><th>VerknÃ¼pfungen</th><th>Livewert</th><th style="width:120px;">Aktion</th></tr>{rows}</table></div>
+<div class="card"><table><tr><th style="width:45px;">Aktiv</th><th>Objekt</th><th>Verknüpfungen</th><th>Livewert</th><th style="width:120px;">Aktion</th></tr>{rows}</table></div>
 </body></html>'''
 
 
@@ -11491,25 +10661,25 @@ button,.button-link {{ background:#5f686f; color:white; padding:9px 13px; border
 <div><label>Typ</label><input type="text" name="type" value="{val('type')}" placeholder="Licht, Temperatur, Kontakt..."></div>
 <div><label>Aktiv</label><input type="checkbox" name="enabled" {checked}></div>
 </div></div>
-<div class="card"><h2>VerknÃ¼pfungen</h2><div class="grid">
-<div><label>MQTT Topic</label><div class="mini-row"><input type="text" name="mqtt_topic" list="mqttObjectCandidates" value="{val('mqtt_topic')}" placeholder="zigbee2mqtt/... oder shellies/..."><a class="button-link mini-btn" href="/monitor">MQTT wÃ¤hlen</a></div></div>
+<div class="card"><h2>Verknüpfungen</h2><div class="grid">
+<div><label>MQTT Topic</label><div class="mini-row"><input type="text" name="mqtt_topic" list="mqttObjectCandidates" value="{val('mqtt_topic')}" placeholder="zigbee2mqtt/... oder shellies/..."><a class="button-link mini-btn" href="/monitor">MQTT wählen</a></div></div>
 <div><label>MQTT JSON-Key optional</label><input type="text" name="mqtt_json_key" value="{val('mqtt_json_key')}" placeholder="z.B. contact, temperature, power"></div>
-<div><label>Loxone Topic / Eingang</label><div class="mini-row"><input type="text" name="loxone_topic" list="loxoneObjectCandidates" value="{val('loxone_topic')}" placeholder="loxone/... oder Alias"><a class="button-link mini-btn" href="/topics2">Loxone wÃ¤hlen</a></div></div>
-<div><label>KNX Gruppenadresse</label><div class="mini-row"><input type="text" name="knx_ga" list="knxObjectCandidates" value="{val('knx_ga')}" placeholder="0/2/5"><a class="button-link mini-btn" href="/knx_monitor">KNX wÃ¤hlen</a></div></div>
-<div><label>UDP Topic</label><div class="mini-row"><input type="text" name="udp_topic" list="udpObjectCandidates" value="{val('udp_topic')}" placeholder="UDP Name"><a class="button-link mini-btn" href="/udp2mqtt">UDP wÃ¤hlen</a></div></div>
-<div><label>Influx Topic/Alias</label><div class="mini-row"><input type="text" name="influx_topic" list="influxObjectCandidates" value="{val('influx_topic')}" placeholder="Schlafzimmer/Licht"><a class="button-link mini-btn" href="/influx_explorer">Influx wÃ¤hlen</a></div></div>
-</div><p class="small">Tipp: Du kannst tippen und aus vorhandenen MQTT-/KNX-/Influx-Daten wÃ¤hlen. In den Explorern gibt es zusÃ¤tzlich einen direkten Button â€žObjekt erstellenâ€œ.</p>
+<div><label>Loxone Topic / Eingang</label><div class="mini-row"><input type="text" name="loxone_topic" list="loxoneObjectCandidates" value="{val('loxone_topic')}" placeholder="loxone/... oder Alias"><a class="button-link mini-btn" href="/topics2">Loxone wählen</a></div></div>
+<div><label>KNX Gruppenadresse</label><div class="mini-row"><input type="text" name="knx_ga" list="knxObjectCandidates" value="{val('knx_ga')}" placeholder="0/2/5"><a class="button-link mini-btn" href="/knx_monitor">KNX wählen</a></div></div>
+<div><label>UDP Topic</label><div class="mini-row"><input type="text" name="udp_topic" list="udpObjectCandidates" value="{val('udp_topic')}" placeholder="UDP Name"><a class="button-link mini-btn" href="/udp2mqtt">UDP wählen</a></div></div>
+<div><label>Influx Topic/Alias</label><div class="mini-row"><input type="text" name="influx_topic" list="influxObjectCandidates" value="{val('influx_topic')}" placeholder="Schlafzimmer/Licht"><a class="button-link mini-btn" href="/influx_explorer">Influx wählen</a></div></div>
+</div><p class="small">Tipp: Du kannst tippen und aus vorhandenen MQTT-/KNX-/Influx-Daten wählen. In den Explorern gibt es zusätzlich einen direkten Button „Objekt erstellen“.</p>
 <label style="display:flex; gap:8px; align-items:center; margin-top:10px;"><input type="checkbox" name="auto_create_mappings" checked> Fehlende Mappings beim Speichern automatisch anlegen</label>
-<p class="small">Bestehende Mappings werden nicht Ã¼berschrieben. Es werden nur fehlende Verbindungen ergÃ¤nzt â€” Mapping-Konfetti bleibt also im Schrank.</p>{mqtt_datalist}{loxone_datalist}{knx_datalist}{udp_datalist}{influx_datalist}</div>
+<p class="small">Bestehende Mappings werden nicht überschrieben. Es werden nur fehlende Verbindungen ergänzt — Mapping-Konfetti bleibt also im Schrank.</p>{mqtt_datalist}{loxone_datalist}{knx_datalist}{udp_datalist}{influx_datalist}</div>
 <div class="card"><label>Notizen</label><textarea name="notes">{val('notes')}</textarea></div>
-<div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;"><button type="submit">ðŸ’¾ Speichern</button><a class="button-link" href="/objects">Abbrechen</a><label class="small" style="display:flex; gap:6px; align-items:center;"><input type="checkbox" name="delete_mappings" checked> zugehÃ¶rige Mappings mit lÃ¶schen</label><button class="danger" type="submit" formaction="/objects/delete" onclick="return confirm('Objekt wirklich lÃ¶schen?')">ðŸ—‘ LÃ¶schen</button></div>
+<div class="card" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;"><button type="submit">💾 Speichern</button><a class="button-link" href="/objects">Abbrechen</a><label class="small" style="display:flex; gap:6px; align-items:center;"><input type="checkbox" name="delete_mappings" checked> zugehörige Mappings mit löschen</label><button class="danger" type="submit" formaction="/objects/delete" onclick="return confirm('Objekt wirklich löschen?')">🗑 Löschen</button></div>
 </form></body></html>'''
 
 
 @app.route('/objects/sync_from_mappings', methods=['POST'])
 def objects_sync_from_mappings():
     changed = object_service.sync_objects_from_expert_mappings()
-    msg = "Experten-Mappings wurden in die Objektverwaltung Ã¼bernommen" if changed else "Keine neuen Experten-Mappings gefunden"
+    msg = "Experten-Mappings wurden in die Objektverwaltung übernommen" if changed else "Keine neuen Experten-Mappings gefunden"
     add_log_entry(msg)
     return redirect('/objects?notice=' + quote(msg))
 
@@ -11579,7 +10749,7 @@ def objects_delete():
         removed, warnings = object_service.cleanup_object_mappings(item)
     objects = [x for x in old_objects if str(x.get('id')) != object_id]
     save_objects_config(objects)
-    msg = f"Objekt gelÃ¶scht: {object_id}"
+    msg = f"Objekt gelöscht: {object_id}"
     if removed:
         msg += " | entfernt: " + ", ".join(removed)
     if warnings:
@@ -11592,7 +10762,7 @@ def objects_delete():
 def objects_delete_all():
     count = len(load_objects_config())
     save_objects_config([])
-    msg = f"Alle Test-Objekte gelÃ¶scht: {count}"
+    msg = f"Alle Test-Objekte gelöscht: {count}"
     add_log_entry(msg)
     return redirect('/objects?notice=' + quote(msg))
 
@@ -11604,5 +10774,12 @@ object_service.normalize_knx_group_address = knx_service.normalize_knx_ga
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8099, debug=False)
+
+
+
+
+
+
+
 
 

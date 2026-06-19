@@ -1,5 +1,37 @@
 # Changelog
 
+## 32.2.9
+
+- Template-/HTML-Hilfsfunktionen nach `app/services/template.py` ausgelagert.
+- Legacy-Core importiert den neuen Template-Service als `template_service`; bestehende Render-Routen und große `render_template_string`-Blöcke bleiben unverändert.
+- Eingebetteter Seitenrahmen, Layout-Renderer, Datalist-Builder und Select-Builder nutzen nun den Template-Service.
+- Keine UI-, Text-, Logik- oder Feature-Änderungen.
+- Versionsstand auf `32.2.9` gesetzt.
+
+## 32.2.8
+
+- Backup-Dateisuche sowie Backup-/Restore-Zip-Logik nach `app/services/backup.py` ausgelagert.
+- Legacy-Core importiert den neuen Backup-Service als `backup_service` und behält die bestehenden `/backup`- und `/restore`-Routen unverändert.
+- Backup-Pfade, Backup-Ordner und Restore-Zielprüfung bleiben unverändert.
+- Keine UI-, Logik- oder Feature-Änderungen.
+- Versionsstand auf `32.2.8` gesetzt.
+
+## 32.2.7
+
+- Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen nach `app/services/runtime.py` ausgelagert.
+- Legacy-Core importiert den neuen Runtime-Service als `runtime_service` und übergibt Live-Log, Status-State, Config-Loader und Broker-Prozess gezielt als Parameter.
+- Bestehende Status-, Live-Log- und Broker-Routen bleiben unverändert.
+- Keine UI-, Logik- oder Feature-Änderungen.
+- Versionsstand auf `32.2.7` gesetzt.
+
+## 32.2.6
+
+- Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen aus `legacy/app_legacy.py` nach `app/services/influx.py` ausgelagert.
+- Legacy-Core importiert den neuen Influx-Service als `influx_service` und übergibt Config-Loader, Topic-Loader und Logger gezielt als Parameter.
+- Influx Settings, Influx Explorer UI und bestehende Routen bleiben unverändert im Legacy-Core.
+- Keine UI-, Logik- oder Feature-Änderungen.
+- Versionsstand auf `32.2.6` gesetzt.
+
 ## 32.2.5
 
 - KNX-Hilfs- und Bridge-Funktionen nach `app/services/knx.py` ausgelagert.

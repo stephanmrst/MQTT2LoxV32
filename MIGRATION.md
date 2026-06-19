@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.2.5
+## Aktueller Stand: 32.2.9
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -8,7 +8,47 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `app/engine/port.py`
 - `legacy/app_legacy.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+
+## Von 32.2.8 nach 32.2.9
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die technische Modulstruktur:
+
+- Template-/HTML-Hilfsfunktionen liegen jetzt in `app/services/template.py`.
+- `legacy/app_legacy.py` importiert diesen Service als `template_service`.
+- Bestehende URLs, sichtbare Texte und große Template-Blöcke bleiben unverändert.
+
+## Von 32.2.7 nach 32.2.8
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die technische Modulstruktur:
+
+- Backup-Hilfsfunktionen liegen jetzt in `app/services/backup.py`.
+- `legacy/app_legacy.py` importiert diesen Service als `backup_service`.
+- Backup-Download, Restore-Upload, Pfade und Backup-Dateinamen bleiben unverändert.
+
+## Von 32.2.6 nach 32.2.7
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die technische Modulstruktur:
+
+- Runtime-Hilfsfunktionen liegen jetzt in `app/services/runtime.py`.
+- `legacy/app_legacy.py` importiert diesen Service als `runtime_service`.
+- Status-Events, Live-Log, interner Broker und bestehende URLs bleiben unverändert.
+
+## Von 32.2.5 nach 32.2.6
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geändert wurde nur die technische Modulstruktur:
+
+- Influx-Hilfsfunktionen liegen jetzt in `app/services/influx.py`.
+- `legacy/app_legacy.py` importiert diesen Service als `influx_service`.
+- Influx Settings, Influx Explorer URLs und gespeicherte Influx-Konfigurationen bleiben unverändert.
 
 ## Von 32.2.4 nach 32.2.5
 

@@ -38,5 +38,9 @@
     "enabled": true,
     "source": "knx",
     "group_address": "0/2/4"
+  },
+  "stromzaehler/leistung/Gesamt": {
+    "influx": true,
+    "enabled": true
   }
 }
