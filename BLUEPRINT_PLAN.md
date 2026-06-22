@@ -4,6 +4,8 @@ Stand: Analyse von `legacy/app_legacy.py` mit 117 Flask-Routen.
 
 Dies ist nur ein Migrationsplan. Es wurden keine Routen verschoben, keine Blueprint-Dateien angelegt und keine Logik oder UI geaendert.
 
+Seit 32.4.8 beschreibt `LEGACY_REMOVAL_PLAN.md`, wie dieser Blueprint-Plan in die vollstaendige Entfernung von `legacy/app_legacy.py` eingebettet wird.
+
 ## Legende
 
 | Markierung | Bedeutung |

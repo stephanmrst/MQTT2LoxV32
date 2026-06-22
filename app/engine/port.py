@@ -6,7 +6,7 @@ from pathlib import Path
 from platform import python_version
 
 
-APP_VERSION = "32.4.7"
+APP_VERSION = "32.5.1"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -229,6 +229,39 @@ def create_legacy_app():
         legacy.app.config["JSON_AS_ASCII"] = False
         if hasattr(legacy.app, "json"):
             legacy.app.json.ensure_ascii = False
+        legacy.app.extensions["legacy_module"] = legacy
+        try:
+            legacy.app.extensions["runtime_context"] = legacy.runtime_context
+        except Exception:
+            pass
+
+        if "dashboard" not in legacy.app.blueprints:
+            try:
+                from app.routes.dashboard import bp as dashboard_bp
+            except ModuleNotFoundError:
+                from routes.dashboard import bp as dashboard_bp
+            legacy.app.register_blueprint(dashboard_bp)
+
+        if "config" not in legacy.app.blueprints:
+            try:
+                from app.routes.config import bp as config_bp
+            except ModuleNotFoundError:
+                from routes.config import bp as config_bp
+            legacy.app.register_blueprint(config_bp)
+
+        if "backup" not in legacy.app.blueprints:
+            try:
+                from app.routes.backup import bp as backup_bp
+            except ModuleNotFoundError:
+                from routes.backup import bp as backup_bp
+            legacy.app.register_blueprint(backup_bp)
+
+        if "objects" not in legacy.app.blueprints:
+            try:
+                from app.routes.objects import bp as objects_bp
+            except ModuleNotFoundError:
+                from routes.objects import bp as objects_bp
+            legacy.app.register_blueprint(objects_bp)
 
         if "startup_status_route" not in legacy.app.view_functions:
             @legacy.app.route("/startup_status")

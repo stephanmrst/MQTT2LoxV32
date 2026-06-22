@@ -42,7 +42,7 @@ backups/
 logs/
 ```
 
-`app/main.py` startet weiterhin die Legacy-Flask-App ueber `app/engine/port.py`. Die Services enthalten inzwischen viele fachliche Hilfsfunktionen, aber `legacy/app_legacy.py` ist weiter der zentrale Container fuer Routen, HTML-Bloecke, Runtime-State, Live-Monitore und Bridge-Orchestrierung. `app/runtime/` enthaelt seit 32.3.4 ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Seit 32.4.7 sind die alten KNX-Global-State-Reste entfernt. xknx bleibt bewusst im Legacy-Code.
+`app/main.py` startet weiterhin die Legacy-Flask-App ueber `app/engine/port.py`. Die Services enthalten inzwischen viele fachliche Hilfsfunktionen, aber `legacy/app_legacy.py` ist weiter der zentrale Container fuer Routen, HTML-Bloecke, Runtime-State, Live-Monitore und Bridge-Orchestrierung. `app/runtime/` enthaelt seit 32.3.4 ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Seit 32.4.7 sind die alten KNX-Global-State-Reste entfernt. Seit 32.4.8 beschreibt `LEGACY_REMOVAL_PLAN.md` die vollstaendige Entfernung von `legacy/app_legacy.py`. xknx bleibt bewusst im Legacy-Code.
 
 ## Kennzahlen
 
@@ -75,6 +75,7 @@ logs/
 | `app/services/template.py` | mittel | Hilft bei wiederkehrenden HTML-Helfern, ersetzt aber noch keine echte Template-Struktur. Spaeter nach `templates/` und Jinja-Partial-Struktur ueberfuehren. | mittel | hoch |
 | `app/runtime/*.py` | gut | RuntimeContext-Grundgeruest. LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State, Broker-State und KNX-Runtime-State sind angebunden; alte KNX-Globals sind entfernt, xknx erst nach Tests migrieren. | mittel | niedrig |
 | `KNX_RUNTIME_MIGRATION_PLAN.md` | gut | Detailplan fuer die spaetere KNX-State-Migration. Vor KNX-Aenderungen zuerst Smoke-Tests und Reihenfolge pruefen. | hoch | niedrig |
+| `LEGACY_REMOVAL_PLAN.md` | gut | Zielplan fuer App Factory, Blueprints, Templates/Static und finale Entfernung von `legacy/app_legacy.py`. | hoch | niedrig |
 | `config/*.json` | mittel | Daten liegen klar getrennt. Spaeter Schema-/Validation-Modelle in `models/` oder `utils/validation.py` ergaenzen. | mittel | mittel |
 | `logs/` und `backups/` | gut | Runtime-Artefakte getrennt. Nicht in fachliche Module mischen. | niedrig | niedrig |
 

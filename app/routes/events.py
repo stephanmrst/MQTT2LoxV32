@@ -1,0 +1,1 @@
+"""Events blueprint placeholder."""

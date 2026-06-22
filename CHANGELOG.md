@@ -1,5 +1,43 @@
 # Changelog
 
+## 32.5.1
+
+- Legacy Removal Phase C umgesetzt: Config-, Backup- und Object-Routen als eigene Blueprints registriert.
+- `app/routes/config.py` registriert Einstellungen, Core-/MQTT-/Influx-Speichern, Sidebar-Link-Speichern und Plugin-Speichern.
+- `app/routes/backup.py` registriert Backup und Restore.
+- `app/routes/objects.py` registriert Objektmanager, Objektbearbeitung, Mapping-Sync, Mapping-Rebuild, Speichern und Loeschen.
+- Die migrierten Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `legacy/app_legacy.py` entfernt.
+- URLs, HTML-Ausgaben, Runtime-Logik und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.5.1` gesetzt.
+
+## 32.5.0
+
+- Legacy Removal Phase B umgesetzt: Dashboard als erster echter Blueprint registriert.
+- `app/routes/dashboard.py` registriert jetzt die Routen `/`, `/dashboard_embed`, `/shell_status`, `/live_log`, `/live_log_page`, `/live_log_data`, `/clear_log` und `/clear_monitor`.
+- Die Dashboard-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `legacy/app_legacy.py` entfernt.
+- URLs, Rueckgabedaten, UI, RuntimeContext und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.5.0` gesetzt.
+
+## 32.4.9
+
+- Phase A aus `LEGACY_REMOVAL_PLAN.md` umgesetzt.
+- `app/routes/` mit Blueprint-Platzhaltermodulen vorbereitet.
+- `app/extensions.py` mit RuntimeContext-Zugriffshilfe angelegt.
+- `app/__init__.py` als vorsichtige App-Factory-Vorbereitung angelegt.
+- `app/main.py` startet weiterhin unveraendert ueber `app/engine/port.py` und `create_legacy_app()`.
+- Keine Routen aus `legacy/app_legacy.py` verschoben, keine Logik geaendert, keine UI geaendert.
+- Versionsstand auf `32.4.9` gesetzt.
+
+## 32.4.8
+
+- Legacy Removal Plan erstellt.
+- Neue Datei `LEGACY_REMOVAL_PLAN.md` dokumentiert die aktuelle Startstruktur, verbleibende Aufgaben von `legacy/app_legacy.py`, Routen-/Helper-Gruppen, Zielstruktur und Migrationsphasen A bis J.
+- Exit-Kriterien fuer die spaetere Entfernung von `legacy/app_legacy.py` definiert.
+- Keine Routen verschoben, keine Logik geaendert, keine UI geaendert.
+- Versionsstand auf `32.4.8` gesetzt.
+
 ## 32.4.7
 
 - Alte KNX-Global-State-Reste aus `legacy/app_legacy.py` bereinigt.

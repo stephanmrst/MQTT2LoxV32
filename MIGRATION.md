@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.4.7
+## Aktueller Stand: 32.5.1
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -8,7 +8,54 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `app/engine/port.py`
 - `legacy/app_legacy.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup- und Object-Routen sind als erste echte Blueprints in `app/routes/` registriert und delegieren noch auf die bestehenden Legacy-Handler. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+
+## Von 32.5.0 nach 32.5.1
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die naechste Blueprint-Migration:
+
+- Config-Routen werden jetzt ueber `app/routes/config.py` registriert.
+- Backup- und Restore-Routen werden jetzt ueber `app/routes/backup.py` registriert.
+- Object-Manager-Routen werden jetzt ueber `app/routes/objects.py` registriert.
+- Die URLs und HTML-/Redirect-/JSON-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Runtime-Logik geaendert, keine UI geaendert.
+
+## Von 32.4.9 nach 32.5.0
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die erste Blueprint-Migration:
+
+- Dashboard-Routen werden jetzt ueber `app/routes/dashboard.py` registriert.
+- Die URLs `/`, `/dashboard_embed`, `/shell_status`, `/live_log`, `/live_log_page`, `/live_log_data`, `/clear_log` und `/clear_monitor` bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Rueckgabedaten geaendert, keine UI geaendert, keine RuntimeContext-Aenderung.
+
+## Von 32.4.8 nach 32.4.9
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Strukturvorbereitung:
+
+- `app/routes/` enthaelt Platzhaltermodule fuer die spaeteren Blueprints.
+- `app/extensions.py` enthaelt eine RuntimeContext-Zugriffshilfe.
+- `app/__init__.py` enthaelt eine vorsichtige App-Factory-Vorbereitung.
+- `app/main.py` startet weiterhin ueber `app/engine/port.py` und Legacy.
+- Keine Routen verschoben, keine Logik geaendert, keine UI geaendert.
+
+## Von 32.4.7 nach 32.4.8
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Dokumentation:
+
+- `LEGACY_REMOVAL_PLAN.md` ergaenzt.
+- Keine Routen verschoben.
+- Keine Logik geaendert.
+- Keine UI geaendert.
 
 ## Von 32.4.6 nach 32.4.7
 

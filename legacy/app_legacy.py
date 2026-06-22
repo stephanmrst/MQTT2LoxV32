@@ -2217,7 +2217,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.4.7
+            MQTT2Lox 32.5.1
         </div>
     </aside>
 
@@ -3775,37 +3775,30 @@ def embedded_page(title, content):
 
 
 
-@app.route("/dashboard_embed")
 def dashboard_embed():
     return embedded_page("Dashboard", dashboard_content())
 
 
-@app.route("/live_log")
 def live_log_console():
     return embedded_page("Live-Log", live_log_console_content())
 
 
-@app.route("/live_log_page")
 def live_log_page():
     return render_layout("Live-Log", live_log_console_content(), active="live_log", subtitle="Log-Konsole mit Pause, Filter und Auto-Scroll")
 
 
-@app.route("/settings_embed")
 def settings_embed():
     return embedded_page("Einstellungen", settings_content(load_config()))
 
 
-@app.route("/core_settings_embed")
 def core_settings_embed():
     return embedded_page("Bridge / Loxone", core_settings_content(load_config()))
 
 
-@app.route("/mqtt_settings_embed")
 def mqtt_settings_embed():
     return embedded_page("MQTT Broker", mqtt_settings_content(load_config()))
 
 
-@app.route("/influx_settings_embed")
 def influx_settings_embed():
     return embedded_page("InfluxDB", influx_settings_content(load_config()))
 
@@ -3886,14 +3879,12 @@ def plugins_content(notice=""):
 '''
 
 
-@app.route("/plugins")
 def plugins_page():
     return redirect('/settings_embed')
 
 
 
 
-@app.route("/sidebar_links/save", methods=["POST"])
 def sidebar_links_save():
     try:
         count = int(request.form.get("count", 0))
@@ -3945,7 +3936,6 @@ def sidebar_links_save():
 """
 
 
-@app.route("/plugins/save", methods=["POST"])
 def save_plugins():
     plugins = load_plugins_config()
     for item in plugins:
@@ -3958,32 +3948,26 @@ def save_plugins():
     return embedded_page("Plugins", plugins_content(notice))
 
 
-@app.route("/shell_status")
 def shell_status():
     return shell_status_payload()
 
 
-@app.route("/live_log_data")
 def live_log_data():
     return live_log_payload()
 
 
-@app.route("/")
 def index(message=""):
     return render_template_string(SHELL_LAYOUT, status=runtime_context.bridge.status, sidebar_links_html=build_sidebar_links_html())
 
 
-@app.route("/settings")
 def settings_page(message=""):
     return render_layout("Einstellungen", settings_content(load_config()), active="settings", subtitle="Modul-Übersicht und Grundeinstellungen", message=message)
 
 
-@app.route("/save", methods=["POST"])
 def save():
     return save_core()
 
 
-@app.route("/save_core", methods=["POST"])
 def save_core():
     config = load_config()
 
@@ -4072,7 +4056,6 @@ def internal_broker_save_values_from_form():
 def internal_broker_status_route():
     return get_internal_broker_status()
 
-@app.route("/save_mqtt", methods=["POST"])
 def save_mqtt():
     config = load_config()
 
@@ -4091,7 +4074,6 @@ def save_mqtt():
     return redirect('/mqtt_settings_embed')
 
 
-@app.route("/save_influx", methods=["POST"])
 def save_influx():
     config = load_config()
     config["influx"] = get_influx_form_config(config)
@@ -8588,7 +8570,6 @@ startMqttMonitorStream();
     return html
 
 
-@app.route("/clear_monitor")
 def clear_monitor():
     with runtime_context.live_log.lock:
         runtime_context.live_log.entries.clear()
@@ -8597,7 +8578,6 @@ def clear_monitor():
     return redirect("/monitor")
 
 
-@app.route("/clear_log")
 def clear_log():
     with runtime_context.live_log.lock:
         runtime_context.live_log.entries.clear()
@@ -9948,7 +9928,6 @@ def templates_import():
         add_log_entry(f"Template Import Fehler: {e}")
         return mapping_templates_page(f'<div class="message">Template Import Fehler: {escape(str(e))}</div>')
 
-@app.route("/backup")
 def backup_config():
     files_to_backup = get_backup_files()
     return backup_service.backup_config(files_to_backup, add_log_entry, send_file, redirect)
@@ -9956,7 +9935,6 @@ def backup_config():
 
 
 
-@app.route("/restore", methods=["POST"])
 def restore_config():
     if "backup_file" not in request.files:
         add_log_entry("Restore Fehler: keine Datei empfangen")
@@ -10890,12 +10868,10 @@ table {{ width:100%; border-collapse:collapse; background:#151c23; }} th,td {{ b
 </body></html>'''
 
 
-@app.route('/objects')
 def objects():
     return objects_page(str(request.args.get('notice', '') or ''))
 
 
-@app.route('/objects/edit/<object_id>')
 def objects_edit(object_id):
     objects = load_objects_config()
     item = next((x for x in objects if str(x.get('id')) == str(object_id)), None)
@@ -10942,7 +10918,6 @@ button,.button-link {{ background:#5f686f; color:white; padding:9px 13px; border
 </form></body></html>'''
 
 
-@app.route('/objects/sync_from_mappings', methods=['POST'])
 def objects_sync_from_mappings():
     changed = object_service.sync_objects_from_expert_mappings()
     msg = "Experten-Mappings wurden in die Objektverwaltung übernommen" if changed else "Keine neuen Experten-Mappings gefunden"
@@ -10950,7 +10925,6 @@ def objects_sync_from_mappings():
     return redirect('/objects?notice=' + quote(msg))
 
 
-@app.route('/objects/rebuild_mappings', methods=['POST'])
 def objects_rebuild_mappings():
     removed, created, warnings = object_service.rebuild_technical_mappings_from_objects(clear_first=True)
     msg = "Technische Mappings aus Objekten neu aufgebaut"
@@ -10964,7 +10938,6 @@ def objects_rebuild_mappings():
     return redirect('/objects?notice=' + quote(msg))
 
 
-@app.route('/objects/save', methods=['POST'])
 def objects_save():
     objects = load_objects_config()
     object_id = request.form.get('id','').strip()
@@ -11004,7 +10977,6 @@ def objects_save():
     return redirect('/objects?notice=' + quote(msg))
 
 
-@app.route('/objects/delete', methods=['POST'])
 def objects_delete():
     object_id = request.form.get('id','').strip()
     old_objects = load_objects_config()
@@ -11024,7 +10996,6 @@ def objects_delete():
     return redirect('/objects?notice=' + quote(msg))
 
 
-@app.route('/objects/delete_all', methods=['POST'])
 def objects_delete_all():
     count = len(load_objects_config())
     save_objects_config([])
