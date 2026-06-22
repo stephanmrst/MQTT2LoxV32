@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.4.0
+## Aktueller Stand: 32.4.6
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -9,6 +9,65 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `legacy/app_legacy.py`
 
 Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+
+## Von 32.4.5 nach 32.4.6
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur KNX RuntimeContext Phase E:
+
+- `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt.
+- `bump_sse("knx")` aktualisiert nun den KNX RuntimeContext.
+- Andere SSE-Versionen bleiben unveraendert im bestehenden Dict.
+
+## Von 32.4.4 nach 32.4.5
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur KNX RuntimeContext Phase D1:
+
+- Die KNX-Listener-Verwaltung liegt jetzt in `runtime_context.knx`.
+- `ensure_knx_listener_started` nutzt RuntimeContext-Wrapper statt der alten globalen Thread-Variable.
+- Der Listener selbst, xknx, asyncio, Monitor, SSE und Callback-Verarbeitung bleiben unveraendert.
+
+## Von 32.4.3 nach 32.4.4
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur KNX RuntimeContext Phase C:
+
+- `knx_monitor_log` wird zusaetzlich in `runtime_context.knx.monitor_log` geschrieben.
+- KNX Monitor Payload liest Log-Eintraege bevorzugt aus dem RuntimeContext.
+- Listener, xknx, asyncio, SSE und Eventstream-Route bleiben unveraendert.
+
+## Von 32.4.2 nach 32.4.3
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur KNX RuntimeContext Phase B:
+
+- `knx_monitor_values` wird zusaetzlich in `runtime_context.knx.monitor_values` geschrieben.
+- KNX Hub und KNX Monitor Payload lesen Monitor-Werte bevorzugt aus dem RuntimeContext.
+- `knx_monitor_log`, Listener, SSE und xknx bleiben unveraendert.
+
+## Von 32.4.1 nach 32.4.2
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur KNX RuntimeContext Phase A:
+
+- KNX LastSeen-Dicts werden zusaetzlich in `runtime_context.knx` geschrieben.
+- KNX-LastSeen-Routen lesen bevorzugt aus dem RuntimeContext.
+- Monitor, Listener, SSE und xknx bleiben unveraendert.
+
+## Von 32.4.0 nach 32.4.1
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Dokumentation:
+
+- `KNX_RUNTIME_MIGRATION_PLAN.md` ergaenzt.
+- Keine KNX-Variablen, Funktionen, Services oder Routen verschoben.
 
 ## Von 32.3.9 nach 32.4.0
 

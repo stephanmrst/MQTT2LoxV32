@@ -37,10 +37,15 @@
   "knx/0/2/4": {
     "enabled": true,
     "source": "knx",
-    "group_address": "0/2/4"
+    "group_address": "0/2/4",
+    "influx": true,
+    "influx_topic": "knx/0/2/4"
   },
   "stromzaehler/leistung/Gesamt": {
     "influx": true,
+    "enabled": true
+  },
+  "KNX/Schlafzimmer/BettRechts/temperatur": {
     "enabled": true
   }
 }

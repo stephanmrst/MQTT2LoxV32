@@ -335,7 +335,7 @@ def send_knx_value(group_address, dpt, value, load_knx_config, add_log_entry, ad
         return False
 
 
-def handle_mqtt_to_knx(topic, payload, load_mqtt2knx_config, extract_mqtt_mapping_value, mqtt2knx_last_seen, send_value, add_log_entry):
+def handle_mqtt_to_knx(topic, payload, load_mqtt2knx_config, extract_mqtt_mapping_value, mqtt2knx_last_seen, send_value, add_log_entry, update_last_seen=None):
     for item in load_mqtt2knx_config():
         if not item.get("enabled", True):
             continue
@@ -348,6 +348,8 @@ def handle_mqtt_to_knx(topic, payload, load_mqtt2knx_config, extract_mqtt_mappin
             "raw_payload": payload,
             "time": datetime.now().strftime("%H:%M:%S")
         }
+        if update_last_seen:
+            update_last_seen("mqtt2knx", source_topic, mqtt2knx_last_seen[source_topic])
         if raw_value is None:
             add_log_entry(f"MQTT2KNX kein gueltiger Wert fuer {topic}")
             return True
@@ -361,7 +363,7 @@ def handle_mqtt_to_knx(topic, payload, load_mqtt2knx_config, extract_mqtt_mappin
     return False
 
 
-def publish_knx_to_mqtt(group_address, payload_raw, load_knx2mqtt_config, mqtt_client_getter, knx2mqtt_last_seen, add_log_entry):
+def publish_knx_to_mqtt(group_address, payload_raw, load_knx2mqtt_config, mqtt_client_getter, knx2mqtt_last_seen, add_log_entry, update_last_seen=None):
     for item in load_knx2mqtt_config():
         if not item.get("enabled", True):
             continue
@@ -372,6 +374,8 @@ def publish_knx_to_mqtt(group_address, payload_raw, load_knx2mqtt_config, mqtt_c
         try:
             value = parse_knx_payload_value(payload_raw, item.get("dpt", "1.001"), bool(item.get("invert", False)))
             knx2mqtt_last_seen[ga] = {"value": value, "time": datetime.now().strftime("%H:%M:%S"), "topic": mqtt_topic}
+            if update_last_seen:
+                update_last_seen("knx2mqtt", ga, knx2mqtt_last_seen[ga])
             mqtt_client = mqtt_client_getter() if mqtt_client_getter else None
             if mqtt_client:
                 mqtt_client.publish(mqtt_topic, value, retain=bool(item.get("retain", True)))
@@ -382,7 +386,7 @@ def publish_knx_to_mqtt(group_address, payload_raw, load_knx2mqtt_config, mqtt_c
             add_log_entry(f"KNX2MQTT Fehler {group_address}: {e}")
 
 
-def publish_knx_to_loxone(group_address, payload_raw, load_knx2lox_config, load_config, knx2lox_last_seen, add_log_entry, requests_module=requests):
+def publish_knx_to_loxone(group_address, payload_raw, load_knx2lox_config, load_config, knx2lox_last_seen, add_log_entry, requests_module=requests, update_last_seen=None):
     """Direct KNX telegram to Loxone virtual input/control."""
     ga_in = normalize_knx_ga(group_address)
     for item in load_knx2lox_config():
@@ -395,6 +399,8 @@ def publish_knx_to_loxone(group_address, payload_raw, load_knx2lox_config, load_
         try:
             value = parse_knx_payload_value(payload_raw, item.get("dpt", "1.001"), bool(item.get("invert", False)))
             knx2lox_last_seen[ga] = {"value": value, "time": datetime.now().strftime("%H:%M:%S"), "loxone_io": loxone_io}
+            if update_last_seen:
+                update_last_seen("knx2lox", ga, knx2lox_last_seen[ga])
             cfg = load_config()
             url = f"http://{cfg['loxone']['host']}/dev/sps/io/{loxone_io}/{value}"
             r = requests_module.get(url, auth=(cfg["loxone"]["user"], cfg["loxone"]["password"]), timeout=5)

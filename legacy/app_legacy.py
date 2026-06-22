@@ -142,9 +142,13 @@ def write_knx_monitor_influx(group_address, value, dpt="", direction="RX"):
 
 # V22: kleine Versionszähler für Live-Push per Server-Sent Events (SSE).
 # Sobald sich Daten ändern, bekommen die offenen Browser direkt ein Event.
-sse_versions = {"log": 0, "mqtt": 0, "knx": 0, "status": 0}
+sse_versions = {"log": 0, "mqtt": 0, "status": 0}
 
 def bump_sse(name):
+    if name == "knx":
+        with runtime_context.knx.lock:
+            runtime_context.knx.monitor_version += 1
+        return
     try:
         sse_versions[name] = int(sse_versions.get(name, 0)) + 1
     except Exception:
@@ -267,6 +271,135 @@ def get_broker_state():
         }
 
 
+def _knx_state_bucket(kind):
+    buckets = {
+        "mqtt2knx": runtime_context.knx.mqtt2knx_last_seen,
+        "knx2mqtt": runtime_context.knx.knx2mqtt_last_seen,
+        "knx2lox": runtime_context.knx.knx2lox_last_seen,
+    }
+    return buckets.get(kind)
+
+
+def get_knx_last_seen(kind, key=None):
+    with runtime_context.knx.lock:
+        bucket = _knx_state_bucket(kind)
+        if bucket is None:
+            return {}
+        if key is None:
+            if bucket:
+                return dict(bucket)
+        else:
+            if key in bucket:
+                return dict(bucket.get(key, {}))
+    legacy_buckets = {
+        "mqtt2knx": mqtt2knx_last_seen,
+        "knx2mqtt": knx2mqtt_last_seen,
+        "knx2lox": knx2lox_last_seen,
+    }
+    legacy_bucket = legacy_buckets.get(kind, {})
+    if key is None:
+        return dict(legacy_bucket)
+    return dict(legacy_bucket.get(key, {}))
+
+
+def update_knx_last_seen(kind, key, value):
+    with runtime_context.knx.lock:
+        bucket = _knx_state_bucket(kind)
+        if bucket is None:
+            return {}
+        bucket[key] = dict(value or {})
+        return bucket[key]
+
+
+def clear_knx_last_seen(kind=None):
+    with runtime_context.knx.lock:
+        if kind is None:
+            runtime_context.knx.mqtt2knx_last_seen.clear()
+            runtime_context.knx.knx2mqtt_last_seen.clear()
+            runtime_context.knx.knx2lox_last_seen.clear()
+            return
+        bucket = _knx_state_bucket(kind)
+        if bucket is not None:
+            bucket.clear()
+
+
+def get_knx_monitor_values():
+    values = dict(knx_monitor_values)
+    with runtime_context.knx.lock:
+        values.update(runtime_context.knx.monitor_values)
+    return values
+
+
+def set_knx_monitor_value(ga, value_data):
+    with runtime_context.knx.lock:
+        runtime_context.knx.monitor_values[ga] = dict(value_data or {})
+        return runtime_context.knx.monitor_values[ga]
+
+
+def clear_knx_monitor_values():
+    with runtime_context.knx.lock:
+        runtime_context.knx.monitor_values.clear()
+
+
+def get_knx_monitor_log():
+    with runtime_context.knx.lock:
+        if runtime_context.knx.monitor_log:
+            return list(runtime_context.knx.monitor_log)[:15]
+    return list(knx_monitor_log)[:15]
+
+
+def add_knx_monitor_log_entry(entry):
+    with runtime_context.knx.lock:
+        runtime_context.knx.monitor_log.appendleft(dict(entry or {}))
+
+
+def clear_knx_monitor_log():
+    with runtime_context.knx.lock:
+        runtime_context.knx.monitor_log.clear()
+
+
+def get_knx_monitor_version():
+    with runtime_context.knx.lock:
+        return int(runtime_context.knx.monitor_version)
+
+
+def get_knx_listener():
+    with runtime_context.knx.lock:
+        return runtime_context.knx.listener_thread
+
+
+def set_knx_listener(thread):
+    with runtime_context.knx.lock:
+        runtime_context.knx.listener_thread = thread
+        return runtime_context.knx.listener_thread
+
+
+def is_knx_listener_running():
+    with runtime_context.knx.lock:
+        thread = runtime_context.knx.listener_thread
+        running = bool(thread and thread.is_alive())
+        runtime_context.knx.listener_running = running
+        return running
+
+
+def set_knx_listener_running(running):
+    with runtime_context.knx.lock:
+        runtime_context.knx.listener_running = bool(running)
+        return runtime_context.knx.listener_running
+
+
+def request_knx_start():
+    with runtime_context.knx.lock:
+        runtime_context.knx.start_requested = True
+        runtime_context.knx.stop_requested = False
+
+
+def request_knx_stop():
+    with runtime_context.knx.lock:
+        runtime_context.knx.stop_requested = True
+        runtime_context.knx.start_requested = False
+
+
 def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
     """Add a KNX telegram to the live KNX monitor."""
     global knx_monitor_log, knx_monitor_values
@@ -287,8 +420,10 @@ def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
 
     print("[KNX MONITOR ADD]", entry)
     knx_monitor_log.appendleft(entry)
+    add_knx_monitor_log_entry(entry)
     if ga:
         knx_monitor_values[ga] = entry
+        set_knx_monitor_value(ga, entry)
         write_knx_monitor_influx(ga, entry.get("value", value), entry.get("dpt", dpt), entry.get("direction", direction))
     bump_sse("knx")
 
@@ -1074,6 +1209,7 @@ def _handle_mqtt_to_knx_service(topic, payload):
         mqtt2knx_last_seen,
         _send_knx_service_value,
         add_log_entry,
+        update_knx_last_seen,
     )
 
 
@@ -1151,8 +1287,8 @@ async def _knx_listener_async(knx_cfg):
                         monitor_dpt = ""
 
                 add_knx_monitor_entry(ga, value_text, "RX", monitor_dpt)
-                knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, knx2mqtt_last_seen, add_log_entry)
-                knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, knx2lox_last_seen, add_log_entry, requests)
+                knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
+                knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
         except Exception as e:
             add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
     try:
@@ -1190,29 +1326,32 @@ def knx_listener_runner(config):
 
 def ensure_knx_listener_started(reason=""):
     """Startet den KNX Listener nur bei Bedarf und nur wenn KNX aktiviert ist."""
-    global knx_listener_thread
-
     try:
         if not load_knx_config().get("enabled", False):
             add_log_entry("KNX Listener Auto-Start übersprungen: KNX deaktiviert")
+            set_knx_listener_running(False)
             return False
 
-        if knx_listener_thread and knx_listener_thread.is_alive():
+        if is_knx_listener_running():
             return True
 
         config = load_config()
-        knx_listener_thread = threading.Thread(
+        thread = threading.Thread(
             target=knx_listener_runner,
             args=(config,),
             daemon=True
         )
-        knx_listener_thread.start()
+        set_knx_listener(thread)
+        request_knx_start()
+        thread.start()
+        set_knx_listener_running(True)
 
         suffix = f" ({reason})" if reason else ""
         add_log_entry(f"KNX Listener Auto-Start{suffix}")
         return True
 
     except Exception as e:
+        set_knx_listener_running(False)
         add_log_entry(f"KNX Listener Auto-Start Fehler: {e}")
         return False
 
@@ -1386,7 +1525,6 @@ mqtt2knx_last_seen = {}
 knx2mqtt_last_seen = {}
 udp2knx_last_seen = {}
 knx2lox_last_seen = {}
-knx_listener_thread = None
 udp_input_last_seen = udp.udp_input_last_seen
 mqtt_monitor_values = mqtt_module.mqtt_monitor_values
 
@@ -2103,7 +2241,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.4.0
+            MQTT2Lox 32.4.6
         </div>
     </aside>
 
@@ -2743,7 +2881,10 @@ def sse_response(event_name, payload_func, version_name, interval=0.2):
         last_heartbeat = 0
         while True:
             try:
-                version = int(sse_versions.get(version_name, 0))
+                if version_name == "knx":
+                    version = get_knx_monitor_version()
+                else:
+                    version = int(sse_versions.get(version_name, 0))
                 now = time.time()
 
                 if last_version is None or version != last_version:
@@ -2789,8 +2930,8 @@ def status_sse_response():
 
 def knx_monitor_payload():
     return {
-        "log": list(knx_monitor_log)[:15],
-        "last": knx_monitor_values,
+        "log": get_knx_monitor_log(),
+        "last": get_knx_monitor_values(),
         "enabled": bool(load_knx_config().get("enabled", False)),
     }
 
@@ -8573,13 +8714,14 @@ def mqtt_hub():
 
 def knx_hub_content():
     knx_cfg = load_knx_config()
+    monitor_values = get_knx_monitor_values()
     cards = [
         ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
         ("KNX → MQTT", "/knx2mqtt", len(load_knx2mqtt_config()), "KNX Telegramme als MQTT Topics veröffentlichen."),
         ("UDP → KNX", "/udp2knx", len(load_udp2knx_config()), "UDP Telegramme direkt auf KNX Gruppenadressen senden."),
         ("KNX → Loxone", "/knx2lox", len(load_knx2lox_config()), "KNX Telegramme direkt an Loxone Eingänge/Controls schicken."),
         ("KNX Gateway", "/knx_settings_embed", 1 if knx_cfg.get("enabled") else 0, "Gateway, Tunneling/Routing und lokale Schnittstelle einstellen."),
-        ("KNX Monitor", "/knx_monitor", len(knx_monitor_values), "Live Telegramme ansehen und debuggen."),
+        ("KNX Monitor", "/knx_monitor", len(monitor_values), "Live Telegramme ansehen und debuggen."),
     ]
     html_cards = ""
     for title, url, count, desc in cards:
@@ -8981,7 +9123,7 @@ def knx2lox():
     lox_io_datalist = build_datalist_html('loxoneInputs', loxone_service.get_loxone_io_options(config, load_config, load_mapping, add_log_entry, lambda: control_mapping))
 
     def card(i, item, group_name, set_name, set_key, alias):
-        last = knx2lox_last_seen.get(knx_service.normalize_knx_ga(item.get('group_address','')), {})
+        last = get_knx_last_seen("knx2lox", knx_service.normalize_knx_ga(item.get('group_address','')))
         top = f'''<div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>Loxone IO</label><input type="text" name="loxone_io_{i}" value="{escape(str(item.get('loxone_io','')))}" list="loxoneInputs" placeholder="Virtueller Eingang / Control"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div>'''
         bottom = f'''<div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="knx2lox_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="knx2lox_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
         actions = f'''<button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
@@ -8998,7 +9140,7 @@ def knx2lox():
 def knx2lox_data():
     data={}
     for i,item in enumerate(load_knx2lox_config()):
-        info = knx2lox_last_seen.get(knx_service.normalize_knx_ga(item.get('group_address','')), {})
+        info = get_knx_last_seen("knx2lox", knx_service.normalize_knx_ga(item.get('group_address','')))
         data[str(i)] = {'value': str(info.get('value','-')), 'time': str(info.get('time','-'))}
     return data
 
@@ -9063,7 +9205,7 @@ def mqtt2knx():
     prefill_group_address = knx_service.normalize_knx_ga(request.args.get('group_address', ''))
 
     def card(i, item, group_name, set_name, set_key, alias):
-        last = mqtt2knx_last_seen.get(item.get('source_topic',''), {})
+        last = get_knx_last_seen("mqtt2knx", item.get('source_topic',''))
         top = f'''<div><label>MQTT Topic</label><input type="text" name="source_topic_{i}" value="{escape(str(item.get('source_topic','')))}"></div><div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div><div><label>Testwert</label><input type="text" name="test_value_{i}" value="{escape(str(item.get('test_value','1')))}"></div>'''
         bottom = f'''<div><label>Payload</label>{mapping_payload_select(f'payload_mode_{i}', item.get('payload_mode','raw'))}</div><div><label>JSON Key optional</label><input type="text" name="json_key_{i}" value="{escape(str(item.get('json_key','')))}" placeholder="z.B. contact"></div><div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="mqtt2knx_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="mqtt2knx_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
         actions = f'''<button type="submit" formaction="/mqtt2knx/test/{i}" formmethod="post">Test</button><button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
@@ -9145,7 +9287,7 @@ def mqtt2knx_test(index):
 def mqtt2knx_data():
     data={}
     for i,item in enumerate(load_mqtt2knx_config()):
-        info = mqtt2knx_last_seen.get(item.get('source_topic','').strip(), {})
+        info = get_knx_last_seen("mqtt2knx", item.get('source_topic','').strip())
         data[str(i)] = {'value': str(info.get('value','-')), 'time': str(info.get('time','-'))}
     return data
 
@@ -9157,7 +9299,7 @@ def knx2mqtt():
     prefill_group_address = knx_service.normalize_knx_ga(request.args.get('group_address', ''))
 
     def card(i, item, group_name, set_name, set_key, alias):
-        last = knx2mqtt_last_seen.get(item.get('group_address',''), {})
+        last = get_knx_last_seen("knx2mqtt", item.get('group_address',''))
         top = f'''<div><label>KNX GA</label><input class="knx-ga-input" type="text" name="group_address_{i}" value="{escape(str(item.get('group_address','')))}" placeholder="1/2/10"></div><div><label>MQTT Topic</label><input type="text" name="mqtt_topic_{i}" value="{escape(str(item.get('mqtt_topic','')))}" placeholder="knx/licht/flur"></div><div><label>DPT</label>{mapping_dpt_select(f'dpt_{i}', item.get('dpt','1.001'))}</div>'''
         bottom = f'''<div><label>Retain</label><input type="checkbox" name="retain_{i}" {'checked' if item.get('retain', True) else ''}></div><div><label>Invert</label><input type="checkbox" name="invert_{i}" {'checked' if item.get('invert', False) else ''}></div><div><label>Letzter Wert</label><div class="small" id="knx2mqtt_value_{i}">{escape(str(last.get('value','-')))}</div></div><div><label>Zuletzt</label><div class="small" id="knx2mqtt_time_{i}">{escape(str(last.get('time','-')))}</div></div>'''
         actions = f'''<button type="button" class="delete-btn" onclick="document.getElementById('delete_{i}').checked=true; this.closest('.mapping-card').style.display='none';">🗑</button><input type="checkbox" id="delete_{i}" name="delete_{i}" style="display:none;">'''
@@ -9217,7 +9359,7 @@ def knx2mqtt_save():
 def knx2mqtt_data():
     data={}
     for i,item in enumerate(load_knx2mqtt_config()):
-        info = knx2mqtt_last_seen.get(item.get('group_address','').strip(), {})
+        info = get_knx_last_seen("knx2mqtt", item.get('group_address','').strip())
         data[str(i)] = {'value': str(info.get('value','-')), 'time': str(info.get('time','-'))}
     return data
 

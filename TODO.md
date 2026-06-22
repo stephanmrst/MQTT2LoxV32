@@ -11,6 +11,12 @@
 - MQTT-Monitor-State 32.3.8 pruefen: MQTT Monitor, MQTT Hub, `/monitor_data`, `/events/mqtt_monitor`, Topic Explorer und Dashboard.
 - UDP-State 32.3.9 pruefen: MQTT -> UDP, UDP -> MQTT, UDP -> KNX, UDP Input, Discovery, Dashboard und Live Log.
 - BrokerState 32.4.0 pruefen: Broker starten, stoppen, Statusroute, Dashboard, LiveLog, MQTT und Bridge.
+- KNX Runtime Migration Plan 32.4.1 pruefen und vor KNX-State-Migration Smoke-Tests fuer Monitor, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone vorbereiten.
+- KNX Runtime Phase A 32.4.2 pruefen: MQTT -> KNX, KNX -> MQTT, KNX -> Loxone, Dashboard und LiveLog.
+- KNX Runtime Phase B 32.4.3 pruefen: KNX Monitor, `/knx_monitor_data`, KNX Hub, MQTT -> KNX, KNX -> MQTT und KNX -> Loxone.
+- KNX Runtime Phase C 32.4.4 pruefen: KNX Monitor, `/knx_monitor_data`, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT -> KNX, KNX -> MQTT, KNX -> Loxone, Dashboard und Live Log.
+- KNX Runtime Phase D1 32.4.5 pruefen: KNX Monitor, Listener Auto-Start, manueller Listener-Start, KNX Telegramm, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT -> KNX, KNX -> MQTT und KNX -> Loxone.
+- KNX Runtime Phase E 32.4.6 pruefen: `/events/knx_monitor`, `[KNX SSE]`, KNX Monitor, `/knx_monitor_data`, LiveLog-SSE und Status-SSE.
 - Umbenannte Module im laufenden Betrieb gegenpruefen: Dashboard, MQTT -> Loxone, MQTT -> UDP, MQTT -> KNX und Log-Leerzustand.
 - Object-Service im laufenden Betrieb gegenpruefen: Objektliste, Objekt bearbeiten, Mapping-Sync, Mapping-Rebuild und Objekt loeschen.
 - Loxone-Service im laufenden Betrieb gegenpruefen: MQTT -> Loxone, Loxone IO-Datalist und Dashboard-Zaehler.

@@ -1,4 +1,4 @@
-# RuntimeContext-Plan 32.4.0
+# RuntimeContext-Plan 32.4.6
 
 Stand: Analyse der globalen Variablen und States in `legacy/app_legacy.py`.
 
@@ -8,7 +8,7 @@ Dies ist nur ein Plan. Es wurden keine Dateien verschoben, keine Funktionen vers
 
 Ein spaeterer `RuntimeContext` soll Laufzeit-State zentral, nachvollziehbar und thread-bewusst halten. Aktuell liegen Live-Log, Monitorlisten, MQTT/UDP/KNX-Last-Seen-Werte, Bridge-Flags, Broker-Prozess und Config-Aliase verteilt in `legacy/app_legacy.py` und einzelnen Services.
 
-Seit 32.3.4 existiert unter `app/runtime/` ein Grundgeruest aus Dataclasses. Seit 32.3.5 nutzt LiveLog den RuntimeContext. Seit 32.3.7 ist auch der Bridge-State vollstaendig in `runtime_context.bridge` migriert. Seit 32.3.8 wird MQTT-Monitor-State zusaetzlich in `runtime_context.mqtt` gepflegt und von Monitor-Datenrouten bevorzugt gelesen. Seit 32.3.9 werden UDP-Laufzeitdaten zusaetzlich in `runtime_context.udp` gepflegt und von UDP-Seiten bevorzugt gelesen. Seit 32.4.0 ist der interne Broker-State vollstaendig in `runtime_context.broker` migriert. KNX-State bleibt unveraendert.
+Seit 32.3.4 existiert unter `app/runtime/` ein Grundgeruest aus Dataclasses. Seit 32.3.5 nutzt LiveLog den RuntimeContext. Seit 32.3.7 ist auch der Bridge-State vollstaendig in `runtime_context.bridge` migriert. Seit 32.3.8 wird MQTT-Monitor-State zusaetzlich in `runtime_context.mqtt` gepflegt und von Monitor-Datenrouten bevorzugt gelesen. Seit 32.3.9 werden UDP-Laufzeitdaten zusaetzlich in `runtime_context.udp` gepflegt und von UDP-Seiten bevorzugt gelesen. Seit 32.4.0 ist der interne Broker-State vollstaendig in `runtime_context.broker` migriert. Seit 32.4.2 werden die KNX-LastSeen-Dicts fuer MQTT->KNX, KNX->MQTT und KNX->Loxone zusaetzlich in `runtime_context.knx` gepflegt und von den KNX-Seiten bevorzugt gelesen. Seit 32.4.3 wird auch `knx_monitor_values` zusaetzlich in `runtime_context.knx.monitor_values` gepflegt und von KNX Hub sowie KNX Monitor Payload bevorzugt gelesen. Seit 32.4.4 wird `knx_monitor_log` zusaetzlich in `runtime_context.knx.monitor_log` gepflegt und von KNX Monitor Payload bevorzugt gelesen. Seit 32.4.5 liegt die KNX-Listener-Verwaltung in `runtime_context.knx`. Seit 32.4.6 liegt die KNX-SSE-Versionierung in `runtime_context.knx.monitor_version`. xknx bleibt unveraendert im Legacy-Code.
 
 Empfohlene Zielbereiche:
 
@@ -41,9 +41,10 @@ Empfohlene Zielbereiche:
 | Variable | Typ | Zweck | liest | schreibt | betroffene Routen | Services | Risiko | Empfehlung |
 |---|---|---|---|---|---|---|---|---|
 | `live_log` | `deque(maxlen=100)` | Zentrale Live-Log-Liste fuer Dashboard, Live-Log und SSE. Seit 32.3.5 wird jeder neue Eintrag zusaetzlich nach `runtime_context.live_log.entries` gespiegelt. | `dashboard_content`, `live_log_payload`, `live_log_full_payload`, `live_log_console_content` | `add_log_entry`, Clear-Routen indirekt | `/live_log`, `/live_log_page`, `/live_log_data`, `/events/live_log`, `/events/live_log_full`, `/clear_log`, `/clear_monitor` | `runtime_service` nutzt Payload-Hilfen | hoch: `LIST`, `SSE`, mehrere Requests | `runtime.live_log` |
-| `knx_monitor_log` | `deque(maxlen=15)` | KNX-Monitor-Eintraege fuer UI, JSON und SSE. | `knx_monitor_payload`, `knx_monitor_data`, `events_knx_monitor` | `add_knx_monitor_entry` | `/knx_monitor`, `/knx_monitor_data`, `/events/knx_monitor` | `knx_service` nur per Callback | hoch: `LIST`, KNX-Thread, SSE | `runtime.knx_monitor` |
-| `knx_monitor_values` | `dict` | Letzte KNX-Werte pro Gruppenadresse. | `knx_hub_content`, `knx_monitor_payload` | `add_knx_monitor_entry` | `/knx`, `/knx_monitor`, `/knx_monitor_data` | KNX-Service indirekt | hoch: `DICT`, KNX-Thread | `runtime.knx_monitor` |
-| `sse_versions` | `dict` | Versionen fuer Eventstream-Aenderungen. | `event_stream`, `sse_response` | `bump_sse` | `/events/status`, `/events/live_log`, `/events/mqtt_monitor`, `/events/knx_monitor` | `runtime_service` | hoch: `SSE_VERSION`, parallele Clients | `runtime.live_log` plus Monitor-Substates |
+| `runtime_context.knx.monitor_log` | `deque(maxlen=15)` | KNX-Monitor-Eintraege fuer UI, JSON und SSE. Seit 32.4.4 bevorzugte Quelle fuer Monitor-Payload; alter Deque bleibt parallel. | `knx_monitor_payload`, `knx_monitor_data`, `events_knx_monitor` indirekt | `add_knx_monitor_entry` ueber Wrapper | `/knx_monitor`, `/knx_monitor_data`, `/events/knx_monitor` | `knx_service` nur per Callback | hoch: `LIST`, KNX-Thread, SSE | `runtime.knx_monitor` |
+| `runtime_context.knx.monitor_values` | `dict` | Letzte KNX-Werte pro Gruppenadresse. Seit 32.4.3 bevorzugte Quelle fuer Hub und Monitor-Payload; alter Dict bleibt parallel. | `knx_hub_content`, `knx_monitor_payload`, `/knx_monitor_data` indirekt | `add_knx_monitor_entry` ueber Wrapper | `/knx`, `/knx_monitor`, `/knx_monitor_data` | KNX-Service indirekt | hoch: `DICT`, KNX-Thread | `runtime.knx_monitor` |
+| `sse_versions` | `dict` | Versionen fuer Eventstream-Aenderungen ohne KNX. | `event_stream`, `sse_response` | `bump_sse` | `/events/status`, `/events/live_log`, `/events/mqtt_monitor` | `runtime_service` | hoch: `SSE_VERSION`, parallele Clients | `runtime.live_log` plus Monitor-Substates |
+| `runtime_context.knx.monitor_version` | int | Version fuer KNX-Monitor-SSE. Seit 32.4.6 Ersatz fuer `sse_versions["knx"]`. | `sse_response`, `/events/knx_monitor` indirekt | `bump_sse("knx")` | `/events/knx_monitor` | Runtime/KNX | hoch: `SSE_VERSION`, parallele Clients | `runtime.knx_monitor` |
 | `runtime_context.bridge.thread` | `Thread`/`None` | Aktiver Bridge-Thread. | `start_bridge`, Restart-Worker | `start_bridge`, `restart_bridge_async` | `/start` | Runtime/Bridge | hoch: `THREAD`, Start/Stop-Race | `runtime.bridge_state` |
 | `runtime_context.bridge.running` | `bool` | Bridge laeuft ja/nein. | `start_bridge`, Status/UI | `bridge_async`, `bridge_runner`, `start_bridge`, Restart-Worker | `/`, `/start`, `/events/status`, `/shell_status` | `runtime_service` | hoch: `FLAG`, Thread-State | `runtime.bridge_state` |
 | `runtime_context.bridge.stop_requested` | `bool` | Stop-Signal fuer Bridge/KNX-Schleifen. | `bridge_async`, `_knx_listener_async` | `/start`, `/stop`, `bridge_async`, Restart-Worker | `/start`, `/stop` | Bridge/KNX | hoch: `FLAG`, Thread/async loop | `runtime.bridge_state` |
@@ -54,7 +55,10 @@ Empfohlene Zielbereiche:
 | `mqtt_client` | MQTT-Client/`None` | Haupt-MQTT-Client fuer Bridge und Tests. Seit 32.3.8 zusaetzlich in `runtime_context.mqtt.mqtt_client` gespiegelt. | KNX/UDP Publish, Tests | `bridge_async`, `handle_udp_to_mqtt`, `publish_value`, UDP-Listener | `/udp2mqtt/test/<int:index>` | `mqtt_service`, `udp_service`, `knx_service` | hoch: `IO`, Thread/Callback | `runtime.mqtt_monitor` oder `runtime.bridge_state` |
 | `mqtt_clients` | dict/list aus Service | Broker-Client-Sammlung. Seit 32.3.8 zusaetzlich in `runtime_context.mqtt.mqtt_clients` gespiegelt. | `bridge_async` | `bridge_async` | keine direkte Route | `mqtt_service` | mittel: geteilter Service-State | `runtime.mqtt_monitor` |
 | `runtime_context.mqtt.mqtt_monitor_values` | dict | MQTT-Monitor-Werte fuer UI/SSE. Seit 32.3.8 bevorzugte Quelle fuer Monitor-Reader. | `monitor_data`, `events_mqtt_monitor`, `mqtt_hub_content` | MQTT Callback zusaetzlich zum alten Service-State | `/monitor_data`, `/events/mqtt_monitor`, `/mqtt` | `mqtt_service` | hoch: `DICT`, Callback, SSE | `runtime.mqtt_monitor` |
-| `knx_listener_thread` | Thread/`None` | Separater KNX-Listener-Thread. | `ensure_knx_listener_started` | `ensure_knx_listener_started` | `/knx_listener_start`, `/knx_monitor` indirekt | KNX/xknx | hoch: `THREAD`, externer Bus | `runtime.knx_monitor` |
+| `runtime_context.knx.listener_thread` | Thread/`None` | Separater KNX-Listener-Thread. Seit 32.4.5 primaere Thread-Referenz. | `ensure_knx_listener_started`, Listener-Wrapper | `ensure_knx_listener_started`, Listener-Wrapper | `/knx_listener_start`, `/knx_monitor` indirekt | KNX/xknx | hoch: `THREAD`, externer Bus | `runtime.knx_monitor` |
+| `runtime_context.knx.listener_running` | bool | Running-State der KNX-Listener-Verwaltung. | Listener-Wrapper | `ensure_knx_listener_started`, `is_knx_listener_running` | `/knx_listener_start`, `/knx_monitor` indirekt | KNX/xknx | mittel-hoch: Thread-Zustand | `runtime.knx_monitor` |
+| `runtime_context.knx.start_requested` | bool | Start-Anforderung der KNX-Listener-Verwaltung. | Listener-Wrapper | `request_knx_start` | `/knx_listener_start`, `/knx_monitor` indirekt | KNX/xknx | mittel | `runtime.knx_monitor` |
+| `runtime_context.knx.stop_requested` | bool | Stop-Anforderung der KNX-Listener-Verwaltung, aktuell nur vorbereitet. | Listener-Wrapper | `request_knx_stop` | keine direkte Route | KNX/xknx | mittel | `runtime.knx_monitor` |
 
 ## Mapping- und Last-Seen-State
 
@@ -67,10 +71,10 @@ Empfohlene Zielbereiche:
 | `mqtt2lox_last_seen` | `dict` | Letzter Treffer fuer MQTT->Loxone. | `mqtt2lox`, `mqtt2lox_data`, `render_mapping_card` | `on_mqtt_message` | `/mqtt2lox`, `/mqtt2lox_data` | Loxone/Bridge | mittel: `DICT`, MQTT Callback | `runtime.mqtt_monitor` |
 | `runtime_context.udp.mqtt2udp_last_seen` | dict | Letzter Treffer fuer MQTT->UDP. Seit 32.3.9 bevorzugte Quelle fuer Seiten und Datenrouten. | `mqtt2udp`, `mqtt2udp_data` | `udp_service` per optionalem Callback | `/mqtt2udp`, `/mqtt2udp_data` | `udp_service` | mittel: Service-State | `runtime.udp_state` |
 | `runtime_context.udp.udp2mqtt_last_seen` | dict | Letzter Treffer fuer UDP->MQTT. Seit 32.3.9 bevorzugte Quelle fuer Seiten und Datenrouten. | `udp2mqtt`, `udp2mqtt_data` | `handle_udp_to_mqtt`/`udp_service` per optionalem Callback | `/udp2mqtt`, `/udp2mqtt_data` | `udp_service` | mittel: UDP Thread | `runtime.udp_state` |
-| `mqtt2knx_last_seen` | `dict` | Letzter Treffer fuer MQTT->KNX. | `mqtt2knx`, `mqtt2knx_data`, `_handle_mqtt_to_knx_service` | Bridge/KNX-Service ueber Mapping | `/mqtt2knx`, `/mqtt2knx_data` | `knx_service` | mittel-hoch: KNX/MQTT | `runtime.knx_monitor` |
-| `knx2mqtt_last_seen` | `dict` | Letzter Treffer fuer KNX->MQTT. | `knx2mqtt`, `knx2mqtt_data`, KNX Listener | KNX Listener | `/knx2mqtt`, `/knx2mqtt_data` | KNX/MQTT | hoch: KNX Thread | `runtime.knx_monitor` |
+| `runtime_context.knx.mqtt2knx_last_seen` | dict | Letzter Treffer fuer MQTT->KNX. Seit 32.4.2 bevorzugte Quelle fuer Seiten und Datenrouten; alter Dict bleibt parallel. | `mqtt2knx`, `mqtt2knx_data`, `_handle_mqtt_to_knx_service` | `knx_service` per optionalem Callback | `/mqtt2knx`, `/mqtt2knx_data` | `knx_service` | mittel-hoch: KNX/MQTT | `runtime.knx_monitor` |
+| `runtime_context.knx.knx2mqtt_last_seen` | dict | Letzter Treffer fuer KNX->MQTT. Seit 32.4.2 bevorzugte Quelle fuer Seiten und Datenrouten; alter Dict bleibt parallel. | `knx2mqtt`, `knx2mqtt_data`, KNX Listener | `knx_service` per optionalem Callback | `/knx2mqtt`, `/knx2mqtt_data` | KNX/MQTT | hoch: KNX Thread | `runtime.knx_monitor` |
 | `runtime_context.udp.udp2knx_last_seen` | dict | Letzter Treffer fuer UDP->KNX. Seit 32.3.9 bevorzugte Quelle fuer Seiten und Datenrouten. | `udp2knx`, `udp2knx_data`, `_handle_udp_to_knx_service` | UDP/KNX-Service, Legacy-Spiegelung | `/udp2knx`, `/udp2knx_data` | `udp_service`, `knx_service` | mittel-hoch: UDP/KNX | `runtime.udp_state` oder `runtime.knx_monitor` |
-| `knx2lox_last_seen` | `dict` | Letzter Treffer fuer KNX->Loxone. | `knx2lox`, `knx2lox_data`, KNX Listener | KNX Listener | `/knx2lox`, `/knx2lox_data` | KNX/Loxone | hoch: KNX Thread | `runtime.knx_monitor` |
+| `runtime_context.knx.knx2lox_last_seen` | dict | Letzter Treffer fuer KNX->Loxone. Seit 32.4.2 bevorzugte Quelle fuer Seiten und Datenrouten; alter Dict bleibt parallel. | `knx2lox`, `knx2lox_data`, KNX Listener | `knx_service` per optionalem Callback | `/knx2lox`, `/knx2lox_data` | KNX/Loxone | hoch: KNX Thread | `runtime.knx_monitor` |
 | `runtime_context.udp.udp_input_last_seen` | dict | Letzter UDP-Input pro Port. Seit 32.3.9 bevorzugte Quelle fuer `/udp_input_data`. | `udp_input_data` | UDP-Input-Thread per optionalem Callback | `/udp_input`, `/udp_input_data` | `udp_service` | mittel: UDP Thread | `runtime.udp_state` |
 
 ## Locks, Threads und Eventstream-Versionen
@@ -81,7 +85,7 @@ Empfohlene Zielbereiche:
 | `bridge_thread` | `THREAD` | Bridge-Hauptthread. | hoch: Start/Stop und Join muessen atomar bleiben. | `runtime.bridge_state` |
 | `knx_listener_thread` | `THREAD` | KNX-Monitor-/Listener-Thread. | hoch: xknx und Monitor-State. | `runtime.knx_monitor` |
 | lokaler `udp_thread` | `THREAD` | UDP-Input-Listener in `bridge_async`. | mittel-hoch: aktuell lokale Referenz, kein zentraler Stop-State. | spaeter `runtime.udp_state` pruefen |
-| `sse_versions` | `SSE_VERSION` | Versionszaehler fuer Polling/SSE-Payloads. | hoch: mehrere Clients, mehrere Eventbereiche. | eigener Teil im RuntimeContext |
+| `sse_versions` | `SSE_VERSION` | Versionszaehler fuer Polling/SSE-Payloads ohne KNX. | hoch: mehrere Clients, mehrere Eventbereiche. | verbleibende Eventbereiche spaeter pruefen |
 
 Queues:
 
@@ -127,12 +131,24 @@ Hinweis: Einige Pfad- und Config-Namen werden im Legacy doppelt definiert, zuers
 | `app/services/influx.py` | Config-Loader und Delete/Query | Kann zunaechst context-los bleiben |
 | `app/services/backup.py` | Pfade/Backup-Dateien | Kann zunaechst context-los bleiben |
 
+## KNX Detailplan
+
+Die KNX-Migration wird vorsichtig nach dem separaten Detailplan `KNX_RUNTIME_MIGRATION_PLAN.md` umgesetzt. Phase A ist seit 32.4.2 erledigt: die KNX-LastSeen-Dicts werden zusaetzlich im RuntimeContext gespiegelt. Phase B ist seit 32.4.3 erledigt: `knx_monitor_values` wird zusaetzlich im RuntimeContext gespiegelt. Phase C ist seit 32.4.4 erledigt: `knx_monitor_log` wird zusaetzlich im RuntimeContext gespiegelt. Phase D1 ist seit 32.4.5 erledigt: die KNX-Listener-Verwaltung liegt in `runtime_context.knx`. Phase E ist seit 32.4.6 erledigt: `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt.
+
+Empfohlene Reihenfolge:
+
+1. Nur KNX-LastSeen-Dicts. Erledigt in 32.4.2.
+2. Monitor-Werte. Erledigt in 32.4.3.
+3. Monitor-Log. Erledigt in 32.4.4.
+4. Listener-Verwaltung. D1 erledigt in 32.4.5.
+5. SSE-Versionierung. Erledigt in 32.4.6.
+
 ## Groesste Risiken
 
 1. Bridge Start/Stop nutzt mehrere RuntimeContext-Felder und Threads: `runtime_context.bridge.thread`, `running`, `stop_requested`, `status`.
 2. KNX Monitor schreibt aus Listener-/Callback-Kontext in `knx_monitor_log` und `knx_monitor_values`, waehrend JSON/SSE-Routen lesen.
 3. MQTT- und UDP-State werden im RuntimeContext gespiegelt; alte MQTT-/UDP-Globals laufen bewusst parallel.
-4. `sse_versions` koordiniert mehrere Eventstream-Bereiche ohne expliziten Lock.
+4. `sse_versions` koordiniert die verbleibenden Eventstream-Bereiche ohne expliziten Lock; KNX nutzt seit 32.4.6 `runtime_context.knx.monitor_version`.
 5. `mqtt_client`, `ws` und `main_loop` verbinden Threading, asyncio und externe Netzwerkverbindungen.
 6. Broker-Prozess-Lifecycle liegt seit 32.4.0 im RuntimeContext, muss aber im Betrieb mit Mosquitto getestet werden.
 
@@ -156,4 +172,4 @@ Hinweis: Einige Pfad- und Config-Namen werden im Legacy doppelt definiert, zuers
 - SSE-Routen erst nach klarer Versionierungsstrategie anfassen.
 - Context-Objekt zuerst nur einlesen/uebergeben, dann schrittweise Schreibpfade migrieren.
 - Legacy-Aliase erst entfernen, wenn Blueprints und Tests stabil sind.
-- Das Grundgeruest aus `app/runtime/` ist seit 32.4.0 fuer LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State und Broker-State importiert; KNX-State bleibt unverdrahtet.
+- Das Grundgeruest aus `app/runtime/` ist seit 32.4.6 fuer LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State, Broker-State, KNX-LastSeen, KNX-Monitor-Werte, KNX-Monitor-Log, KNX-Listener-Verwaltung und KNX-SSE-Versionierung importiert; xknx bleibt unveraendert im Legacy-Code.

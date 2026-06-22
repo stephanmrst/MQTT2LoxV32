@@ -42,7 +42,7 @@ backups/
 logs/
 ```
 
-`app/main.py` startet weiterhin die Legacy-Flask-App ueber `app/engine/port.py`. Die Services enthalten inzwischen viele fachliche Hilfsfunktionen, aber `legacy/app_legacy.py` ist weiter der zentrale Container fuer Routen, HTML-Bloecke, Runtime-State, Live-Monitore und Bridge-Orchestrierung. `app/runtime/` enthaelt seit 32.3.4 ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten und Broker-State sind angebunden.
+`app/main.py` startet weiterhin die Legacy-Flask-App ueber `app/engine/port.py`. Die Services enthalten inzwischen viele fachliche Hilfsfunktionen, aber `legacy/app_legacy.py` ist weiter der zentrale Container fuer Routen, HTML-Bloecke, Runtime-State, Live-Monitore und Bridge-Orchestrierung. `app/runtime/` enthaelt seit 32.3.4 ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State, KNX-LastSeen-Dicts, KNX-Monitor-Werte, KNX-Monitor-Log, KNX-Listener-Verwaltung und seit 32.4.6 KNX-SSE-Versionierung sind angebunden. xknx bleibt bewusst im Legacy-Code.
 
 ## Kennzahlen
 
@@ -73,7 +73,8 @@ logs/
 | `app/services/runtime.py` | mittel | Gute Richtung fuer Status/Live-Log/Broker. Sollte spaeter zentraler RuntimeContext statt loser Parameter werden. | hoch | mittel |
 | `app/services/backup.py` | gut | Backup-/Restore-Logik ist kompakt und klar. Route spaeter in `routes/backup.py`, Service kann bleiben. | niedrig | niedrig |
 | `app/services/template.py` | mittel | Hilft bei wiederkehrenden HTML-Helfern, ersetzt aber noch keine echte Template-Struktur. Spaeter nach `templates/` und Jinja-Partial-Struktur ueberfuehren. | mittel | hoch |
-| `app/runtime/*.py` | gut | RuntimeContext-Grundgeruest. LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State und Broker-State sind angebunden; KNX-State noch nicht anbinden, bis Tests und Migrationsreihenfolge stehen. | mittel | niedrig |
+| `app/runtime/*.py` | gut | RuntimeContext-Grundgeruest. LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State, Broker-State, KNX-LastSeen-Dicts, KNX-Monitor-Werte, KNX-Monitor-Log, KNX-Listener-Verwaltung und KNX-SSE-Versionierung sind angebunden; xknx erst nach Tests migrieren. | mittel | niedrig |
+| `KNX_RUNTIME_MIGRATION_PLAN.md` | gut | Detailplan fuer die spaetere KNX-State-Migration. Vor KNX-Aenderungen zuerst Smoke-Tests und Reihenfolge pruefen. | hoch | niedrig |
 | `config/*.json` | mittel | Daten liegen klar getrennt. Spaeter Schema-/Validation-Modelle in `models/` oder `utils/validation.py` ergaenzen. | mittel | mittel |
 | `logs/` und `backups/` | gut | Runtime-Artefakte getrennt. Nicht in fachliche Module mischen. | niedrig | niedrig |
 

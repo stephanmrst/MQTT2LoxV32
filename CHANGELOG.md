@@ -1,5 +1,69 @@
 # Changelog
 
+## 32.4.6
+
+- KNX RuntimeContext Phase E umgesetzt.
+- `KNXState` enthaelt jetzt `monitor_version`.
+- `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt.
+- `bump_sse("knx")` erhoeht jetzt die KNX-Monitor-Version im RuntimeContext.
+- KNX-SSE liest die Version fuer `version_name == "knx"` aus `runtime_context.knx.monitor_version`.
+- Andere SSE-Versionen (`log`, `mqtt`, `status`) bleiben im bestehenden `sse_versions`-Dict.
+- Keine UI-Aenderungen.
+- Versionsstand auf `32.4.6` gesetzt.
+
+## 32.4.5
+
+- KNX RuntimeContext Phase D1 umgesetzt.
+- `KNXState` enthaelt jetzt Listener-Verwaltung: `listener_thread`, `listener_running`, `start_requested` und `stop_requested`.
+- Wrapper fuer KNX-Listener-Verwaltung in `legacy/app_legacy.py` ergaenzt.
+- `ensure_knx_listener_started` nutzt fuer Thread-Referenz und Running-State jetzt `runtime_context.knx`.
+- Alte globale Variable `knx_listener_thread` entfernt.
+- `_knx_listener_async`, `telegram_received_cb`, xknx, asyncio, `send_knx_value`, `add_knx_monitor_entry`, Monitor und SSE bleiben unveraendert.
+- Keine UI-Aenderungen.
+- Versionsstand auf `32.4.5` gesetzt.
+
+## 32.4.4
+
+- KNX RuntimeContext Phase C umgesetzt.
+- `KNXState` enthaelt jetzt zusaetzlich `monitor_log` als `deque(maxlen=15)`.
+- Wrapper fuer KNX-Monitor-Log in `legacy/app_legacy.py` ergaenzt.
+- `add_knx_monitor_entry` schreibt `knx_monitor_log` weiterhin wie bisher und spiegelt zusaetzlich nach `runtime_context.knx.monitor_log`.
+- KNX Monitor Payload liest Log-Eintraege bevorzugt aus `runtime_context.knx`.
+- `knx_listener_thread`, xknx, asyncio, `ensure_knx_listener_started`, `knx_listener_runner`, `sse_versions["knx"]` und `/events/knx_monitor` bleiben unveraendert.
+- Keine UI-Aenderungen.
+- Versionsstand auf `32.4.4` gesetzt.
+
+## 32.4.3
+
+- KNX RuntimeContext Phase B umgesetzt.
+- `KNXState` enthaelt jetzt zusaetzlich `monitor_values`.
+- Wrapper fuer KNX-Monitor-Werte in `legacy/app_legacy.py` ergaenzt.
+- `add_knx_monitor_entry` schreibt `knx_monitor_values` weiterhin wie bisher und spiegelt zusaetzlich nach `runtime_context.knx.monitor_values`.
+- KNX Hub und KNX Monitor Payload lesen Monitor-Werte bevorzugt aus `runtime_context.knx`.
+- `knx_monitor_log`, `knx_listener_thread`, SSE-Versionierung, Eventstream-Route und xknx Listener bleiben unveraendert.
+- Keine UI-Aenderungen.
+- Versionsstand auf `32.4.3` gesetzt.
+
+## 32.4.2
+
+- KNX RuntimeContext Phase A umgesetzt.
+- `KNXState` enthaelt jetzt `mqtt2knx_last_seen`, `knx2mqtt_last_seen`, `knx2lox_last_seen` und `lock`.
+- KNX-LastSeen-Wrapper in `legacy/app_legacy.py` ergaenzt.
+- KNX-Service schreibt LastSeen-Daten optional zusaetzlich in `runtime_context.knx`.
+- KNX-Routen fuer MQTT->KNX, KNX->MQTT und KNX->Loxone lesen bevorzugt aus `runtime_context.knx` mit Fallback auf alte Dicts.
+- `udp2knx_last_seen` bleibt weiterhin in `runtime_context.udp`.
+- Monitor-Log, Monitor-Werte, Listener-Thread, SSE und xknx bleiben unveraendert.
+- Keine UI-Aenderungen.
+- Versionsstand auf `32.4.2` gesetzt.
+
+## 32.4.1
+
+- KNX Runtime Migration Plan erstellt.
+- Neue Datei `KNX_RUNTIME_MIGRATION_PLAN.md` mit KNX-States, Lesern/Schreibern, Routen, Services, Thread-/Async-/SSE-Risiken und empfohlener Migrationsreihenfolge.
+- Besonders betrachtet: KNX Listener, Monitor, xknx Callback, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone.
+- Keine KNX-State-Migration, keine Logikaenderungen, keine UI-Aenderungen, keine Service-Aenderungen.
+- Versionsstand auf `32.4.1` gesetzt.
+
 ## 32.4.0
 
 - BrokerState vollstaendig in den RuntimeContext migriert.
