@@ -9,6 +9,8 @@ Dies ist eine reine Analyse. Es wurden keine Dateien verschoben, keine Funktione
 ```text
 app/
   main.py
+  core.py
+  __init__.py
   engine/
     port.py
   services/
@@ -34,25 +36,23 @@ app/
   routes/
   models/
   utils/
-legacy/
-  app_legacy.py
 config/
 data/
 backups/
 logs/
 ```
 
-`app/main.py` startet weiterhin die Legacy-Flask-App ueber `app/engine/port.py`. Die Services enthalten inzwischen viele fachliche Hilfsfunktionen, aber `legacy/app_legacy.py` ist weiter der zentrale Container fuer Routen, HTML-Bloecke, Runtime-State, Live-Monitore und Bridge-Orchestrierung. `app/runtime/` enthaelt seit 32.3.4 ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Seit 32.4.7 sind die alten KNX-Global-State-Reste entfernt. Seit 32.4.8 beschreibt `LEGACY_REMOVAL_PLAN.md` die vollstaendige Entfernung von `legacy/app_legacy.py`. xknx bleibt bewusst im Legacy-Code.
+`app/main.py` startet die Flask-App seit 32.7.0 ueber `from app import create_app`; `app/__init__.py` ist die zentrale Factory. Die Services enthalten inzwischen viele fachliche Hilfsfunktionen, aber `app/core.py` ist weiter der zentrale Container fuer grosse HTML-Bloecke, Runtime-State, Live-Monitore und Bridge-Orchestrierung. `app/runtime/` enthaelt seit 32.3.4 ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Seit 32.4.7 sind die alten KNX-Global-State-Reste entfernt. Seit 32.7.1 sind die letzten alten Ordnerreste entfernt. xknx bleibt bewusst im App-Core.
 
 ## Kennzahlen
 
 | Bereich | Befund |
 |---|---:|
 | Python-Dateien ohne `__pycache__` | 13 |
-| `legacy/app_legacy.py` | ca. 10.786 Zeilen |
-| Funktionen in `legacy/app_legacy.py` | 279 |
-| Flask-Routen in `legacy/app_legacy.py` | 117 |
-| Globale Zuweisungen in `legacy/app_legacy.py` | 113 |
+| `app/core.py` | ca. 10.786 Zeilen |
+| Funktionen in `app/core.py` | 279 |
+| Flask-Routen in `app/core.py` | 117 |
+| Globale Zuweisungen in `app/core.py` | 113 |
 | Service-Module | 10 |
 | Groesste Funktion | `monitor`, ca. 1.301 Zeilen |
 
@@ -62,11 +62,11 @@ logs/
 |---|---|---|---|---|
 | `app/main.py` | gut | Schlank lassen; nur App-Fabrik, UTF-8-Hook und Startlogik behalten. Import `APP_VERSION` pruefen, da aktuell nicht direkt genutzt. | niedrig | niedrig |
 | `app/engine/port.py` | mittel | Weiter als Bootstrap-/Kompatibilitaetsmodul verwenden. Langfristig Pfad-/Versionskonstanten in `app/config/runtime.py` oder `app/context.py` ziehen, damit Services nicht von `engine` abhaengen. | mittel | mittel |
-| `legacy/app_legacy.py` | kritisch | In mehreren Schritten in Blueprints und Context/Runtime-State zerlegen. Zuerst Routen gruppieren, dann globale States kontrolliert kapseln. | hoch | hoch |
+| `app/core.py` | kritisch | In mehreren Schritten in Blueprints und Context/Runtime-State zerlegen. Zuerst Routen gruppieren, dann globale States kontrolliert kapseln. | hoch | hoch |
 | `app/services/config.py` | mittel | Zentrale Config-Zustaendigkeit ist sinnvoll. Abhaengigkeit zu `engine.port` spaeter entfernen; Pfade ueber Context oder Settings uebergeben. | hoch | mittel |
-| `app/services/mqtt.py` | mittel | MQTT-State (`mqtt_clients`, `mqtt_client`, Monitorwerte) spaeter in RuntimeContext verschieben. Publish-/Monitor-Hilfen aus Legacy vereinheitlichen. | mittel | mittel |
+| `app/services/mqtt.py` | mittel | MQTT-State (`mqtt_clients`, `mqtt_client`, Monitorwerte) spaeter in RuntimeContext verschieben. Publish-/Monitor-Hilfen aus App-Core vereinheitlichen. | mittel | mittel |
 | `app/services/udp.py` | gut-mittel | Fachlich klar, aber importiert `services.config`. Spaeter Ports/Presets ueber Parameter oder Context uebergeben. | mittel | mittel |
-| `app/services/knx.py` | gut-mittel | Reine KNX-Hilfs- und Bridge-Funktionen sind passend. Monitor/Listener bewusst im Legacy lassen, bis RuntimeContext existiert. | mittel | mittel |
+| `app/services/knx.py` | gut-mittel | Reine KNX-Hilfs- und Bridge-Funktionen sind passend. Monitor/Listener bewusst im App-Core lassen, bis RuntimeContext existiert. | mittel | mittel |
 | `app/services/loxone.py` | gut | Sauber abgegrenzt. Weiter nur als Bridge-/Options-Service verwenden. | niedrig | niedrig |
 | `app/services/influx.py` | gut-mittel | Influx-Zugriff ist fachlich passend. Explorer-Routen spaeter in `routes/influx.py` verschieben. | mittel | mittel |
 | `app/services/object.py` | mittel | Fachlich sinnvoll, aber einzelne Funktionen sind gross. Spaeter Objektmodell in `models/` und Mapping-Sync in eigenen Service trennen. | mittel | mittel-hoch |
@@ -75,11 +75,11 @@ logs/
 | `app/services/template.py` | mittel | Hilft bei wiederkehrenden HTML-Helfern, ersetzt aber noch keine echte Template-Struktur. Spaeter nach `templates/` und Jinja-Partial-Struktur ueberfuehren. | mittel | hoch |
 | `app/runtime/*.py` | gut | RuntimeContext-Grundgeruest. LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State, Broker-State und KNX-Runtime-State sind angebunden; alte KNX-Globals sind entfernt, xknx erst nach Tests migrieren. | mittel | niedrig |
 | `KNX_RUNTIME_MIGRATION_PLAN.md` | gut | Detailplan fuer die spaetere KNX-State-Migration. Vor KNX-Aenderungen zuerst Smoke-Tests und Reihenfolge pruefen. | hoch | niedrig |
-| `LEGACY_REMOVAL_PLAN.md` | gut | Zielplan fuer App Factory, Blueprints, Templates/Static und finale Entfernung von `legacy/app_legacy.py`. | hoch | niedrig |
+| `LEGACY_REMOVAL_PLAN.md` | gut | Zielplan fuer App Factory, Blueprints, Templates/Static und finale Entfernung von `app/core.py`. | hoch | niedrig |
 | `config/*.json` | mittel | Daten liegen klar getrennt. Spaeter Schema-/Validation-Modelle in `models/` oder `utils/validation.py` ergaenzen. | mittel | mittel |
 | `logs/` und `backups/` | gut | Runtime-Artefakte getrennt. Nicht in fachliche Module mischen. | niedrig | niedrig |
 
-## Was liegt noch in `legacy/app_legacy.py`?
+## Was liegt noch in `app/core.py`?
 
 | Block | Beispiele | Einschätzung | Zielort spaeter |
 |---|---|---|---|
@@ -88,7 +88,7 @@ logs/
 | Settings und Config-Routen | `/settings`, `/save`, `/save_core`, `/save_mqtt`, `/save_influx` | Gute Blueprint-Kandidaten, Logik teils schon in Services. | `routes/settings.py` |
 | MQTT Monitor / Topic Manager | `monitor`, `topics2_content`, `topics`, Save/Data-Routen | Sehr grosser Block mit HTML, JS, State und Config-Zugriff. | `routes/mqtt.py`, `services/mqtt.py`, `templates/mqtt/` |
 | Mapping-Seiten | `mqtt2lox`, `mqtt2udp`, `mqtt2knx`, `udp2knx`, Shared Mapping Explorer | UI-lastig, viele wiederholte Muster. | `routes/mappings.py`, `templates/mappings/` |
-| KNX Monitor und Listener | `_knx_listener_async`, `knx_listener_runner`, `add_knx_monitor_entry`, `/events/knx_monitor` | Sensibler Live-State; vorerst im Legacy lassen. | spaeter `routes/knx.py` + RuntimeContext |
+| KNX Monitor und Listener | `_knx_listener_async`, `knx_listener_runner`, `add_knx_monitor_entry`, `/events/knx_monitor` | Sensibler Live-State; vorerst im App-Core lassen. | spaeter `routes/knx.py` + RuntimeContext |
 | Bridge-Orchestrierung | `bridge_async`, `bridge_runner`, `/start`, `/stop`, MQTT/UDP/KNX/Loxone-Verkettung | Zentraler Laufzeitkern, riskant fuer Umbauten. | `engine/bridge.py`, `services/runtime.py` |
 | Objektmanager-Routen | `objects_page`, `objects_edit`, Sync-/Rebuild-Routen | Service existiert, Routen/UI noch gross. | `routes/objects.py`, `models/object.py` |
 | Influx Explorer | Explorer- und Settings-Routen | Service existiert, Routen koennen spaeter raus. | `routes/influx.py` |
@@ -119,33 +119,33 @@ Mittlere Prioritaet:
 
 | Funktion | Datei | Zeilen | Bewertung |
 |---|---|---:|---|
-| `monitor` | `legacy/app_legacy.py` | ca. 1.301 | kritisch: HTML, JS, State und Aktionen in einer Funktion |
-| `mqtt2lox` | `legacy/app_legacy.py` | ca. 862 | kritisch: grosse Mapping-UI |
-| `topics2_content` | `legacy/app_legacy.py` | ca. 743 | kritisch: Topic-UI und Datenlogik stark gemischt |
-| `mqtt2udp` | `legacy/app_legacy.py` | ca. 426 | mittel-kritisch: Mapping-UI |
-| `knx_monitor` | `legacy/app_legacy.py` | ca. 410 | mittel-kritisch: sensibel wegen Live-State |
-| `shared_mapping_explorer_script` | `legacy/app_legacy.py` | ca. 263 | mittel: JS-Block spaeter in static asset |
-| `topics` | `legacy/app_legacy.py` | ca. 242 | mittel-kritisch |
-| `bridge_async` | `legacy/app_legacy.py` | ca. 205 | kritisch wegen Runtime-Verhalten |
+| `monitor` | `app/core.py` | ca. 1.301 | kritisch: HTML, JS, State und Aktionen in einer Funktion |
+| `mqtt2lox` | `app/core.py` | ca. 862 | kritisch: grosse Mapping-UI |
+| `topics2_content` | `app/core.py` | ca. 743 | kritisch: Topic-UI und Datenlogik stark gemischt |
+| `mqtt2udp` | `app/core.py` | ca. 426 | mittel-kritisch: Mapping-UI |
+| `knx_monitor` | `app/core.py` | ca. 410 | mittel-kritisch: sensibel wegen Live-State |
+| `shared_mapping_explorer_script` | `app/core.py` | ca. 263 | mittel: JS-Block spaeter in static asset |
+| `topics` | `app/core.py` | ca. 242 | mittel-kritisch |
+| `bridge_async` | `app/core.py` | ca. 205 | kritisch wegen Runtime-Verhalten |
 | `ensure_object_mappings` | `app/services/object.py` | ca. 269 | mittel: fachlich gross, aber bereits im Service |
 
 ### Weitere grosse Funktionen ueber 100 Zeilen
 
-- `collect_config_conflicts`, `render_shared_mapping_explorer_page`, `udp_input_page`, `collect_global_search_items`, `mqtt_brokers_page`, `handle_mqtt_command`, `dashboard_content`, `live_log_console_content` in `legacy/app_legacy.py`.
+- `collect_config_conflicts`, `render_shared_mapping_explorer_page`, `udp_input_page`, `collect_global_search_items`, `mqtt_brokers_page`, `handle_mqtt_command`, `dashboard_content`, `live_log_console_content` in `app/core.py`.
 - `cleanup_object_mappings`, `sync_objects_from_expert_mappings` in `app/services/object.py`.
 - `embedded_page` in `app/services/template.py`.
 
 ### Doppelte oder adapterartige Funktionen
 
-Viele doppelte Funktionsnamen sind Legacy-Adapter fuer bereits ausgelagerte Services. Das ist aktuell stabilisierend, aber langfristig aufzuraeumen:
+Viele doppelte Funktionsnamen sind App-Core-Adapter fuer bereits ausgelagerte Services. Das ist aktuell stabilisierend, aber langfristig aufzuraeumen:
 
-- Config-Loader/Saver doppelt in `legacy/app_legacy.py` und `app/services/config.py`.
-- UDP-Hilfen doppelt in `legacy/app_legacy.py` und `app/services/udp.py`.
-- Backup-Hilfen doppelt in `legacy/app_legacy.py` und `app/services/backup.py`.
-- Runtime-/Broker-Hilfen doppelt in `legacy/app_legacy.py` und `app/services/runtime.py`.
-- Template-Hilfen doppelt in `legacy/app_legacy.py` und `app/services/template.py`.
+- Config-Loader/Saver doppelt in `app/core.py` und `app/services/config.py`.
+- UDP-Hilfen doppelt in `app/core.py` und `app/services/udp.py`.
+- Backup-Hilfen doppelt in `app/core.py` und `app/services/backup.py`.
+- Runtime-/Broker-Hilfen doppelt in `app/core.py` und `app/services/runtime.py`.
+- Template-Hilfen doppelt in `app/core.py` und `app/services/template.py`.
 
-Hinweis: Nicht alle Duplikate sind Fehler. Viele Legacy-Funktionen sind bewusst kleine Wrapper, damit bestehende Routen und alte Aufrufstellen stabil bleiben.
+Hinweis: Nicht alle Duplikate sind Fehler. Viele App-Core-Funktionen sind bewusst kleine Wrapper, damit bestehende Routen und alte Aufrufstellen stabil bleiben.
 
 ### Potenziell unbenutzte Funktionen
 
@@ -158,11 +158,11 @@ Ohne Laufzeit-/Template-Analyse lassen sich unbenutzte Funktionen nicht sicher e
 | Datei | Kandidat | Bewertung |
 |---|---|---|
 | `app/main.py` | `APP_VERSION` | Wird importiert, aber im Modul nicht direkt verwendet. Niedriges Risiko, spaeter bereinigen. |
-| `legacy/app_legacy.py` | `subprocess`, `shutil`, `zipfile` | AST sieht keine direkte Nutzung. Vor Entfernung mit Textsuche und Backup/Runtime-Routen pruefen. |
+| `app/core.py` | `subprocess`, `shutil`, `zipfile` | AST sieht keine direkte Nutzung. Vor Entfernung mit Textsuche und Backup/Runtime-Routen pruefen. |
 
 ### Doppelte Imports
 
-`legacy/app_legacy.py` enthaelt weiterhin viele Import- und Konstantenbloecke aus der Port-Historie. Kritisch ist das nicht sofort, aber es erschwert Review und Fehleranalyse.
+`app/core.py` enthaelt weiterhin viele Import- und Konstantenbloecke aus der Port-Historie. Kritisch ist das nicht sofort, aber es erschwert Review und Fehleranalyse.
 
 ## Zyklische Abhaengigkeiten
 
@@ -171,14 +171,14 @@ Keine harte zyklische Service-Import-Schleife wurde gefunden.
 Auffaellige Kante:
 
 ```text
-app/main.py -> app/engine/port.py -> legacy/app_legacy.py -> app/services/config.py -> app/engine/port.py
+app/main.py -> app/engine/port.py -> app/core.py -> app/services/config.py -> app/engine/port.py
 ```
 
 Diese Kette funktioniert aktuell, ist architektonisch aber unschoen. `services/config.py` sollte langfristig nicht aus `engine.port` importieren, sondern Pfade/Defaults aus einem neutralen Context oder Settings-Modul erhalten.
 
 Weitere lokale Abhaengigkeiten:
 
-- `legacy/app_legacy.py` importiert alle Service-Module.
+- `app/core.py` importiert alle Service-Module.
 - `app/services/udp.py` importiert `services.config`.
 - Die meisten anderen Services sind weitgehend frei von gegenseitigen Service-Abhaengigkeiten.
 
@@ -186,13 +186,13 @@ Weitere lokale Abhaengigkeiten:
 
 Wichtige globale States:
 
-- `live_log` in `legacy/app_legacy.py`.
-- `knx_monitor_log` und `knx_monitor_values` in `legacy/app_legacy.py`.
-- `sse_versions` in `legacy/app_legacy.py`.
-- Pfad- und Config-Konstanten in `legacy/app_legacy.py`, `app/services/config.py` und `app/engine/port.py`.
+- `live_log` in `app/core.py`.
+- `knx_monitor_log` und `knx_monitor_values` in `app/core.py`.
+- `sse_versions` in `app/core.py`.
+- Pfad- und Config-Konstanten in `app/core.py`, `app/services/config.py` und `app/engine/port.py`.
 - MQTT-State in `app/services/mqtt.py`: `mqtt_monitor_values`, `mqtt_clients`, `mqtt_client`.
 - UDP-State in `app/services/udp.py`: `mqtt2udp_last_seen`, `udp2mqtt_last_seen`, `udp_input_last_seen`.
-- Runtime-/Broker-State teils in `legacy/app_legacy.py`, teils in `app/services/runtime.py`.
+- Runtime-/Broker-State teils in `app/core.py`, teils in `app/services/runtime.py`.
 
 Empfehlung:
 
@@ -224,7 +224,7 @@ Auffaelligkeiten:
 
 ## Flask
 
-117 Routen liegen noch in `legacy/app_legacy.py`. Das ist die groesste strukturelle Baustelle.
+117 Routen liegen noch in `app/core.py`. Das ist die groesste strukturelle Baustelle.
 
 Empfohlene Reihenfolge:
 
@@ -235,7 +235,7 @@ Empfohlene Reihenfolge:
 
 ## Plugins
 
-Plugin-Code ist aktuell vor allem Konfiguration und UI im Legacy-Core:
+Plugin-Code ist aktuell vor allem Konfiguration und UI im App-Core:
 
 - `config/plugins.json`
 - `DEFAULT_PLUGINS`
@@ -326,20 +326,20 @@ app/
 | 3 | `RuntimeContext` fuer Live-Log, Monitor-State, MQTT/UDP-State und Broker-Prozess entwerfen. | mittel-hoch | mittel |
 | 4 | `services/config.py` von `engine.port` entkoppeln. | mittel | mittel |
 | 5 | Grosse Mapping- und Monitor-HTML-Bloecke schrittweise in Templates/Static JS ueberfuehren. | hoch | mittel-hoch |
-| 6 | Legacy-Wrapper erst entfernen, wenn Routen und Tests stabil sind. | mittel | mittel |
+| 6 | App-Core-Wrapper erst entfernen, wenn Routen und Tests stabil sind. | mittel | mittel |
 | 7 | Plugin-Verwaltung als eigene Route/Registry planen. | niedrig-mittel | niedrig |
 
 ## Wichtigste Erkenntnisse
 
-- Die erste Modularisierung hat Services fachlich erkennbar getrennt, aber der Legacy-Core bleibt der zentrale Engpass.
+- Die erste Modularisierung hat Services fachlich erkennbar getrennt, aber der App-Core bleibt der zentrale Engpass.
 - Die groessten Risiken liegen nicht in einzelnen Services, sondern in den grossen Flask-Routen mit gemischtem HTML, JS, State und Config-Zugriff.
 - Der naechste sinnvolle Schritt ist nicht weitere blinde Auslagerung, sondern ein getesteter Blueprint- und RuntimeContext-Plan.
 
 ## Groesste Baustellen
 
-- `legacy/app_legacy.py` mit 117 Routen, 279 Funktionen und sehr grossen HTML-/JS-Funktionen.
+- `app/core.py` mit 117 Routen, 279 Funktionen und sehr grossen HTML-/JS-Funktionen.
 - Globale Live-States fuer MQTT, UDP, KNX, Live-Log und Broker-Prozess.
-- Doppelte Legacy-Wrapper zu bereits vorhandenen Services.
+- Doppelte App-Core-Wrapper zu bereits vorhandenen Services.
 - `services/config.py` importiert aus `engine.port` und sollte neutraler werden.
 
 ## Empfohlene naechste Schritte

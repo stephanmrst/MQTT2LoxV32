@@ -2218,7 +2218,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.7.0
+            MQTT2Lox 32.7.1
         </div>
     </aside>
 

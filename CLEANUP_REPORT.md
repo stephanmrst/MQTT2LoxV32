@@ -8,7 +8,7 @@ Die aktive Anwendung startet ueber:
 
 - `app/main.py`
 - `app/engine/port.py`
-- `legacy/app_legacy.py`
+- `app/core.py`
 
 Die geloeschten Dateien wurden nicht mehr von dieser Startkette importiert oder registriert. Die Legacy-Anwendung rendert ihre Oberflaeche ueber `render_template_string`; die alten v32-Jinja-Templates und v32-Static-Assets wurden daher nicht mehr verwendet.
 
@@ -53,7 +53,7 @@ Alle vorhandenen `__pycache__/*.pyc` Dateien wurden entfernt. Diese Dateien sind
 - `app/main.py`
 - `app/engine/port.py`
 - `app/services/config.py`
-- `legacy/app_legacy.py`
+- `app/core.py`
 - `config/*.json`
 - `requirements.txt`
 - `templates/CHANGELOG_v32_0_1.txt`

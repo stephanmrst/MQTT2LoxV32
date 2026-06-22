@@ -1,10 +1,10 @@
 # Blueprint-Migrationsplan 32.3.2
 
-Stand: Analyse von `legacy/app_legacy.py` mit 117 Flask-Routen.
+Stand: Analyse von `app/core.py` mit 117 Flask-Routen.
 
 Dies ist nur ein Migrationsplan. Es wurden keine Routen verschoben, keine Blueprint-Dateien angelegt und keine Logik oder UI geaendert.
 
-Seit 32.4.8 beschreibt `LEGACY_REMOVAL_PLAN.md`, wie dieser Blueprint-Plan in die vollstaendige Entfernung von `legacy/app_legacy.py` eingebettet wird.
+Seit 32.4.8 beschreibt `LEGACY_REMOVAL_PLAN.md`, wie dieser Blueprint-Plan in die vollstaendige Entfernung von `app/core.py` eingebettet wird.
 
 ## Legende
 
@@ -212,4 +212,4 @@ Besonders sensibel:
 2. Jede Route nach dem Verschieben mit gleicher URL, gleicher Methode und gleicher Antwortart pruefen.
 3. `events` und KNX-Monitor-Routen erst migrieren, wenn Status/SSE/Monitor-Smoke-Tests existieren.
 4. `system`-Routen fuer Bridge und Broker zuletzt verschieben.
-5. Legacy-Wrapper erst entfernen, wenn keine Route mehr direkt darauf angewiesen ist.
+5. App-Core-Wrapper erst entfernen, wenn keine Route mehr direkt darauf angewiesen ist.

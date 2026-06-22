@@ -32,6 +32,7 @@
 - Legacy Removal Phase G Teil 2 32.6.7 pruefen: `/knx_monitor`, `/knx_monitor_data`, `/knx_monitor/influx`, `/knx_monitor/influx_type`, `/knx_monitor/influx_topic`, `/knx_listener_start` und KNX-SSE.
 - Legacy Removal Phase H 32.6.8 pruefen: `/start`, `/stop`, `/test/loxone`, `/test/mqtt`, `/internal_broker/save`, `/internal_broker/start`, `/internal_broker/stop`, `/internal_broker/status`.
 - Legacy Removal Phase J 32.7.0 pruefen: App Factory, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Backup, Restore, Objektmanager, Live Log, SSE, Bridge und interner Broker.
+- Legacy Cleanup 32.7.1 pruefen: alter Ordner entfernt, aktive App-Code-Suche nach alten Legacy-Lader-Begriffen ohne Treffer, Doku auf `app/core.py` aktualisiert.
 - Umbenannte Module im laufenden Betrieb gegenpruefen: Dashboard, MQTT -> Loxone, MQTT -> UDP, MQTT -> KNX und Log-Leerzustand.
 - Object-Service im laufenden Betrieb gegenpruefen: Objektliste, Objekt bearbeiten, Mapping-Sync, Mapping-Rebuild und Objekt loeschen.
 - Loxone-Service im laufenden Betrieb gegenpruefen: MQTT -> Loxone, Loxone IO-Datalist und Dashboard-Zaehler.

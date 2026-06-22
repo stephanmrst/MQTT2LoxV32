@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.7.0
+## Aktueller Stand: 32.7.1
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -10,6 +10,16 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `app/core.py`
 
 Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+
+## Von 32.7.0 nach 32.7.1
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Nacharbeit nach Legacy Removal:
+
+- Der alte `legacy/`-Ordner wurde entfernt, nachdem nur noch `__pycache__` enthalten war.
+- Historische Architektur- und Runtime-Dokumente wurden auf den aktuellen `app/core.py`-Stand angepasst.
+- Keine App-Logik geaendert, keine UI-Aenderung.
 
 ## Von 32.6.8 nach 32.7.0
 
@@ -421,7 +431,7 @@ Geaendert wurden nur technische Modulnamen:
 - Config-Service: `app/services/config.py`.
 - MQTT-Service: `app/services/mqtt.py`.
 - UDP-Service: `app/services/udp.py`.
-- `legacy/app_legacy_v31_38.py` wurde zu `app/core.py`.
+- Die historische v31-Portdatei wurde zum heutigen `app/core.py` ueberfuehrt.
 
 ## Von 32.2.0 nach 32.2.2
 

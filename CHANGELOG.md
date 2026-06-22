@@ -1,9 +1,17 @@
 # Changelog
 
+## 32.7.1
+
+- Aufraeumen nach Legacy Removal: der leere `legacy/`-Ordner und der alte `legacy/__pycache__/`-Rest wurden entfernt.
+- Alte Architektur-/Blueprint-/Runtime-Plan-Dokumente auf den aktuellen `app/core.py`-Stand aktualisiert.
+- `templates/CHANGELOG_v32_1_0.txt` auf die neue Startkette angepasst.
+- Keine App-Logik und keine UI geaendert.
+- Versionsstand auf `32.7.1` gesetzt.
+
 ## 32.7.0
 
 - Legacy Removal Phase J final umgesetzt: der bisherige App-Kern liegt jetzt in `app/core.py`.
-- `legacy/app_legacy.py` wurde aus dem aktiven Projekt entfernt.
+- Der alte Legacy-Dateipfad wurde aus dem aktiven Projekt entfernt.
 - `app/main.py` startet ausschliesslich ueber `from app import create_app`.
 - `app/__init__.py` ist die zentrale App Factory und registriert RuntimeContext, App-Core und Blueprints.
 - Der Importlib-Dateilader wurde aus `app/engine/port.py` entfernt; dort bleiben Startup-/Dependency-Checks und Versionsinformationen.
