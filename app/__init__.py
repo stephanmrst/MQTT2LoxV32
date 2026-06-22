@@ -1,11 +1,92 @@
-"""Application factory placeholder for the v32 migration.
+"""Application factory for MQTT2Lox."""
 
-The active entry point still uses app/main.py and app/engine/port.py.
-"""
+import sys
+from pathlib import Path
+
+from .engine import port
+
+
+PACKAGE_ROOT = Path(__file__).resolve().parent
+
+
+def _ensure_package_paths():
+    package_root = str(PACKAGE_ROOT)
+    if package_root not in sys.path:
+        sys.path.insert(0, package_root)
+
+
+def _register_blueprints(app):
+    from .routes.api import bp as api_bp
+    from .routes.backup import bp as backup_bp
+    from .routes.config import bp as config_bp
+    from .routes.dashboard import bp as dashboard_bp
+    from .routes.events import bp as events_bp
+    from .routes.influx import bp as influx_bp
+    from .routes.knx import bp as knx_bp
+    from .routes.loxone import bp as loxone_bp
+    from .routes.mqtt import bp as mqtt_bp
+    from .routes.objects import bp as objects_bp
+    from .routes.system import bp as system_bp
+    from .routes.udp import bp as udp_bp
+
+    blueprints = (
+        dashboard_bp,
+        config_bp,
+        backup_bp,
+        objects_bp,
+        mqtt_bp,
+        udp_bp,
+        loxone_bp,
+        influx_bp,
+        api_bp,
+        events_bp,
+        knx_bp,
+        system_bp,
+    )
+    for blueprint in blueprints:
+        if blueprint.name not in app.blueprints:
+            app.register_blueprint(blueprint)
 
 
 def create_app():
-    """Create the current legacy-backed Flask app without changing startup behavior."""
-    from .engine.port import create_legacy_app
+    """Create the Flask application."""
+    _ensure_package_paths()
+    port.configure_paths()
+    port.run_startup_check()
 
-    return create_legacy_app()
+    from . import core
+
+    core.APP_VERSION = port.APP_VERSION
+    core.LOXWEBSOCKET_AVAILABLE = port.LOXWEBSOCKET_AVAILABLE
+    core.LOXWEBSOCKET_STATUS = port.LOXWEBSOCKET_STATUS
+
+    if not port.LOXWEBSOCKET_AVAILABLE:
+        try:
+            core.runtime_context.bridge.status = port.LOXWEBSOCKET_STATUS
+        except Exception:
+            pass
+        try:
+            core.add_log_entry(port.LOXWEBSOCKET_STATUS)
+        except Exception:
+            pass
+
+    app = core.app
+    app.config["APP_VERSION"] = port.APP_VERSION
+    app.config["PORT_MODE"] = "v32"
+    app.config["LOXWEBSOCKET_AVAILABLE"] = port.LOXWEBSOCKET_AVAILABLE
+    app.config["STARTUP_STATUS"] = port.startup_status()
+    app.config["JSON_AS_ASCII"] = False
+    if hasattr(app, "json"):
+        app.json.ensure_ascii = False
+
+    app.extensions["app_core"] = core
+    app.extensions["runtime_context"] = core.runtime_context
+
+    _register_blueprints(app)
+
+    if "startup_status_route" not in app.view_functions:
+        @app.route("/startup_status")
+        def startup_status_route():
+            return port.startup_status()
+
+    return app

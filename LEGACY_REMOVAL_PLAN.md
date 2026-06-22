@@ -1,34 +1,66 @@
-# Legacy Removal Plan 32.5.1
+# Legacy Removal Plan 32.7.0
 
-Stand: Analyse von `app/main.py`, `app/engine/port.py`, `legacy/app_legacy.py`, `app/services/*` und `app/runtime/*`.
+Stand: Phase J umgesetzt. Der alte Legacy-Dateipfad ist entfernt; der bisherige Anwendungskern liegt als `app/core.py` innerhalb des App-Packages.
+
+## Abschluss 32.7.0
+
+- `app/main.py` startet ueber `from app import create_app`.
+- `app/__init__.py` ist die zentrale App Factory.
+- `app/engine/port.py` enthaelt nur noch Startup-/Dependency-Checks, Projektpfade und Versionsinformationen.
+- Der bisherige Kern wurde nach `app/core.py` uebernommen.
+- Blueprints delegieren intern auf `current_app.extensions["app_core"]`.
+- Es gibt keinen Importlib-Dateilader fuer den alten Dateipfad mehr.
+- Naechste Arbeit: `app/core.py` weiter in Templates, Utils, Services und kleinere Route-Handler aufteilen.
 
 Phase A wurde in 32.4.9 vorbereitet: `app/routes/`, Blueprint-Platzhaltermodule, `app/extensions.py` und eine vorsichtige `app/__init__.py` existieren.
 
-Phase B wurde in 32.5.0 begonnen: `app/routes/dashboard.py` ist als erster echter Blueprint registriert. Die Routen `/`, `/dashboard_embed`, `/shell_status`, `/live_log`, `/live_log_page`, `/live_log_data`, `/clear_log` und `/clear_monitor` werden nicht mehr direkt in `legacy/app_legacy.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
+Phase B wurde in 32.5.0 begonnen: `app/routes/dashboard.py` ist als erster echter Blueprint registriert. Die Routen `/`, `/dashboard_embed`, `/shell_status`, `/live_log`, `/live_log_page`, `/live_log_data`, `/clear_log` und `/clear_monitor` werden nicht mehr direkt in `app/core.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
 
-Phase C wurde in 32.5.1 begonnen: `app/routes/config.py`, `app/routes/backup.py` und `app/routes/objects.py` registrieren die Config-, Backup- und Object-Routen. Die entsprechenden Routen werden nicht mehr direkt in `legacy/app_legacy.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
+Phase C wurde in 32.5.1 begonnen: `app/routes/config.py`, `app/routes/backup.py` und `app/routes/objects.py` registrieren die Config-, Backup- und Object-Routen. Die entsprechenden Routen werden nicht mehr direkt in `app/core.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
 
-Dies ist weiterhin der Migrationsplan. Dashboard-, Config-, Backup- und Object-Route-Registrierungen wurden ausgelagert; Handler-Logik, UI und Dateien wurden nicht verschoben.
+Phase D Teil 1 wurde in 32.6.0 begonnen: `app/routes/mqtt.py` registriert MQTT Hub, MQTT Monitor, Monitor-Datenrouten, Topic Explorer, Topic Manager, Brokerverwaltung und Broker-Test. Die entsprechenden Routen werden nicht mehr direkt in `app/core.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
+
+Phase D Teil 2 wurde in 32.6.1 begonnen: `app/routes/udp.py` registriert MQTT->UDP, UDP->MQTT, UDP Input, UDP Presets und UDP Discovery. Die entsprechenden Routen werden nicht mehr direkt in `app/core.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
+
+Phase D Teil 3 wurde in 32.6.2 begonnen: `app/routes/loxone.py` registriert MQTT->Loxone, Speichern, Test und Live-Daten. Die entsprechenden Routen werden nicht mehr direkt in `app/core.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
+
+Phase D Teil 4 wurde in 32.6.3 begonnen: `app/routes/influx.py` registriert Influx-Test, Influx Explorer, einzelnes Loeschen und Mehrfach-Loeschen. Die entsprechenden Routen werden nicht mehr direkt in `app/core.py` registriert, delegieren aber weiterhin auf die bestehenden Legacy-Handler.
+
+Phase E wurde in 32.6.4 begonnen: `app/routes/api.py` registriert globale Suche, Suchseite, Konfliktpruefung und Konfliktseite. Domain-nahe Data-/JSON-Routen bleiben bei ihren Blueprints oder im geplanten Domain-/Event-/System-Bereich.
+
+Phase F wurde in 32.6.5 begonnen: `app/routes/events.py` registriert alle SSE/Eventstream-Routen. Der generische SSE-Helper liegt jetzt in `app/utils/sse.py`; Eventnamen, Payloads und Keepalive-Verhalten bleiben unveraendert.
+
+Phase G Teil 1 wurde in 32.6.6 begonnen: `app/routes/knx.py` registriert KNX Hub, KNX Settings, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone. KNX Monitor, Listener und xknx-nahe Runtime bleiben im Legacy-Core.
+
+Phase G Teil 2 wurde in 32.6.7 begonnen: `app/routes/knx.py` registriert zusaetzlich KNX Monitor, KNX Monitor Data, KNX Monitor Influx-Config und Listener-Start. Die xknx-/AsyncIO-/Thread-Implementierung bleibt unveraendert angebunden.
+
+Phase H wurde in 32.6.8 begonnen: `app/routes/system.py` registriert Bridge Start/Stop, Test-Routen und interne Broker-Routen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`; die eigentliche Bridge-Logik bleibt unveraendert angebunden.
+
+Phase J wurde in 32.7.0 umgesetzt: der alte Dateipfad wurde entfernt, die App Factory ist aktiv und die App startet ueber `app/__init__.py`.
+
+Dies ist weiterhin der Migrationsplan. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Route-Registrierungen wurden ausgelagert; Handler-Logik, UI und Dateien wurden nicht verschoben.
 
 ## Ziel
 
-`legacy/app_legacy.py` soll langfristig vollstaendig entfernt werden. Dafuer muss die Anwendung von einer Legacy-Datei mit Flask-App, Routen, HTML-Strings, Runtime-Orchestrierung und Hilfsfunktionen zu einer normalen Flask-App mit App Factory, Blueprints, Templates, Static Assets, Services, RuntimeContext und Utils migriert werden.
+`app/core.py` soll langfristig vollstaendig entfernt werden. Dafuer muss die Anwendung von einer App-Core-Datei mit Flask-App, Routen, HTML-Strings, Runtime-Orchestrierung und Hilfsfunktionen zu einer normalen Flask-App mit App Factory, Blueprints, Templates, Static Assets, Services, RuntimeContext und Utils migriert werden.
 
 ## Aktuelle Startstruktur
 
 ```text
 app/main.py
-  -> importiert APP_VERSION und create_legacy_app aus app/engine/port.py
-  -> create_app() ruft create_legacy_app()
-  -> registriert UTF-8 after_request Hook
+  -> importiert create_app aus app
   -> startet app.run(...)
+
+app/__init__.py
+  -> zentrale App Factory
+  -> fuehrt Startup-/Dependency-Checks aus
+  -> importiert app/core.py direkt
+  -> registriert Blueprints und RuntimeContext
 
 app/engine/port.py
   -> setzt APP_VERSION, Projektpfade und optionale Dependency-Stubs
-  -> load_legacy_module() laedt legacy/app_legacy.py per importlib
-  -> create_legacy_app() konfiguriert legacy.app und gibt diese Flask-App zurueck
 
-legacy/app_legacy.py
+app/core.py
   -> erzeugt Flask-App direkt mit Flask(__name__)
   -> erzeugt runtime_context
   -> enthaelt 117 Routen
@@ -37,7 +69,7 @@ legacy/app_legacy.py
   -> orchestriert Bridge, Listener, SSE und Runtime-Callbacks
 ```
 
-## Was `legacy/app_legacy.py` Noch Erfuellt
+## Was `app/core.py` Noch Erfuellt
 
 | Bereich | Aktueller Inhalt | Zielort |
 |---|---|---|
@@ -59,7 +91,7 @@ legacy/app_legacy.py
 
 ## Routen In Legacy
 
-Aktuell liegen 117 Flask-Routen in `legacy/app_legacy.py`.
+Aktuell liegen 117 Flask-Routen in `app/core.py`.
 
 | Ziel-Blueprint | Routen |
 |---|---|
@@ -95,7 +127,7 @@ Aktuell liegen 117 Flask-Routen in `legacy/app_legacy.py`.
 
 ## App-Initialisierung In Legacy
 
-Aktuell steckt noch in `legacy/app_legacy.py`:
+Aktuell steckt noch in `app/core.py`:
 
 - `runtime_context = create_runtime_context()`
 - `app = Flask(__name__)`
@@ -116,9 +148,9 @@ Ziel:
 
 | Datei | Abhaengigkeit | Ziel |
 |---|---|---|
-| `app/main.py` | `from engine.port import APP_VERSION, create_legacy_app` | `from app import create_app`; Version aus neutralem Modul |
-| `app/engine/port.py` | `LEGACY_FILE`, `load_legacy_module`, `create_legacy_app`, setzt `legacy.app.config` | Bootstrap nur noch Startup/Dependency Check oder entfernen |
-| `legacy/app_legacy.py` | importiert alle Services und RuntimeContext | wird geloescht |
+| `app/main.py` | `from engine.port import APP_VERSION, create_app` | `from app import create_app`; Version aus neutralem Modul |
+| `app/engine/port.py` | `APP_CORE_FILE`, `direkte App-Core-Initialisierung`, `create_app`, setzt `legacy.app.config` | Bootstrap nur noch Startup/Dependency Check oder entfernen |
+| `app/core.py` | importiert alle Services und RuntimeContext | wird geloescht |
 
 ## Zielstruktur
 
@@ -258,26 +290,25 @@ app/
 
 ### I) App Factory
 
-- `app/__init__.py` aktivieren.
-- `app/main.py` auf `from app import create_app` umstellen.
-- `app/engine/port.py` entkoppeln: Startup/Dependency Check behalten oder in `app/startup.py` verschieben.
-- Keine `importlib`-Ladung von `legacy/app_legacy.py` mehr.
-- Exit: App startet ohne `create_legacy_app()`.
+- Status: in 32.7.0 umgesetzt.
+- `app/__init__.py` ist aktiv.
+- `app/main.py` verwendet `from app import create_app`.
+- `app/engine/port.py` ist auf Startup/Dependency Check reduziert.
 
 ### J) Legacy Delete
 
-- `legacy/app_legacy.py` entfernen.
-- Legacy-Importpfade, `LEGACY_FILE`, `load_legacy_module`, `create_legacy_app` entfernen.
-- Dokumentation und Tests final aktualisieren.
-- Exit: `rg "legacy.app_legacy|create_legacy_app|LEGACY_FILE|mqtt2lox_port_core"` ohne Treffer in App-Code.
+- Status: in 32.7.0 fuer den alten Dateipfad umgesetzt.
+- Der bisherige Kern liegt nun als `app/core.py` im App-Package.
+- Die weitere Entfernung betrifft nicht mehr den alten Dateipfad, sondern die schrittweise Zerlegung von `app/core.py`.
+- Dokumentation und Tests wurden auf den neuen Startpfad aktualisiert.
 
 ## Exit-Kriterien Fuer Legacy-Loeschung
 
-- Keine Route mehr in `legacy/app_legacy.py`.
-- Keine Runtime-State-Variable mehr in `legacy/app_legacy.py`.
-- Keine grossen `render_template_string`-/HTML-/JS-Monster mehr in `legacy/app_legacy.py`.
-- `app/main.py` startet ohne Import von `legacy.app_legacy` oder `create_legacy_app`.
-- `app/engine/port.py` laedt keine Legacy-Datei per `importlib`.
+- Keine Route mehr in `app/core.py`.
+- Keine Runtime-State-Variable mehr in `app/core.py`.
+- Keine grossen `render_template_string`-/HTML-/JS-Monster mehr in `app/core.py`.
+- `app/main.py` startet ohne Import von `app.core` oder `create_app`.
+- `app/engine/port.py` laedt keine App-Core-Datei per `importlib`.
 - `python -m compileall app legacy` sauber.
 - Smoke-Test sauber:
   - Dashboard
@@ -293,7 +324,7 @@ app/
   - alle SSE-Endpunkte
 - Nach Loeschung: `python -m compileall app` sauber.
 
-## Wann Kann `legacy/app_legacy.py` Geloescht Werden?
+## Wann Kann `app/core.py` Geloescht Werden?
 
 Erst nach Phase I, wenn:
 
@@ -301,7 +332,7 @@ Erst nach Phase I, wenn:
 2. App Factory und RuntimeContext ohne Legacy funktionieren,
 3. keine Route, kein Helper, kein Layout und kein Runtime-State mehr aus Legacy importiert wird,
 4. alle Smoke-Tests erfolgreich sind,
-5. `app/engine/port.py` keine Legacy-Datei mehr laedt,
+5. `app/engine/port.py` keine App-Core-Datei mehr laedt,
 6. Dokumentation und Startanleitung auf die neue App Factory zeigen.
 
-Bis dahin bleibt `legacy/app_legacy.py` als Sicherheitsnetz erhalten.
+Bis dahin bleibt `app/core.py` als Sicherheitsnetz erhalten.

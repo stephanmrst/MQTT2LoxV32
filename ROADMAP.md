@@ -1,8 +1,8 @@
 # Roadmap
 
-## Aktueller Stand: 32.5.1
+## Aktueller Stand: 32.7.0
 
-Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Mit `ARCHITECTURE_REVIEW.md`, `BLUEPRINT_PLAN.md`, `RUNTIME_CONTEXT_PLAN.md`, `KNX_RUNTIME_MIGRATION_PLAN.md` und `LEGACY_REMOVAL_PLAN.md` liegen Architektur-, Blueprint-, Runtime-State-, KNX- und Legacy-Removal-Plan fuer die naechste Modularisierungsphase vor. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Alte KNX-Global-State-Reste wurden in 32.4.7 entfernt. Phase A der Legacy-Entfernung hat in 32.4.9 die `app/routes`-Grundstruktur, `app/extensions.py` und eine vorbereitete `app/__init__.py` angelegt. Phase B hat in 32.5.0 die Dashboard-Routen als ersten echten Blueprint registriert. Phase C hat in 32.5.1 Config-, Backup- und Object-Routen als Blueprints registriert, waehrend die Handler noch auf Legacy delegieren.
+Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Phase A bis H der Legacy-Entfernung haben die Route-Registrierungen in Blueprints ueberfuehrt. Phase J hat in 32.7.0 den bisherigen App-Kern nach `app/core.py` umgehaengt, `app/__init__.py` als zentrale App Factory aktiviert und den Importlib-Dateilader entfernt.
 
 ## Naechste Schritte
 
@@ -30,11 +30,21 @@ Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurde
 - KNX Phase D1 32.4.5 im Betrieb pruefen: Monitor oeffnen, Listener Auto-Start, manueller Listener-Start, KNX Telegramm, MQTT->KNX, KNX->MQTT und KNX->Loxone.
 - KNX Phase E 32.4.6 im Betrieb pruefen: `/events/knx_monitor`, `[KNX SSE]`, KNX Monitor, `/knx_monitor_data` und LiveLog/Status-SSE als unveraenderte Nachbarn.
 - KNX Cleanup 32.4.7 im Betrieb pruefen: KNX Monitor, KNX Telegramm, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT->KNX, KNX->MQTT und KNX->Loxone.
-- Legacy Removal Plan 32.4.8 als Reihenfolge fuer die spaetere Entfernung von `legacy/app_legacy.py` verwenden.
+- Legacy Removal Plan 32.4.8 als Reihenfolge fuer die spaetere Entfernung von `app/core.py` verwenden.
 - Legacy Removal Phase A 32.4.9 pruefen: App startet weiter ueber Legacy, `app/routes`-Platzhalter sind importierbar, keine Routen wurden verschoben.
 - Legacy Removal Phase B 32.5.0 pruefen: Dashboard, Sidebar, Shell-Status, Live Log, Clear Log und Clear Monitor laufen unveraendert ueber den Dashboard-Blueprint.
 - Legacy Removal Phase C 32.5.1 pruefen: Einstellungen, Core/MQTT/Influx-Speichern, Sidebar-Links, Plugins, Backup, Restore und Objektmanager laufen unveraendert ueber Blueprints.
-- Als naechstes Domain-Blueprints MQTT/UDP/Loxone/Influx vorbereiten, ohne URLs oder Rueckgabedaten zu aendern.
+- Legacy Removal Phase D Teil 1 32.6.0 pruefen: MQTT Hub, Monitor, Monitor-SSE, Topic Explorer, Topic Manager, Brokerverwaltung und Broker-Test laufen unveraendert ueber den MQTT-Blueprint.
+- Legacy Removal Phase D Teil 2 32.6.1 pruefen: MQTT->UDP, UDP->MQTT, UDP Input, UDP Presets und UDP Discovery laufen unveraendert ueber den UDP-Blueprint.
+- Legacy Removal Phase D Teil 3 32.6.2 pruefen: MQTT->Loxone, Speichern, Test und Live-Daten laufen unveraendert ueber den Loxone-Blueprint.
+- Legacy Removal Phase D Teil 4 32.6.3 pruefen: Influx-Test, Influx Explorer, einzelnes Loeschen und Mehrfach-Loeschen laufen unveraendert ueber den Influx-Blueprint.
+- Legacy Removal Phase E 32.6.4 pruefen: Globale Suche, Suchseite, Konfliktpruefung, Konfliktseite und Dashboard-AJAX laufen unveraendert ueber die vorhandenen Blueprints.
+- Legacy Removal Phase F 32.6.5 pruefen: Status-SSE, Live-Log-SSE, MQTT-Monitor-SSE und KNX-Monitor-SSE laufen dauerhaft und reconnecten sauber.
+- Legacy Removal Phase G Teil 1 32.6.6 pruefen: KNX Hub, KNX Settings, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone laufen unveraendert ueber den KNX-Blueprint.
+- Legacy Removal Phase G Teil 2 32.6.7 pruefen: KNX Monitor, Listener-Start, KNX-SSE, Monitor-Data und Influx-Schalter/-Typ/-Topic laufen unveraendert ueber den KNX-Blueprint.
+- Legacy Removal Phase H 32.6.8 pruefen: Bridge Start/Stop, Loxone-/MQTT-Test und interne Broker-Routen laufen unveraendert ueber den System-Blueprint.
+- Legacy Removal Phase J 32.7.0 pruefen: App Factory, App-Core, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Backup, Restore, Objektmanager, Live Log, SSE, Bridge und interner Broker.
+- Als naechstes Template-Routen und verbleibende App-Core-Helfer weiter in Blueprints/Services aufteilen, ohne URLs oder Rueckgabedaten zu aendern.
 - Bridge-Kernlogik erst nach vollstaendiger Port-Stabilisierung modularisieren.
 - Objektmanager vorerst nicht neu bauen, sondern nur stabil uebernehmen.
 - Optional-Abhaengigkeiten weiter klar im Startstatus sichtbar halten.

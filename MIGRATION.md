@@ -1,14 +1,129 @@
 # Migration
 
-## Aktueller Stand: 32.5.1
+## Aktueller Stand: 32.7.0
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
 - `app/main.py`
+- `app/__init__.py`
 - `app/engine/port.py`
-- `legacy/app_legacy.py`
+- `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup- und Object-Routen sind als erste echte Blueprints in `app/routes/` registriert und delegieren noch auf die bestehenden Legacy-Handler. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+
+## Von 32.6.8 nach 32.7.0
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die finale App-Factory-/Core-Umstellung:
+
+- Der bisherige App-Kern liegt jetzt in `app/core.py`.
+- `app/main.py` startet ueber `from app import create_app`.
+- `app/__init__.py` ist die zentrale Factory und registriert Blueprints, RuntimeContext und App-Core.
+- `app/engine/port.py` enthaelt nur noch Startup-/Dependency-Checks und Versionsinformationen.
+- Die alten Importlib-Dateilader und Legacy-Dateipfade wurden entfernt.
+- Keine UI-Aenderung, keine URL-Aenderung, keine Konfigurationsmigration.
+
+## Von 32.6.7 nach 32.6.8
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die System-/Runtime-Blueprint-Migration:
+
+- Bridge Start/Stop, Loxone-Test, MQTT-Test und interne Broker-Routen werden jetzt ueber `app/routes/system.py` registriert.
+- Bridge Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+- Die eigentliche Bridge-Logik (`bridge_async`, `bridge_runner`) bleibt unveraendert.
+- Keine MQTT-Logik geaendert, keine Runtime-Aenderung, keine UI-Aenderung.
+
+## Von 32.6.6 nach 32.6.7
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die KNX-Monitor-Blueprint-Migration:
+
+- KNX Monitor, KNX Monitor Data, KNX Monitor Influx-Schalter, Influx-Typ, Influx-Topic und Listener-Start werden jetzt ueber `app/routes/knx.py` registriert.
+- Die URLs und HTML-/JSON-/Redirect-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine xknx-Logik geaendert, keine AsyncIO-/Thread-Logik geaendert, keine Runtime-Aenderung, keine UI-Aenderung.
+
+## Von 32.6.5 nach 32.6.6
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die KNX-Seiten-/Mapping-Blueprint-Migration:
+
+- KNX Hub, KNX Settings, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone werden jetzt ueber `app/routes/knx.py` registriert.
+- KNX Monitor, KNX Listener, xknx-nahe Logik und RuntimeContext bleiben unveraendert im Legacy-Core.
+- Die URLs und HTML-/JSON-/Redirect-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Listener-Logik geaendert, keine Runtime-Aenderung, keine UI-Aenderung.
+
+## Von 32.6.4 nach 32.6.5
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Event-/SSE-Blueprint-Migration:
+
+- Status-SSE, Live-Log-SSE, Live-Log-Full-SSE, MQTT-Monitor-SSE und KNX-Monitor-SSE werden jetzt ueber `app/routes/events.py` registriert.
+- Der generische SSE-Helper liegt in `app/utils/sse.py`.
+- Eventnamen, JSON-Payloads und Keepalive-Verhalten bleiben unveraendert.
+- Keine RuntimeContext-Aenderung, keine Thread-Logik-Aenderung, keine UI-Aenderung.
+
+## Von 32.6.3 nach 32.6.4
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die API-/Such-Blueprint-Migration:
+
+- Globale Suche, Suchseite, Konfliktpruefung und Konfliktseite werden jetzt ueber `app/routes/api.py` registriert.
+- Domain-nahe Data-/JSON-Routen bleiben bei ihren bestehenden Blueprints oder im geplanten Domain-/Event-/System-Bereich.
+- Die URLs und HTML-/JSON-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Suchlogik geaendert, keine Konfliktlogik geaendert, keine UI-Aenderung.
+
+## Von 32.6.2 nach 32.6.3
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Influx-Blueprint-Migration:
+
+- Influx-Test, Influx Explorer, einzelnes Loeschen und Mehrfach-Loeschen werden jetzt ueber `app/routes/influx.py` registriert.
+- Die URLs und HTML-/JSON-/Redirect-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Services geaendert, keine Influx-Logik geaendert, keine UI-Aenderung.
+
+## Von 32.6.1 nach 32.6.2
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die Loxone-Blueprint-Migration:
+
+- MQTT->Loxone, Speichern, Test und Live-Daten werden jetzt ueber `app/routes/loxone.py` registriert.
+- Die URLs und HTML-/JSON-/Redirect-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Services geaendert, keine RuntimeContext-Aenderung, keine UI-Aenderung.
+
+## Von 32.6.0 nach 32.6.1
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die UDP-Blueprint-Migration:
+
+- MQTT->UDP, UDP->MQTT, UDP Input, UDP Presets und UDP Discovery werden jetzt ueber `app/routes/udp.py` registriert.
+- Die URLs und HTML-/JSON-/Redirect-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Services geaendert, keine RuntimeContext-Aenderung, keine UI-Aenderung.
+
+## Von 32.5.1 nach 32.6.0
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die MQTT-Blueprint-Migration:
+
+- MQTT Hub, MQTT Monitor, Topic Explorer, Topic Manager, Brokerverwaltung und Broker-Test werden jetzt ueber `app/routes/mqtt.py` registriert.
+- Die URLs und HTML-/JavaScript-/JSON-Rueckgaben bleiben unveraendert.
+- Die Handler delegieren weiterhin auf die bestehenden Legacy-Funktionen.
+- Keine Services geaendert, keine RuntimeContext-Aenderung, keine UI-Aenderung.
 
 ## Von 32.5.0 nach 32.5.1
 
@@ -63,7 +178,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 
 Geaendert wurde nur die KNX RuntimeContext-Bereinigung:
 
-- Alte KNX-Global-State-Reste wurden aus `legacy/app_legacy.py` entfernt.
+- Alte KNX-Global-State-Reste wurden aus `app/core.py` entfernt.
 - KNX Monitor, LastSeen, Listener-Verwaltung und KNX-SSE-Versionierung nutzen `runtime_context.knx`.
 - Listener-Logik, xknx, UI und SSE-Route bleiben unveraendert.
 
@@ -231,7 +346,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geändert wurde nur die technische Modulstruktur:
 
 - Template-/HTML-Hilfsfunktionen liegen jetzt in `app/services/template.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `template_service`.
+- `app/core.py` importiert diesen Service als `template_service`.
 - Bestehende URLs, sichtbare Texte und große Template-Blöcke bleiben unverändert.
 
 ## Von 32.2.7 nach 32.2.8
@@ -241,7 +356,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geändert wurde nur die technische Modulstruktur:
 
 - Backup-Hilfsfunktionen liegen jetzt in `app/services/backup.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `backup_service`.
+- `app/core.py` importiert diesen Service als `backup_service`.
 - Backup-Download, Restore-Upload, Pfade und Backup-Dateinamen bleiben unverändert.
 
 ## Von 32.2.6 nach 32.2.7
@@ -251,7 +366,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geändert wurde nur die technische Modulstruktur:
 
 - Runtime-Hilfsfunktionen liegen jetzt in `app/services/runtime.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `runtime_service`.
+- `app/core.py` importiert diesen Service als `runtime_service`.
 - Status-Events, Live-Log, interner Broker und bestehende URLs bleiben unverändert.
 
 ## Von 32.2.5 nach 32.2.6
@@ -261,7 +376,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geändert wurde nur die technische Modulstruktur:
 
 - Influx-Hilfsfunktionen liegen jetzt in `app/services/influx.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `influx_service`.
+- `app/core.py` importiert diesen Service als `influx_service`.
 - Influx Settings, Influx Explorer URLs und gespeicherte Influx-Konfigurationen bleiben unverändert.
 
 ## Von 32.2.4 nach 32.2.5
@@ -271,8 +386,8 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geaendert wurde nur die technische Modulstruktur:
 
 - KNX-Hilfs- und Bridge-Funktionen liegen jetzt in `app/services/knx.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `knx_service`.
-- KNX Listener, KNX Monitor und KNX Live-State bleiben in `legacy/app_legacy.py`.
+- `app/core.py` importiert diesen Service als `knx_service`.
+- KNX Listener, KNX Monitor und KNX Live-State bleiben in `app/core.py`.
 - Monitor-Eintraege fuer KNX TX werden per Callback weiter in die zentrale Legacy-Liste geschrieben.
 - Bestehende URLs, Formulare und Konfigurationsdateien bleiben unveraendert.
 
@@ -283,7 +398,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geaendert wurde nur die technische Modulstruktur:
 
 - Loxone-Hilfsfunktionen liegen jetzt in `app/services/loxone.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `loxone_service`.
+- `app/core.py` importiert diesen Service als `loxone_service`.
 - Bestehende URLs, Formulare und Konfigurationsdateien bleiben unveraendert.
 
 ## Von 32.0.0 nach 32.2.3
@@ -293,7 +408,7 @@ Keine manuelle Migration der Konfigurationsdateien erforderlich.
 Geaendert wurde nur die technische Modulstruktur:
 
 - Object-/Objektmanager-Hilfsfunktionen liegen jetzt in `app/services/object.py`.
-- `legacy/app_legacy.py` importiert diesen Service als `object_service`.
+- `app/core.py` importiert diesen Service als `object_service`.
 - Bestehende URLs, Formulare und Konfigurationsdateien bleiben unveraendert.
 
 ## Technische Basis 32.0.0
@@ -306,7 +421,7 @@ Geaendert wurden nur technische Modulnamen:
 - Config-Service: `app/services/config.py`.
 - MQTT-Service: `app/services/mqtt.py`.
 - UDP-Service: `app/services/udp.py`.
-- `legacy/app_legacy_v31_38.py` wurde zu `legacy/app_legacy.py`.
+- `legacy/app_legacy_v31_38.py` wurde zu `app/core.py`.
 
 ## Von 32.2.0 nach 32.2.2
 

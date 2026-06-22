@@ -1,1 +1,33 @@
-"""Loxone blueprint placeholder."""
+"""Loxone routes.
+
+These routes delegate to the app core handlers during the migration.
+"""
+
+from flask import Blueprint, current_app
+
+
+bp = Blueprint("loxone", __name__)
+
+
+def _core():
+    return current_app.extensions["app_core"]
+
+
+@bp.route("/mqtt2lox")
+def mqtt2lox():
+    return _core().mqtt2lox()
+
+
+@bp.route("/mqtt2lox/save", methods=["POST"])
+def mqtt2lox_save():
+    return _core().mqtt2lox_save()
+
+
+@bp.route("/mqtt2lox/test/<int:index>", methods=["POST"])
+def mqtt2lox_test(index):
+    return _core().mqtt2lox_test(index)
+
+
+@bp.route("/mqtt2lox_data")
+def mqtt2lox_data():
+    return _core().mqtt2lox_data()

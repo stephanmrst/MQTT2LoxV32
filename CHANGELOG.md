@@ -1,5 +1,99 @@
 # Changelog
 
+## 32.7.0
+
+- Legacy Removal Phase J final umgesetzt: der bisherige App-Kern liegt jetzt in `app/core.py`.
+- `legacy/app_legacy.py` wurde aus dem aktiven Projekt entfernt.
+- `app/main.py` startet ausschliesslich ueber `from app import create_app`.
+- `app/__init__.py` ist die zentrale App Factory und registriert RuntimeContext, App-Core und Blueprints.
+- Der Importlib-Dateilader wurde aus `app/engine/port.py` entfernt; dort bleiben Startup-/Dependency-Checks und Versionsinformationen.
+- Interne Blueprint-Delegation verwendet jetzt `app_core` statt eines Legacy-Extension-Keys.
+- Versionsstand auf `32.7.0` gesetzt.
+
+## 32.6.8
+
+- Legacy Removal Phase H umgesetzt: System- und Runtime-Routen als System-Blueprint registriert.
+- `app/routes/system.py` registriert Bridge Start/Stop, Loxone-/MQTT-Test und interne Broker-Routen.
+- `app/engine/bridge.py` enthaelt die ausgelagerten Bridge-Start/Stop-Helfer.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- Die eigentliche Bridge-Logik (`bridge_async`, `bridge_runner`), MQTT-Logik, RuntimeContext und UI bleiben unveraendert.
+- Versionsstand auf `32.6.8` gesetzt.
+
+## 32.6.7
+
+- Legacy Removal Phase G Teil 2 umgesetzt: KNX Monitor, KNX Monitor Config und Listener-Start als KNX-Blueprint-Routen registriert.
+- `app/routes/knx.py` registriert jetzt zusaetzlich `/knx_monitor`, `/knx_monitor_data`, `/knx_monitor/influx`, `/knx_monitor/influx_type`, `/knx_monitor/influx_topic` und `/knx_listener_start`.
+- Die migrierten KNX-Monitor-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- KNX Listener, xknx-nahe Logik, AsyncIO-/Thread-Logik, RuntimeContext, Eventnamen und JSON-Strukturen bleiben unveraendert.
+- Versionsstand auf `32.6.7` gesetzt.
+
+## 32.6.6
+
+- Legacy Removal Phase G Teil 1 umgesetzt: KNX-Seiten und KNX-Mapping-Routen als Blueprint registriert.
+- `app/routes/knx.py` registriert KNX Hub, KNX Settings, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone.
+- Die migrierten KNX-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- KNX Monitor, KNX Listener, xknx-nahe Logik, RuntimeContext und Thread-Logik bleiben unveraendert im Legacy-Core.
+- URLs, UI, JSON-Datenstrukturen und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.6.6` gesetzt.
+
+## 32.6.5
+
+- Legacy Removal Phase F umgesetzt: alle Server-Sent-Events als Events-Blueprint registriert.
+- `app/routes/events.py` registriert Status-SSE, Live-Log-SSE, Live-Log-Full-SSE, MQTT-Monitor-SSE und KNX-Monitor-SSE.
+- `app/utils/sse.py` enthaelt den ausgelagerten generischen SSE-Helper mit unveraendertem Keepalive-, Error- und EventSource-Verhalten.
+- Die Event-Routen verwenden weiterhin die bestehenden Payload-Funktionen und Runtime-State-Quellen.
+- Die entsprechenden `@app.route`-Registrierungen und der alte SSE-Helper wurden aus `app/core.py` entfernt.
+- Eventnamen, JSON-Payloads, Keepalive-Verhalten, RuntimeContext und Thread-Logik bleiben unveraendert.
+- Versionsstand auf `32.6.5` gesetzt.
+
+## 32.6.4
+
+- Legacy Removal Phase E umgesetzt: API-, Such- und Konflikt-Routen als Blueprint registriert.
+- `app/routes/api.py` registriert globale Suche, Suchseite, Konfliktpruefung und Konfliktseite.
+- Die migrierten API-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- Domain-nahe Data-/JSON-Routen bleiben bei ihren Blueprints oder im geplanten Domain-/Event-/System-Bereich.
+- URLs, UI, JSON-Strukturen, Suchlogik, Konfliktlogik und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.6.4` gesetzt.
+
+## 32.6.3
+
+- Legacy Removal Phase D Teil 4 umgesetzt: kompletter Influx-Bereich als Blueprint registriert.
+- `app/routes/influx.py` registriert Influx-Test, Influx Explorer, einzelnes Loeschen und Mehrfach-Loeschen.
+- Die migrierten Influx-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- URLs, UI, JSON-Strukturen, Services, Influx-Logik und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.6.3` gesetzt.
+
+## 32.6.2
+
+- Legacy Removal Phase D Teil 3 umgesetzt: kompletter Loxone-Bereich als Blueprint registriert.
+- `app/routes/loxone.py` registriert MQTT->Loxone, Speichern, Test und Live-Daten.
+- Die migrierten Loxone-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- URLs, UI, Services, RuntimeContext und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.6.2` gesetzt.
+
+## 32.6.1
+
+- Legacy Removal Phase D Teil 2 umgesetzt: kompletter UDP-Bereich als Blueprint registriert.
+- `app/routes/udp.py` registriert MQTT->UDP, UDP->MQTT, UDP Input, UDP Presets und UDP Discovery.
+- Die migrierten UDP-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- URLs, UI, Services, RuntimeContext und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.6.1` gesetzt.
+
+## 32.6.0
+
+- Legacy Removal Phase D Teil 1 umgesetzt: kompletter MQTT-Bereich als Blueprint registriert.
+- `app/routes/mqtt.py` registriert MQTT Hub, MQTT Monitor, Monitor-JSON-/Config-Routen, Topic Explorer, Topic Manager, Brokerverwaltung und Broker-Test.
+- Die migrierten MQTT-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
+- URLs, HTML, JavaScript, Services, RuntimeContext und Benutzerverhalten bleiben unveraendert.
+- Versionsstand auf `32.6.0` gesetzt.
+
 ## 32.5.1
 
 - Legacy Removal Phase C umgesetzt: Config-, Backup- und Object-Routen als eigene Blueprints registriert.
@@ -7,7 +101,7 @@
 - `app/routes/backup.py` registriert Backup und Restore.
 - `app/routes/objects.py` registriert Objektmanager, Objektbearbeitung, Mapping-Sync, Mapping-Rebuild, Speichern und Loeschen.
 - Die migrierten Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
-- Die entsprechenden `@app.route`-Registrierungen wurden aus `legacy/app_legacy.py` entfernt.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
 - URLs, HTML-Ausgaben, Runtime-Logik und Benutzerverhalten bleiben unveraendert.
 - Versionsstand auf `32.5.1` gesetzt.
 
@@ -16,7 +110,7 @@
 - Legacy Removal Phase B umgesetzt: Dashboard als erster echter Blueprint registriert.
 - `app/routes/dashboard.py` registriert jetzt die Routen `/`, `/dashboard_embed`, `/shell_status`, `/live_log`, `/live_log_page`, `/live_log_data`, `/clear_log` und `/clear_monitor`.
 - Die Dashboard-Routen delegieren waehrend der Migration unveraendert auf die bestehenden Legacy-Handler.
-- Die entsprechenden `@app.route`-Registrierungen wurden aus `legacy/app_legacy.py` entfernt.
+- Die entsprechenden `@app.route`-Registrierungen wurden aus `app/core.py` entfernt.
 - URLs, Rueckgabedaten, UI, RuntimeContext und Benutzerverhalten bleiben unveraendert.
 - Versionsstand auf `32.5.0` gesetzt.
 
@@ -26,21 +120,21 @@
 - `app/routes/` mit Blueprint-Platzhaltermodulen vorbereitet.
 - `app/extensions.py` mit RuntimeContext-Zugriffshilfe angelegt.
 - `app/__init__.py` als vorsichtige App-Factory-Vorbereitung angelegt.
-- `app/main.py` startet weiterhin unveraendert ueber `app/engine/port.py` und `create_legacy_app()`.
-- Keine Routen aus `legacy/app_legacy.py` verschoben, keine Logik geaendert, keine UI geaendert.
+- `app/main.py` startet weiterhin unveraendert ueber `app/engine/port.py` und `create_app()`.
+- Keine Routen aus `app/core.py` verschoben, keine Logik geaendert, keine UI geaendert.
 - Versionsstand auf `32.4.9` gesetzt.
 
 ## 32.4.8
 
 - Legacy Removal Plan erstellt.
-- Neue Datei `LEGACY_REMOVAL_PLAN.md` dokumentiert die aktuelle Startstruktur, verbleibende Aufgaben von `legacy/app_legacy.py`, Routen-/Helper-Gruppen, Zielstruktur und Migrationsphasen A bis J.
-- Exit-Kriterien fuer die spaetere Entfernung von `legacy/app_legacy.py` definiert.
+- Neue Datei `LEGACY_REMOVAL_PLAN.md` dokumentiert die aktuelle Startstruktur, verbleibende Aufgaben von `app/core.py`, Routen-/Helper-Gruppen, Zielstruktur und Migrationsphasen A bis J.
+- Exit-Kriterien fuer die spaetere Entfernung von `app/core.py` definiert.
 - Keine Routen verschoben, keine Logik geaendert, keine UI geaendert.
 - Versionsstand auf `32.4.8` gesetzt.
 
 ## 32.4.7
 
-- Alte KNX-Global-State-Reste aus `legacy/app_legacy.py` bereinigt.
+- Alte KNX-Global-State-Reste aus `app/core.py` bereinigt.
 - Entfernt wurden die alten Legacy-Globals fuer KNX Monitor-Log, KNX Monitor-Werte, KNX LastSeen-Dicts und Listener-Thread.
 - KNX Monitor, LastSeen, Listener-Verwaltung und KNX-SSE-Versionierung verwenden nun ausschliesslich `runtime_context.knx`.
 - Listener-Logik, xknx, UI und SSE-Route bleiben unveraendert.
@@ -62,7 +156,7 @@
 
 - KNX RuntimeContext Phase D1 umgesetzt.
 - `KNXState` enthaelt jetzt Listener-Verwaltung: `listener_thread`, `listener_running`, `start_requested` und `stop_requested`.
-- Wrapper fuer KNX-Listener-Verwaltung in `legacy/app_legacy.py` ergaenzt.
+- Wrapper fuer KNX-Listener-Verwaltung in `app/core.py` ergaenzt.
 - `ensure_knx_listener_started` nutzt fuer Thread-Referenz und Running-State jetzt `runtime_context.knx`.
 - Alte globale Variable `knx_listener_thread` entfernt.
 - `_knx_listener_async`, `telegram_received_cb`, xknx, asyncio, `send_knx_value`, `add_knx_monitor_entry`, Monitor und SSE bleiben unveraendert.
@@ -73,7 +167,7 @@
 
 - KNX RuntimeContext Phase C umgesetzt.
 - `KNXState` enthaelt jetzt zusaetzlich `monitor_log` als `deque(maxlen=15)`.
-- Wrapper fuer KNX-Monitor-Log in `legacy/app_legacy.py` ergaenzt.
+- Wrapper fuer KNX-Monitor-Log in `app/core.py` ergaenzt.
 - `add_knx_monitor_entry` schreibt `knx_monitor_log` weiterhin wie bisher und spiegelt zusaetzlich nach `runtime_context.knx.monitor_log`.
 - KNX Monitor Payload liest Log-Eintraege bevorzugt aus `runtime_context.knx`.
 - `knx_listener_thread`, xknx, asyncio, `ensure_knx_listener_started`, `knx_listener_runner`, `sse_versions["knx"]` und `/events/knx_monitor` bleiben unveraendert.
@@ -84,7 +178,7 @@
 
 - KNX RuntimeContext Phase B umgesetzt.
 - `KNXState` enthaelt jetzt zusaetzlich `monitor_values`.
-- Wrapper fuer KNX-Monitor-Werte in `legacy/app_legacy.py` ergaenzt.
+- Wrapper fuer KNX-Monitor-Werte in `app/core.py` ergaenzt.
 - `add_knx_monitor_entry` schreibt `knx_monitor_values` weiterhin wie bisher und spiegelt zusaetzlich nach `runtime_context.knx.monitor_values`.
 - KNX Hub und KNX Monitor Payload lesen Monitor-Werte bevorzugt aus `runtime_context.knx`.
 - `knx_monitor_log`, `knx_listener_thread`, SSE-Versionierung, Eventstream-Route und xknx Listener bleiben unveraendert.
@@ -95,7 +189,7 @@
 
 - KNX RuntimeContext Phase A umgesetzt.
 - `KNXState` enthaelt jetzt `mqtt2knx_last_seen`, `knx2mqtt_last_seen`, `knx2lox_last_seen` und `lock`.
-- KNX-LastSeen-Wrapper in `legacy/app_legacy.py` ergaenzt.
+- KNX-LastSeen-Wrapper in `app/core.py` ergaenzt.
 - KNX-Service schreibt LastSeen-Daten optional zusaetzlich in `runtime_context.knx`.
 - KNX-Routen fuer MQTT->KNX, KNX->MQTT und KNX->Loxone lesen bevorzugt aus `runtime_context.knx` mit Fallback auf alte Dicts.
 - `udp2knx_last_seen` bleibt weiterhin in `runtime_context.udp`.
@@ -159,7 +253,7 @@
 
 - LiveLog-State im RuntimeContext-Grundgeruest vorbereitet.
 - `LiveLogState` enthaelt jetzt `entries`, `lock` und `version`.
-- Factory `create_runtime_context()` ergaenzt und in `legacy/app_legacy.py` eine globale RuntimeContext-Instanz erzeugt.
+- Factory `create_runtime_context()` ergaenzt und in `app/core.py` eine globale RuntimeContext-Instanz erzeugt.
 - Bestehendes Legacy-`live_log` bleibt aktiv; `add_log_entry` spiegelt neue Eintraege zusaetzlich in `runtime_context.live_log`.
 - Keine Bridge-, MQTT-, KNX-, UDP- oder Broker-States veraendert.
 - Keine UI-Aenderungen und keine Routen-Aenderungen.
@@ -176,7 +270,7 @@
 
 ## 32.3.3
 
-- RuntimeContext-Plan fuer globale Variablen und Laufzeit-States in `legacy/app_legacy.py` erstellt.
+- RuntimeContext-Plan fuer globale Variablen und Laufzeit-States in `app/core.py` erstellt.
 - Neue Datei `RUNTIME_CONTEXT_PLAN.md` mit Zweck, Lese-/Schreibstellen, betroffenen Routen, Services, Thread-/SSE-Risiko und Zielbereich.
 - Listen, Dicts, Locks, Threads, Eventstream-Versionen sowie Start/Stop-Flags gesondert markiert.
 - Keine Dateien verschoben, keine Funktionen verschoben, keine Logikänderungen und keine UI-Änderungen.
@@ -184,7 +278,7 @@
 
 ## 32.3.2
 
-- Blueprint-Migrationsplan fuer alle 117 Flask-Routen in `legacy/app_legacy.py` erstellt.
+- Blueprint-Migrationsplan fuer alle 117 Flask-Routen in `app/core.py` erstellt.
 - Neue Datei `BLUEPRINT_PLAN.md` mit Ziel-Blueprint, Methode, aktueller Funktion, Abhaengigkeiten, Risiko, Markierungen und empfohlener Reihenfolge.
 - SSE-, JSON-, Write- und globale-State-Routen gesondert markiert.
 - Keine Routen verschoben, keine Logikänderungen und keine UI-Änderungen.
@@ -230,7 +324,7 @@
 
 ## 32.2.6
 
-- Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen aus `legacy/app_legacy.py` nach `app/services/influx.py` ausgelagert.
+- Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen aus `app/core.py` nach `app/services/influx.py` ausgelagert.
 - Legacy-Core importiert den neuen Influx-Service als `influx_service` und übergibt Config-Loader, Topic-Loader und Logger gezielt als Parameter.
 - Influx Settings, Influx Explorer UI und bestehende Routen bleiben unverändert im Legacy-Core.
 - Keine UI-, Logik- oder Feature-Änderungen.
@@ -239,7 +333,7 @@
 ## 32.2.5
 
 - KNX-Hilfs- und Bridge-Funktionen nach `app/services/knx.py` ausgelagert.
-- KNX Listener, Monitor-Listen, Monitor-Payload und Monitor-Routen bleiben in `legacy/app_legacy.py`.
+- KNX Listener, Monitor-Listen, Monitor-Payload und Monitor-Routen bleiben in `app/core.py`.
 - KNX TX-Monitor-Eintraege laufen ueber den uebergebenen `add_knx_monitor_entry`-Callback weiter in die zentrale Legacy-Liste.
 - KNX RX-Monitor-Eintraege werden weiterhin direkt im Legacy-Listener geschrieben.
 - Keine UI- oder Feature-Aenderungen.
@@ -247,14 +341,14 @@
 
 ## 32.2.4
 
-- Loxone-Hilfsfunktionen aus `legacy/app_legacy.py` nach `app/services/loxone.py` ausgelagert.
+- Loxone-Hilfsfunktionen aus `app/core.py` nach `app/services/loxone.py` ausgelagert.
 - Legacy-Core importiert den neuen Loxone-Service als `loxone_service` und übergibt benötigte Legacy-Abhängigkeiten gezielt als Parameter.
 - Keine Logik-, UI- oder Feature-Aenderungen.
 - Versionsstand auf `32.2.4` gesetzt.
 
 ## 32.2.3
 
-- Object-/Objektmanager-Hilfsfunktionen aus `legacy/app_legacy.py` nach `app/services/object.py` ausgelagert.
+- Object-/Objektmanager-Hilfsfunktionen aus `app/core.py` nach `app/services/object.py` ausgelagert.
 - Legacy-Core importiert den neuen Object-Service als `object_service` und ruft die verschobenen Funktionen mit Modulpräfix auf.
 - Keine Logik-, UI- oder Feature-Aenderungen.
 - Versionsstand auf `32.2.3` gesetzt.
@@ -262,7 +356,7 @@
 ## 32.0.0
 
 - Technische Versionspraefixe aus Python-Dateinamen und Imports entfernt.
-- Startkette auf `app/engine/port.py` und `legacy/app_legacy.py` umgestellt.
+- Startkette auf `app/engine/port.py` und `app/core.py` umgestellt.
 - Service-Module ohne Versionspraefix angebunden: `config.py`, `mqtt.py`, `udp.py`.
 - Sichtbare Versionsanzeige auf `32.0.0` gesetzt.
 - Keine UI-, Logik- oder Feature-Aenderungen.

@@ -18,10 +18,20 @@
 - KNX Runtime Phase D1 32.4.5 pruefen: KNX Monitor, Listener Auto-Start, manueller Listener-Start, KNX Telegramm, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT -> KNX, KNX -> MQTT und KNX -> Loxone.
 - KNX Runtime Phase E 32.4.6 pruefen: `/events/knx_monitor`, `[KNX SSE]`, KNX Monitor, `/knx_monitor_data`, LiveLog-SSE und Status-SSE.
 - KNX Runtime Cleanup 32.4.7 pruefen: KNX Monitor, KNX Telegramm, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT -> KNX, KNX -> MQTT und KNX -> Loxone.
-- Legacy Removal Plan 32.4.8 auswerten: zuerst App Factory und Blueprint-Grundstruktur planen, dann Routen schrittweise aus `legacy/app_legacy.py` entfernen.
+- Legacy Removal Plan 32.4.8 auswerten: zuerst App Factory und Blueprint-Grundstruktur planen, dann Routen schrittweise aus `app/core.py` entfernen.
 - Legacy Removal Phase A 32.4.9 pruefen: App startet unveraendert, `app/routes`-Platzhalter sind vorhanden, `app/extensions.py` und `app/__init__.py` brechen den Legacy-Start nicht.
 - Legacy Removal Phase B 32.5.0 pruefen: Dashboard, Sidebar, `/shell_status`, Live Log, `/live_log_data`, `/clear_log` und `/clear_monitor`.
 - Legacy Removal Phase C 32.5.1 pruefen: `/settings`, `/settings_embed`, Core-/MQTT-/Influx-Speichern, Sidebar-Links, Plugins, `/backup`, `/restore`, `/objects` und Objektaktionen.
+- Legacy Removal Phase D Teil 1 32.6.0 pruefen: `/mqtt`, `/monitor`, `/monitor_data`, `/topics`, `/topics2`, `/mqtt_brokers`, Topic-Speichern und Broker-Test.
+- Legacy Removal Phase D Teil 2 32.6.1 pruefen: `/mqtt2udp`, `/udp2mqtt`, `/udp_input`, `/udp_presets`, UDP-Data-Routen, UDP Discovery Status/Toggle und Test-Routen.
+- Legacy Removal Phase D Teil 3 32.6.2 pruefen: `/mqtt2lox`, `/mqtt2lox/save`, `/mqtt2lox/test/<int:index>` und `/mqtt2lox_data`.
+- Legacy Removal Phase D Teil 4 32.6.3 pruefen: `/test/influx`, `/influx_explorer`, `/influx_explorer/delete` und `/influx_explorer/delete_selected`.
+- Legacy Removal Phase E 32.6.4 pruefen: `/global_search`, `/global_search_page`, `/conflicts`, `/conflicts_page` und Dashboard-AJAX-Routen.
+- Legacy Removal Phase F 32.6.5 pruefen: `/events/status`, `/events/live_log`, `/events/live_log_full`, `/events/mqtt_monitor`, `/events/knx_monitor`, Reconnect und Keepalive.
+- Legacy Removal Phase G Teil 1 32.6.6 pruefen: `/knx`, `/knx_settings_embed`, `/mqtt2knx`, `/udp2knx`, `/knx2mqtt`, `/knx2lox` und jeweilige Data-/Save-/Test-Routen.
+- Legacy Removal Phase G Teil 2 32.6.7 pruefen: `/knx_monitor`, `/knx_monitor_data`, `/knx_monitor/influx`, `/knx_monitor/influx_type`, `/knx_monitor/influx_topic`, `/knx_listener_start` und KNX-SSE.
+- Legacy Removal Phase H 32.6.8 pruefen: `/start`, `/stop`, `/test/loxone`, `/test/mqtt`, `/internal_broker/save`, `/internal_broker/start`, `/internal_broker/stop`, `/internal_broker/status`.
+- Legacy Removal Phase J 32.7.0 pruefen: App Factory, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Backup, Restore, Objektmanager, Live Log, SSE, Bridge und interner Broker.
 - Umbenannte Module im laufenden Betrieb gegenpruefen: Dashboard, MQTT -> Loxone, MQTT -> UDP, MQTT -> KNX und Log-Leerzustand.
 - Object-Service im laufenden Betrieb gegenpruefen: Objektliste, Objekt bearbeiten, Mapping-Sync, Mapping-Rebuild und Objekt loeschen.
 - Loxone-Service im laufenden Betrieb gegenpruefen: MQTT -> Loxone, Loxone IO-Datalist und Dashboard-Zaehler.

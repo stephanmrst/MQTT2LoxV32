@@ -1,8 +1,9 @@
-﻿# === MQTT2Lox Sidebar Shell Layout Legacy UI Cleanup Objektmanager - 2026-06-17 ===
+# === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
 import asyncio
 import json
 import os
 import re
+import sys
 import threading
 import time
 import requests
@@ -12,7 +13,7 @@ import shutil
 import paho.mqtt.client as mqtt
 import zipfile
 import io
-from flask import Flask, request, render_template_string, redirect, send_file, Response, stream_with_context
+from flask import Flask, request, render_template_string, redirect, send_file
 from markupsafe import escape
 from loxwebsocket.lox_ws_api import LoxWs
 from collections import deque
@@ -2217,7 +2218,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.5.1
+            MQTT2Lox 32.7.0
         </div>
     </aside>
 
@@ -2847,45 +2848,6 @@ def conflict_scanner_content():
 
 
 
-def sse_response(event_name, payload_func, version_name, interval=0.2):
-    """Simple SSE stream: initial payload immediately, then only on data changes.
-
-    EventSource reconnects automatically in the browser if the connection drops.
-    """
-    def event_stream():
-        last_version = None
-        last_heartbeat = 0
-        while True:
-            try:
-                if version_name == "knx":
-                    version = get_knx_monitor_version()
-                else:
-                    version = int(sse_versions.get(version_name, 0))
-                now = time.time()
-
-                if last_version is None or version != last_version:
-                    data = payload_func()
-                    yield f"event: {event_name}\n"
-                    yield "data: " + json.dumps(data, ensure_ascii=False, default=str) + "\n\n"
-                    last_version = version
-                    last_heartbeat = now
-                elif now - last_heartbeat > 15:
-                    yield ": keepalive\n\n"
-                    last_heartbeat = now
-
-                time.sleep(interval)
-            except GeneratorExit:
-                break
-            except Exception as e:
-                yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-                time.sleep(2)
-
-    return Response(stream_with_context(event_stream()), mimetype="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no"
-    })
-
-
 def live_log_payload(limit=12):
     with runtime_context.live_log.lock:
         return runtime_service.live_log_payload(runtime_context.live_log.entries, limit)
@@ -2898,10 +2860,6 @@ def live_log_full_payload(limit=100):
 
 def shell_status_payload():
     return runtime_service.build_status_payload(runtime_context.bridge.status)
-
-
-def status_sse_response():
-    return runtime_service.status_sse_response(Response, stream_with_context, shell_status_payload, lambda: runtime_context.bridge.status)
 
 
 def knx_monitor_payload():
@@ -3803,22 +3761,18 @@ def influx_settings_embed():
     return embedded_page("InfluxDB", influx_settings_content(load_config()))
 
 
-@app.route("/global_search")
 def global_search():
     return embedded_page("Globale Suche", global_search_content(request.args.get("q", "")))
 
 
-@app.route("/conflicts")
 def conflicts():
     return embedded_page("Konfig prüfen", conflict_scanner_content())
 
 
-@app.route("/conflicts_page")
 def conflicts_page():
     return render_layout("Konfig prüfen", conflict_scanner_content(), active="conflict_scanner", subtitle="Konfliktscanner für Mappings und Einstellungen")
 
 
-@app.route("/global_search_page")
 def global_search_page():
     return render_layout("Globale Suche", global_search_content(request.args.get("q", "")), active="global_search", subtitle="Suche über alle Mappings und Einstellungen")
 
@@ -3992,7 +3946,6 @@ def save_core():
 
 
 
-@app.route("/internal_broker/save", methods=["POST"])
 def internal_broker_save():
     cfg = load_internal_broker_config()
     try:
@@ -4017,7 +3970,6 @@ def internal_broker_save():
     return redirect('/mqtt_settings_embed')
 
 
-@app.route("/internal_broker/start", methods=["POST"])
 def internal_broker_start():
     internal_broker_save_values_from_form()
     ok, msg = start_internal_broker_process()
@@ -4025,7 +3977,6 @@ def internal_broker_start():
     return redirect('/mqtt_settings_embed')
 
 
-@app.route("/internal_broker/stop", methods=["POST"])
 def internal_broker_stop():
     ok, msg = stop_internal_broker_process()
     add_log_entry(f"Interner Broker Stop: {msg}")
@@ -4052,7 +4003,6 @@ def internal_broker_save_values_from_form():
         add_log_entry(f"Interner Broker Formular Fehler: {e}")
 
 
-@app.route("/internal_broker/status")
 def internal_broker_status_route():
     return get_internal_broker_status()
 
@@ -4102,7 +4052,6 @@ def save_influx():
 
     return redirect('/influx_settings_embed')
 
-@app.route("/test/loxone", methods=["POST"])
 def test_loxone():
     try:
         # Mit aktuellen Formularwerten testen, ohne vorher speichern zu müssen
@@ -4122,7 +4071,6 @@ def test_loxone():
         return embedded_page('Bridge / Loxone', core_settings_content(load_config(), notice))
 
 
-@app.route("/test/mqtt", methods=["POST"])
 def test_mqtt():
     try:
         cfg = load_config()
@@ -4147,33 +4095,6 @@ def test_mqtt():
         notice = f'<div class="card bad">❌ MQTT Fehler: {escape(str(e))}</div>'
         return embedded_page('MQTT Broker', mqtt_settings_content(load_config(), notice))
 
-
-@app.route("/start", methods=["POST"])
-def start_bridge():
-    if not globals().get("LOXWEBSOCKET_AVAILABLE", True):
-        runtime_context.bridge.status = globals().get("LOXWEBSOCKET_STATUS", "Loxone: Bibliothek nicht installiert")
-        add_log_entry(runtime_context.bridge.status)
-        return redirect('/')
-
-    if runtime_context.bridge.running or (runtime_context.bridge.thread and runtime_context.bridge.thread.is_alive()):
-        return redirect('/')
-
-    runtime_context.bridge.stop_requested = False
-    runtime_context.bridge.status = "startet"
-
-    cfg = load_config()
-    runtime_context.bridge.thread = threading.Thread(target=bridge_runner, args=(cfg,), daemon=True)
-    runtime_context.bridge.thread.start()
-
-    time.sleep(0.5)
-    return redirect('/')
-
-
-@app.route("/stop", methods=["POST"])
-def stop_bridge():
-    runtime_context.bridge.stop_requested = True
-    runtime_context.bridge.status = "Stop angefordert"
-    return redirect('/')
 
 def _topic_manager_2_collect_topics():
     """Collect Loxone state topics plus topic settings for Loxone Explorer."""
@@ -4237,7 +4158,6 @@ def _topic_manager_2_collect_topics():
     return result
 
 
-@app.route("/topics2")
 def topics2_page():
     return topics2_content()
 
@@ -4987,12 +4907,10 @@ setInterval(() => tm2Reload(true), 5000);
 """
 
 
-@app.route("/topics2/data")
 def topics2_data():
     return {"topics": _topic_manager_2_collect_topics()}
 
 
-@app.route("/topics2/save", methods=["POST"])
 def topics2_save():
     topic = request.form.get("topic", "").strip()
     if not topic:
@@ -5015,7 +4933,6 @@ def topics2_save():
 
 
 
-@app.route("/topics")
 def topics():
     config = load_config()
 
@@ -5259,7 +5176,6 @@ setInterval(refreshTopicValues, 5000);
 
     return html
 
-@app.route("/topics/save", methods=["POST"])
 def topics_save():
     count = int(request.form.get("topic_count", 0))
 
@@ -5573,7 +5489,6 @@ function restorePortIfEmpty(input) {
 }
 """
 
-@app.route("/mqtt2lox")
 def mqtt2lox():
     config = load_config()
     mappings = load_mqtt2lox_config()
@@ -6438,7 +6353,6 @@ def mqtt2lox():
     return html
 
 
-@app.route("/mqtt2lox/save", methods=["POST"])
 def mqtt2lox_save():
     count = int(request.form.get("count", 0))
     new_data = []
@@ -6491,7 +6405,6 @@ def mqtt2lox_save():
     return redirect("/mqtt2lox")
 
 
-@app.route("/mqtt2lox/test/<int:index>", methods=["POST"])
 def mqtt2lox_test(index):
     mappings = load_mqtt2lox_config()
     config = load_config()
@@ -6536,7 +6449,6 @@ def mqtt2lox_test(index):
     return redirect("/mqtt2lox")
 
 
-@app.route("/mqtt2lox_data")
 def mqtt2lox_data():
     mappings = load_mqtt2lox_config()
     data = {}
@@ -6553,7 +6465,6 @@ def mqtt2lox_data():
     return data
 
 
-@app.route("/mqtt2udp")
 def mqtt2udp():
     mappings = load_mqtt2udp_config()
 
@@ -6982,7 +6893,6 @@ def mqtt2udp():
     return html
 
 
-@app.route("/mqtt2udp/save", methods=["POST"])
 def mqtt2udp_save():
     count = int(request.form.get("count", 0))
     new_data = []
@@ -7038,7 +6948,6 @@ def mqtt2udp_save():
     return redirect("/mqtt2udp")
 
 
-@app.route("/mqtt2udp/test/<int:index>", methods=["POST"])
 def mqtt2udp_test(index):
     mappings = load_mqtt2udp_config()
 
@@ -7064,7 +6973,6 @@ def mqtt2udp_test(index):
     return redirect("/mqtt2udp")
 
 
-@app.route("/mqtt2udp_data")
 def mqtt2udp_data():
     mappings = load_mqtt2udp_config()
     data = {}
@@ -7081,7 +6989,6 @@ def mqtt2udp_data():
     return data
 
 
-@app.route("/udp_presets")
 def udp_presets():
     presets = load_udp_presets()
     new_i = len(presets)
@@ -7151,7 +7058,6 @@ button,a { background:#5f686f; color:white; padding:10px 15px; text-decoration:n
     return html
 
 
-@app.route("/udp_presets/save", methods=["POST"])
 def udp_presets_save():
     count = int(request.form.get("count", 0))
     data = []
@@ -7176,7 +7082,6 @@ def udp_presets_save():
     return redirect("/udp_presets")
 
 
-@app.route("/mqtt2udp/copy/<int:index>", methods=["POST"])
 def mqtt2udp_copy(index):
     mappings = load_mqtt2udp_config()
 
@@ -7202,7 +7107,6 @@ def mqtt2udp_copy(index):
 
 
 
-@app.route("/test/influx", methods=["POST"])
 def test_influx():
     config = load_config()
     influx = config.get("influx", {}).copy()
@@ -7266,7 +7170,6 @@ def test_influx():
         return embedded_page('InfluxDB', influx_settings_content(load_config(), notice))
 
 
-@app.route("/monitor")
 def monitor():
     html = """
 <!doctype html>
@@ -8588,7 +8491,6 @@ def clear_log():
 
 
 
-@app.route("/topics_data")
 def topics_data():
     config = load_config()
     topic_settings = load_topic_config()
@@ -8663,7 +8565,6 @@ a {{ color:inherit; text-decoration:none; }}
 </body></html>"""
 
 
-@app.route('/mqtt')
 def mqtt_hub():
     return mqtt_hub_content()
 
@@ -8710,7 +8611,6 @@ a {{ color:inherit; text-decoration:none; }}
 </body></html>'''
 
 
-@app.route('/knx')
 def knx_hub():
     return knx_hub_content()
 
@@ -9017,7 +8917,6 @@ def shared_mapping_set_header(i, group_name, set_name, set_key, alias):
 
 
 
-@app.route('/udp2knx')
 def udp2knx():
     mappings = load_udp2knx_config()
     prefill_source_topic = request.args.get('source_topic', '')
@@ -9037,7 +8936,6 @@ def udp2knx():
 
     return render_shared_mapping_explorer_page('udp2knx', 'UDP → KNX', 'UDP topic:value direkt auf KNX Gruppenadressen senden.', '/knx', '/udp2knx/save', mappings, card, new_card, '/udp2knx_data', 'udp2knx_value_', 'udp2knx_time_')
 
-@app.route('/udp2knx_data')
 def udp2knx_data():
     data={}
     for i,item in enumerate(load_udp2knx_config()):
@@ -9045,7 +8943,6 @@ def udp2knx_data():
         data[str(i)] = {'value': str(info.get('value','-')), 'time': str(info.get('time','-'))}
     return data
 
-@app.route('/udp2knx/save', methods=['POST'])
 def udp2knx_save():
     count = int(request.form.get('count',0)); new_data=[]
     for i in range(count):
@@ -9059,7 +8956,6 @@ def udp2knx_save():
     save_udp2knx_config(new_data); add_log_entry('UDP2KNX Mappings gespeichert'); restart_bridge_async(); return redirect('/udp2knx')
 
 
-@app.route('/udp2knx/test/<int:index>', methods=['POST'])
 def udp2knx_test(index):
     mappings = load_udp2knx_config()
     if index < 0 or index >= len(mappings): return redirect('/udp2knx')
@@ -9071,7 +8967,6 @@ def udp2knx_test(index):
 
 
 
-@app.route('/knx2lox')
 def knx2lox():
     config = load_config()
     mappings = load_knx2lox_config()
@@ -9092,7 +8987,6 @@ def knx2lox():
 
     return render_shared_mapping_explorer_page('knx2lox', 'KNX → Loxone', 'KNX Telegramme direkt an Loxone Eingänge/Controls schicken.', '/knx', '/knx2lox/save', mappings, card, new_card, '/knx2lox_data', 'knx2lox_value_', 'knx2lox_time_', lox_io_datalist)
 
-@app.route('/knx2lox_data')
 def knx2lox_data():
     data={}
     for i,item in enumerate(load_knx2lox_config()):
@@ -9100,7 +8994,6 @@ def knx2lox_data():
         data[str(i)] = {'value': str(info.get('value','-')), 'time': str(info.get('time','-'))}
     return data
 
-@app.route('/knx2lox/save', methods=['POST'])
 def knx2lox_save():
     count = int(request.form.get('count',0)); new_data=[]
     for i in range(count):
@@ -9147,12 +9040,10 @@ def knx_settings_content(notice=""):
 '''
 
 
-@app.route('/knx_settings_embed')
 def knx_settings_embed():
     return embedded_page('KNX Einstellungen', knx_settings_content())
 
 
-@app.route('/mqtt2knx')
 def mqtt2knx():
     mappings = load_mqtt2knx_config()
     prefill_source_topic = request.args.get('source_topic', '')
@@ -9174,7 +9065,6 @@ def mqtt2knx():
 
     return render_shared_mapping_explorer_page('mqtt2knx', 'MQTT → KNX', 'MQTT Topics direkt auf KNX Gruppenadressen senden.', '/knx', '/mqtt2knx/save', mappings, card, new_card, '/mqtt2knx_data', 'mqtt2knx_value_', 'mqtt2knx_time_')
 
-@app.route('/knx/save', methods=['POST'])
 def knx_save():
     try:
         cfg = {
@@ -9192,7 +9082,6 @@ def knx_save():
         add_log_entry(f"KNX Gateway Speicherfehler: {e}")
     return redirect(request.form.get('next') or '/knx_settings_embed')
 
-@app.route('/knx/test', methods=['POST'])
 def knx_test():
     cfg = {
         'enabled': 'knx_enabled' in request.form,
@@ -9215,7 +9104,6 @@ def knx_test():
     except Exception as e: add_log_entry(f'KNX Test Fehler: {e}')
     return redirect(request.form.get('next') or '/mqtt2knx')
 
-@app.route('/mqtt2knx/save', methods=['POST'])
 def mqtt2knx_save():
     count = int(request.form.get('count',0)); new_data=[]
     for i in range(count):
@@ -9229,7 +9117,6 @@ def mqtt2knx_save():
         new_data.append({'enabled': f'enabled_{i}' in request.form, 'source_topic': source_topic, 'payload_mode': request.form.get(f'payload_mode_{i}','raw').strip(), 'json_key': request.form.get(f'json_key_{i}','').strip(), 'group_address': group_address, 'dpt': request.form.get(f'dpt_{i}','1.001').strip(), 'invert': f'invert_{i}' in request.form, 'test_value': request.form.get(f'test_value_{i}','1').strip(), 'group': group, 'set_name': set_name, 'mapping_alias': mapping_alias})
     save_mqtt2knx_config(new_data); add_log_entry('MQTT2KNX Mappings gespeichert'); return redirect('/mqtt2knx')
 
-@app.route('/mqtt2knx/test/<int:index>', methods=['POST'])
 def mqtt2knx_test(index):
     mappings = load_mqtt2knx_config()
     if index < 0 or index >= len(mappings): return redirect('/mqtt2knx')
@@ -9239,7 +9126,6 @@ def mqtt2knx_test(index):
     except Exception as e: add_log_entry(f'MQTT2KNX Test Fehler: {e}')
     return redirect('/mqtt2knx')
 
-@app.route('/mqtt2knx_data')
 def mqtt2knx_data():
     data={}
     for i,item in enumerate(load_mqtt2knx_config()):
@@ -9249,7 +9135,6 @@ def mqtt2knx_data():
 
 
 
-@app.route('/knx2mqtt')
 def knx2mqtt():
     mappings = load_knx2mqtt_config()
     prefill_group_address = knx_service.normalize_knx_ga(request.args.get('group_address', ''))
@@ -9298,7 +9183,6 @@ setTimeout(autoOpenKnx2MqttNewMapping, 0);
 """
     )
 
-@app.route('/knx2mqtt/save', methods=['POST'])
 def knx2mqtt_save():
     count = int(request.form.get('count',0)); new_data=[]
     for i in range(count):
@@ -9311,7 +9195,6 @@ def knx2mqtt_save():
         new_data.append({'enabled': f'enabled_{i}' in request.form, 'group_address': group_address, 'mqtt_topic': mqtt_topic, 'dpt': request.form.get(f'dpt_{i}','1.001').strip(), 'retain': f'retain_{i}' in request.form, 'invert': f'invert_{i}' in request.form, 'group': group, 'set_name': set_name, 'mapping_alias': mapping_alias})
     save_knx2mqtt_config(new_data); add_log_entry('KNX2MQTT Mappings gespeichert'); restart_bridge_async(); return redirect('/knx2mqtt')
 
-@app.route('/knx2mqtt_data')
 def knx2mqtt_data():
     data={}
     for i,item in enumerate(load_knx2mqtt_config()):
@@ -9322,7 +9205,6 @@ def knx2mqtt_data():
 
 
 
-@app.route("/knx_monitor")
 def knx_monitor():
     ensure_knx_listener_started("Monitor geöffnet")
     return """
@@ -9735,7 +9617,6 @@ startKnxMonitorStream();
 """
 
 
-@app.route("/knx_monitor/influx", methods=["POST"])
 def knx_monitor_influx():
     group_address = knx_service.normalize_knx_ga(request.form.get("group_address", ""))
     enabled = request.form.get("enabled", "1") == "1"
@@ -9764,7 +9645,6 @@ def knx_monitor_influx():
     }
 
 
-@app.route("/knx_monitor/influx_type", methods=["POST"])
 def knx_monitor_influx_type():
     group_address = knx_service.normalize_knx_ga(request.form.get("group_address", ""))
     value_type = request.form.get("value_type", "auto").strip() or "auto"
@@ -9798,7 +9678,6 @@ def knx_monitor_influx_type():
     }
 
 
-@app.route("/knx_monitor/influx_topic", methods=["POST"])
 def knx_monitor_influx_topic():
     group_address = knx_service.normalize_knx_ga(request.form.get("group_address", ""))
     influx_topic = str(request.form.get("influx_topic", "") or "").strip().strip("/")
@@ -9833,45 +9712,14 @@ def knx_monitor_influx_topic():
     }
 
 
-@app.route("/knx_listener_start", methods=["POST"])
 def knx_listener_start():
     ok = ensure_knx_listener_started("manuell")
     return {"ok": bool(ok), "enabled": bool(load_knx_config().get("enabled", False))}
 
 
-@app.route("/knx_monitor_data")
 def knx_monitor_data():
     print("[KNX MONITOR DATA]", len(get_knx_monitor_log()))
     return knx_monitor_payload()
-
-
-@app.route("/events/status")
-def events_status():
-    return status_sse_response()
-
-
-@app.route("/events/live_log")
-def events_live_log():
-    return sse_response("live_log", live_log_payload, "log")
-
-
-@app.route("/events/live_log_full")
-def events_live_log_full():
-    return sse_response("live_log", live_log_full_payload, "log")
-
-
-@app.route("/events/mqtt_monitor")
-def events_mqtt_monitor():
-    return sse_response("mqtt_monitor", get_mqtt_monitor_values, "mqtt", interval=0.1)
-
-
-@app.route("/events/knx_monitor")
-def events_knx_monitor():
-    def payload():
-        print("[KNX SSE]", len(get_knx_monitor_log()))
-        return knx_monitor_payload()
-
-    return sse_response("knx_monitor", payload, "knx")
 
 
 @app.route("/templates")
@@ -9950,7 +9798,6 @@ def restore_config():
     return backup_service.restore_config(file, allowed_files, add_log_entry, redirect)
 
 
-@app.route("/udp2mqtt")
 def udp2mqtt():
     mappings = load_udp2mqtt_config()
     config = load_config()
@@ -10016,7 +9863,6 @@ setTimeout(autoOpenUdp2MqttNewMapping, 0);
     )
 
 
-@app.route("/udp2mqtt/save", methods=["POST"])
 def udp2mqtt_save():
     count = int(request.form.get("count", 0))
     new_data = []
@@ -10053,7 +9899,6 @@ def udp2mqtt_save():
     return redirect("/udp2mqtt")
 
 
-@app.route("/udp2mqtt/test/<int:index>", methods=["POST"])
 def udp2mqtt_test(index):
     publish_func = None
     if mqtt_client:
@@ -10070,7 +9915,6 @@ def udp2mqtt_test(index):
     return redirect("/udp2mqtt")
 
 
-@app.route("/udp2mqtt_data")
 def udp2mqtt_data():
     data = {}
     for i, item in enumerate(load_udp2mqtt_config()):
@@ -10080,7 +9924,6 @@ def udp2mqtt_data():
     return data
 
 
-@app.route("/udp_input")
 def udp_input_page():
     config = load_config()
     udp_cfg = config.get("udp_input", {})
@@ -10261,7 +10104,6 @@ refreshUdpInputData();
     return html
 
 
-@app.route("/udp_input/save", methods=["POST"])
 def udp_input_save():
     config = load_config()
 
@@ -10281,7 +10123,6 @@ def udp_input_save():
     return redirect("/udp_input")
 
 
-@app.route("/udp_input/test", methods=["POST"])
 def udp_input_test():
     config = load_config()
     udp_cfg = config.get("udp_input", {})
@@ -10295,12 +10136,10 @@ def udp_input_test():
     return redirect("/udp_input")
 
 
-@app.route("/udp_input_data")
 def udp_input_data():
     return get_udp_last_seen("udp_input")
 
 
-@app.route("/mqtt_brokers")
 def mqtt_brokers_page():
     brokers = load_mqtt_brokers()
     new_i = len(brokers)
@@ -10458,7 +10297,6 @@ Hier kannst du zusätzliche Broker hinzufügen, von denen ebenfalls empfangen wi
 
 
 
-@app.route("/test/mqtt_broker/<int:index>", methods=["POST"])
 def test_mqtt_broker(index):
     try:
         name = request.form.get(f"name_{index}", "").strip() or f"Broker {index + 1}"
@@ -10480,7 +10318,6 @@ def test_mqtt_broker(index):
         return embedded_page('MQTT Broker', mqtt_settings_content(load_config(), notice))
 
 
-@app.route("/mqtt_brokers/save", methods=["POST"])
 def mqtt_brokers_save():
     count = int(request.form.get("count", 0))
 
@@ -10519,7 +10356,6 @@ def mqtt_brokers_save():
 
 
 
-@app.route("/udp_discovery_status")
 def udp_discovery_status():
     cfg = load_config().get("udp_input", {})
     state = {
@@ -10534,7 +10370,6 @@ def udp_discovery_status():
     return state
 
 
-@app.route("/udp_discovery_toggle", methods=["POST"])
 def udp_discovery_toggle():
     config = load_config()
     udp_cfg = config.setdefault("udp_input", {})
@@ -10548,22 +10383,18 @@ def udp_discovery_toggle():
     return {"ok": True, "legacy_fallback": bool(udp_cfg.get("legacy_fallback", False))}
 
 
-@app.route("/monitor_data")
 def monitor_data():
     return get_mqtt_monitor_values()
 
 
-@app.route("/monitor_settings")
 def monitor_settings():
     return load_monitor_settings()
 
 
-@app.route("/monitor_topic_config")
 def monitor_topic_config():
     return load_topic_config()
 
 
-@app.route("/monitor/influx_topic", methods=["POST"])
 def monitor_influx_topic():
     topic = request.form.get("topic", "").strip()
     enabled = request.form.get("enabled", "1") == "1"
@@ -10584,7 +10415,6 @@ def monitor_influx_topic():
     return {"ok": True, "enabled": bool(enabled), "message": f"Topic für Influx {'aktiviert' if enabled else 'deaktiviert'} ✅"}
 
 
-@app.route("/monitor/influx_json_key", methods=["POST"])
 def monitor_influx_json_key():
     topic = request.form.get("topic", "").strip()
     json_key = request.form.get("json_key", "").strip()
@@ -10624,7 +10454,6 @@ def monitor_influx_json_key():
     return {"ok": True, "message": f"JSON-Key '{json_key}' für Influx {'aktiviert' if enabled else 'deaktiviert'} ✅", "keys": keys, "types": types}
 
 
-@app.route("/monitor/influx_json_key_type", methods=["POST"])
 def monitor_influx_json_key_type():
     topic = request.form.get("topic", "").strip()
     json_key = request.form.get("json_key", "").strip()
@@ -10658,7 +10487,6 @@ def monitor_influx_json_key_type():
     return {"ok": True, "message": f"Influx Typ für '{json_key}' = {labels.get(value_type, value_type)} ✅", "types": types}
 
 
-@app.route("/monitor/favorite", methods=["POST"])
 def monitor_favorite():
     topic = request.form.get("topic", "")
     action = request.form.get("action", "")
@@ -10678,7 +10506,6 @@ def monitor_favorite():
     return {"ok": True, "favorites": favorites}
 
 
-@app.route("/monitor/alias", methods=["POST"])
 def monitor_alias():
     topic = request.form.get("topic", "")
     alias = request.form.get("alias", "").strip()
@@ -10772,19 +10599,16 @@ table {{ width:100%; border-collapse:collapse; background:#151c23; }} th,td {{ b
 </body></html>'''
 
 
-@app.route("/influx_explorer")
 def influx_explorer():
     return influx_explorer_page()
 
 
-@app.route("/influx_explorer/delete", methods=["POST"])
 def influx_explorer_delete():
     topic = request.form.get("topic", "")
     ok, msg = influx_service.influx_delete_topic(topic, load_config, add_log_entry)
     return influx_explorer_page(("✅ " if ok else "❌ ") + msg)
 
 
-@app.route("/influx_explorer/delete_selected", methods=["POST"])
 def influx_explorer_delete_selected():
     topics = request.form.getlist("topic")
     if not topics:
@@ -11005,12 +10829,9 @@ def objects_delete_all():
 
 
 
-object_service.bind_context(__import__(__name__))
+object_service.bind_context(sys.modules[__name__])
 object_service.normalize_knx_group_address = knx_service.normalize_knx_ga
 
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8099, debug=False)
 
 
 

@@ -6,13 +6,12 @@ from pathlib import Path
 from platform import python_version
 
 
-APP_VERSION = "32.5.1"
+APP_VERSION = "32.7.0"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
 DATA_DIR = PROJECT_ROOT / "data"
 BACKUP_DIR = PROJECT_ROOT / "backups"
-LEGACY_FILE = PROJECT_ROOT / "legacy" / "app_legacy.py"
 DEPENDENCIES = {}
 LOXWEBSOCKET_AVAILABLE = False
 LOXWEBSOCKET_STATUS = "Loxone: Bibliothek nicht installiert"
@@ -191,83 +190,5 @@ def startup_status():
         ],
     }
 
-
-def load_legacy_module():
-    configure_paths()
-    run_startup_check()
-    module_name = "mqtt2lox_port_core"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-    spec = importlib.util.spec_from_file_location(module_name, LEGACY_FILE)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Legacy-Datei nicht gefunden: {LEGACY_FILE}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def create_legacy_app():
-    legacy = load_legacy_module()
-    legacy.APP_VERSION = APP_VERSION
-    legacy.LOXWEBSOCKET_AVAILABLE = LOXWEBSOCKET_AVAILABLE
-    legacy.LOXWEBSOCKET_STATUS = LOXWEBSOCKET_STATUS
-    if not LOXWEBSOCKET_AVAILABLE:
-        try:
-            legacy.runtime_context.bridge.status = LOXWEBSOCKET_STATUS
-        except Exception:
-            pass
-        try:
-            legacy.add_log_entry(LOXWEBSOCKET_STATUS)
-        except Exception:
-            pass
-    if hasattr(legacy, "app"):
-        legacy.app.config["APP_VERSION"] = APP_VERSION
-        legacy.app.config["PORT_MODE"] = "v32"
-        legacy.app.config["LOXWEBSOCKET_AVAILABLE"] = LOXWEBSOCKET_AVAILABLE
-        legacy.app.config["STARTUP_STATUS"] = startup_status()
-        legacy.app.config["JSON_AS_ASCII"] = False
-        if hasattr(legacy.app, "json"):
-            legacy.app.json.ensure_ascii = False
-        legacy.app.extensions["legacy_module"] = legacy
-        try:
-            legacy.app.extensions["runtime_context"] = legacy.runtime_context
-        except Exception:
-            pass
-
-        if "dashboard" not in legacy.app.blueprints:
-            try:
-                from app.routes.dashboard import bp as dashboard_bp
-            except ModuleNotFoundError:
-                from routes.dashboard import bp as dashboard_bp
-            legacy.app.register_blueprint(dashboard_bp)
-
-        if "config" not in legacy.app.blueprints:
-            try:
-                from app.routes.config import bp as config_bp
-            except ModuleNotFoundError:
-                from routes.config import bp as config_bp
-            legacy.app.register_blueprint(config_bp)
-
-        if "backup" not in legacy.app.blueprints:
-            try:
-                from app.routes.backup import bp as backup_bp
-            except ModuleNotFoundError:
-                from routes.backup import bp as backup_bp
-            legacy.app.register_blueprint(backup_bp)
-
-        if "objects" not in legacy.app.blueprints:
-            try:
-                from app.routes.objects import bp as objects_bp
-            except ModuleNotFoundError:
-                from routes.objects import bp as objects_bp
-            legacy.app.register_blueprint(objects_bp)
-
-        if "startup_status_route" not in legacy.app.view_functions:
-            @legacy.app.route("/startup_status")
-            def startup_status_route():
-                return startup_status()
-
-    return legacy.app
 
 
