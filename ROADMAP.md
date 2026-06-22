@@ -1,8 +1,8 @@
 # Roadmap
 
-## Aktueller Stand: 32.4.6
+## Aktueller Stand: 32.4.7
 
-Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Mit `ARCHITECTURE_REVIEW.md`, `BLUEPRINT_PLAN.md`, `RUNTIME_CONTEXT_PLAN.md` und `KNX_RUNTIME_MIGRATION_PLAN.md` liegen Architektur-, Blueprint-, Runtime-State- und KNX-Migrationsplan fuer die naechste Modularisierungsphase vor. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State, KNX-LastSeen-Dicts, KNX-Monitor-Werte, KNX-Monitor-Log, KNX-Listener-Verwaltung und KNX-Monitor-Version sind angebunden.
+Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Mit `ARCHITECTURE_REVIEW.md`, `BLUEPRINT_PLAN.md`, `RUNTIME_CONTEXT_PLAN.md` und `KNX_RUNTIME_MIGRATION_PLAN.md` liegen Architektur-, Blueprint-, Runtime-State- und KNX-Migrationsplan fuer die naechste Modularisierungsphase vor. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. Alte KNX-Global-State-Reste wurden in 32.4.7 entfernt.
 
 ## Naechste Schritte
 
@@ -29,6 +29,7 @@ Die Anwendung laeuft als bereinigte v32-Basis. Technische Versionspraefixe wurde
 - KNX Phase C 32.4.4 im Betrieb pruefen: KNX Monitor, `/knx_monitor_data`, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT->KNX, KNX->MQTT und KNX->Loxone.
 - KNX Phase D1 32.4.5 im Betrieb pruefen: Monitor oeffnen, Listener Auto-Start, manueller Listener-Start, KNX Telegramm, MQTT->KNX, KNX->MQTT und KNX->Loxone.
 - KNX Phase E 32.4.6 im Betrieb pruefen: `/events/knx_monitor`, `[KNX SSE]`, KNX Monitor, `/knx_monitor_data` und LiveLog/Status-SSE als unveraenderte Nachbarn.
+- KNX Cleanup 32.4.7 im Betrieb pruefen: KNX Monitor, KNX Telegramm, `[KNX MONITOR ADD]`, `[KNX SSE]`, MQTT->KNX, KNX->MQTT und KNX->Loxone.
 - Bridge-Kernlogik erst nach vollstaendiger Port-Stabilisierung modularisieren.
 - Objektmanager vorerst nicht neu bauen, sondern nur stabil uebernehmen.
 - Optional-Abhaengigkeiten weiter klar im Startstatus sichtbar halten.

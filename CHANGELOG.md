@@ -1,5 +1,14 @@
 # Changelog
 
+## 32.4.7
+
+- Alte KNX-Global-State-Reste aus `legacy/app_legacy.py` bereinigt.
+- Entfernt wurden die alten Legacy-Globals fuer KNX Monitor-Log, KNX Monitor-Werte, KNX LastSeen-Dicts und Listener-Thread.
+- KNX Monitor, LastSeen, Listener-Verwaltung und KNX-SSE-Versionierung verwenden nun ausschliesslich `runtime_context.knx`.
+- Listener-Logik, xknx, UI und SSE-Route bleiben unveraendert.
+- Keine UI-Aenderungen.
+- Versionsstand auf `32.4.7` gesetzt.
+
 ## 32.4.6
 
 - KNX RuntimeContext Phase E umgesetzt.

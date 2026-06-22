@@ -104,8 +104,6 @@ def safe_save_json_file(path, data, indent=2):
 
 
 runtime_context = create_runtime_context()
-knx_monitor_log = deque(maxlen=15)
-knx_monitor_values = {}
 
 def knx_influx_topic(group_address):
     """Stabiler Influx-/Config-Key für KNX Gruppenadressen."""
@@ -286,20 +284,9 @@ def get_knx_last_seen(kind, key=None):
         if bucket is None:
             return {}
         if key is None:
-            if bucket:
-                return dict(bucket)
+            return dict(bucket)
         else:
-            if key in bucket:
-                return dict(bucket.get(key, {}))
-    legacy_buckets = {
-        "mqtt2knx": mqtt2knx_last_seen,
-        "knx2mqtt": knx2mqtt_last_seen,
-        "knx2lox": knx2lox_last_seen,
-    }
-    legacy_bucket = legacy_buckets.get(kind, {})
-    if key is None:
-        return dict(legacy_bucket)
-    return dict(legacy_bucket.get(key, {}))
+            return dict(bucket.get(key, {}))
 
 
 def update_knx_last_seen(kind, key, value):
@@ -324,10 +311,8 @@ def clear_knx_last_seen(kind=None):
 
 
 def get_knx_monitor_values():
-    values = dict(knx_monitor_values)
     with runtime_context.knx.lock:
-        values.update(runtime_context.knx.monitor_values)
-    return values
+        return dict(runtime_context.knx.monitor_values)
 
 
 def set_knx_monitor_value(ga, value_data):
@@ -343,9 +328,7 @@ def clear_knx_monitor_values():
 
 def get_knx_monitor_log():
     with runtime_context.knx.lock:
-        if runtime_context.knx.monitor_log:
-            return list(runtime_context.knx.monitor_log)[:15]
-    return list(knx_monitor_log)[:15]
+        return list(runtime_context.knx.monitor_log)[:15]
 
 
 def add_knx_monitor_log_entry(entry):
@@ -402,8 +385,6 @@ def request_knx_stop():
 
 def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
     """Add a KNX telegram to the live KNX monitor."""
-    global knx_monitor_log, knx_monitor_values
-
     from datetime import datetime
 
     ga = knx_service.normalize_knx_ga(group_address)
@@ -419,10 +400,8 @@ def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
     }
 
     print("[KNX MONITOR ADD]", entry)
-    knx_monitor_log.appendleft(entry)
     add_knx_monitor_log_entry(entry)
     if ga:
-        knx_monitor_values[ga] = entry
         set_knx_monitor_value(ga, entry)
         write_knx_monitor_influx(ga, entry.get("value", value), entry.get("dpt", dpt), entry.get("direction", direction))
     bump_sse("knx")
@@ -1206,7 +1185,7 @@ def _handle_mqtt_to_knx_service(topic, payload):
         payload,
         load_mqtt2knx_config,
         extract_mqtt_mapping_value,
-        mqtt2knx_last_seen,
+        runtime_context.knx.mqtt2knx_last_seen,
         _send_knx_service_value,
         add_log_entry,
         update_knx_last_seen,
@@ -1287,8 +1266,8 @@ async def _knx_listener_async(knx_cfg):
                         monitor_dpt = ""
 
                 add_knx_monitor_entry(ga, value_text, "RX", monitor_dpt)
-                knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
-                knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
+                knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, runtime_context.knx.knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
+                knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
         except Exception as e:
             add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
     try:
@@ -1521,10 +1500,7 @@ display_values = {}
 mqtt2lox_last_seen = {}
 mqtt2udp_last_seen = udp.mqtt2udp_last_seen
 udp2mqtt_last_seen = udp.udp2mqtt_last_seen
-mqtt2knx_last_seen = {}
-knx2mqtt_last_seen = {}
 udp2knx_last_seen = {}
-knx2lox_last_seen = {}
 udp_input_last_seen = udp.udp_input_last_seen
 mqtt_monitor_values = mqtt_module.mqtt_monitor_values
 
@@ -2241,7 +2217,7 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 32.4.6
+            MQTT2Lox 32.4.7
         </div>
     </aside>
 
@@ -9885,7 +9861,7 @@ def knx_listener_start():
 
 @app.route("/knx_monitor_data")
 def knx_monitor_data():
-    print("[KNX MONITOR DATA]", len(knx_monitor_log))
+    print("[KNX MONITOR DATA]", len(get_knx_monitor_log()))
     return knx_monitor_payload()
 
 
@@ -9912,7 +9888,7 @@ def events_mqtt_monitor():
 @app.route("/events/knx_monitor")
 def events_knx_monitor():
     def payload():
-        print("[KNX SSE]", len(knx_monitor_log))
+        print("[KNX SSE]", len(get_knx_monitor_log()))
         return knx_monitor_payload()
 
     return sse_response("knx_monitor", payload, "knx")

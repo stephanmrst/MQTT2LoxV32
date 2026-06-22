@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 32.4.6
+## Aktueller Stand: 32.4.7
 
 Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
 
@@ -9,6 +9,16 @@ Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist
 - `legacy/app_legacy.py`
 
 Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener, Monitor-Listen und Monitor-Routen bleiben im Legacy-Core. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Der Legacy-Core verwendet weiterhin die bekannten Seiten.
+
+## Von 32.4.6 nach 32.4.7
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+Geaendert wurde nur die KNX RuntimeContext-Bereinigung:
+
+- Alte KNX-Global-State-Reste wurden aus `legacy/app_legacy.py` entfernt.
+- KNX Monitor, LastSeen, Listener-Verwaltung und KNX-SSE-Versionierung nutzen `runtime_context.knx`.
+- Listener-Logik, xknx, UI und SSE-Route bleiben unveraendert.
 
 ## Von 32.4.5 nach 32.4.6
 

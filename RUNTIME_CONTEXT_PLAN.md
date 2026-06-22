@@ -1,4 +1,4 @@
-# RuntimeContext-Plan 32.4.6
+# RuntimeContext-Plan 32.4.7
 
 Stand: Analyse der globalen Variablen und States in `legacy/app_legacy.py`.
 
@@ -8,7 +8,7 @@ Dies ist nur ein Plan. Es wurden keine Dateien verschoben, keine Funktionen vers
 
 Ein spaeterer `RuntimeContext` soll Laufzeit-State zentral, nachvollziehbar und thread-bewusst halten. Aktuell liegen Live-Log, Monitorlisten, MQTT/UDP/KNX-Last-Seen-Werte, Bridge-Flags, Broker-Prozess und Config-Aliase verteilt in `legacy/app_legacy.py` und einzelnen Services.
 
-Seit 32.3.4 existiert unter `app/runtime/` ein Grundgeruest aus Dataclasses. Seit 32.3.5 nutzt LiveLog den RuntimeContext. Seit 32.3.7 ist auch der Bridge-State vollstaendig in `runtime_context.bridge` migriert. Seit 32.3.8 wird MQTT-Monitor-State zusaetzlich in `runtime_context.mqtt` gepflegt und von Monitor-Datenrouten bevorzugt gelesen. Seit 32.3.9 werden UDP-Laufzeitdaten zusaetzlich in `runtime_context.udp` gepflegt und von UDP-Seiten bevorzugt gelesen. Seit 32.4.0 ist der interne Broker-State vollstaendig in `runtime_context.broker` migriert. Seit 32.4.2 werden die KNX-LastSeen-Dicts fuer MQTT->KNX, KNX->MQTT und KNX->Loxone zusaetzlich in `runtime_context.knx` gepflegt und von den KNX-Seiten bevorzugt gelesen. Seit 32.4.3 wird auch `knx_monitor_values` zusaetzlich in `runtime_context.knx.monitor_values` gepflegt und von KNX Hub sowie KNX Monitor Payload bevorzugt gelesen. Seit 32.4.4 wird `knx_monitor_log` zusaetzlich in `runtime_context.knx.monitor_log` gepflegt und von KNX Monitor Payload bevorzugt gelesen. Seit 32.4.5 liegt die KNX-Listener-Verwaltung in `runtime_context.knx`. Seit 32.4.6 liegt die KNX-SSE-Versionierung in `runtime_context.knx.monitor_version`. xknx bleibt unveraendert im Legacy-Code.
+Seit 32.3.4 existiert unter `app/runtime/` ein Grundgeruest aus Dataclasses. Seit 32.3.5 nutzt LiveLog den RuntimeContext. Seit 32.3.7 ist auch der Bridge-State vollstaendig in `runtime_context.bridge` migriert. Seit 32.3.8 wird MQTT-Monitor-State zusaetzlich in `runtime_context.mqtt` gepflegt und von Monitor-Datenrouten bevorzugt gelesen. Seit 32.3.9 werden UDP-Laufzeitdaten zusaetzlich in `runtime_context.udp` gepflegt und von UDP-Seiten bevorzugt gelesen. Seit 32.4.0 ist der interne Broker-State vollstaendig in `runtime_context.broker` migriert. Seit 32.4.7 liegt der KNX-Runtime-State fuer LastSeen, Monitor-Werte, Monitor-Log, Listener-Verwaltung und KNX-SSE-Versionierung vollstaendig in `runtime_context.knx`; alte KNX-Globals wurden entfernt. xknx bleibt unveraendert im Legacy-Code.
 
 Empfohlene Zielbereiche:
 
@@ -133,7 +133,7 @@ Hinweis: Einige Pfad- und Config-Namen werden im Legacy doppelt definiert, zuers
 
 ## KNX Detailplan
 
-Die KNX-Migration wird vorsichtig nach dem separaten Detailplan `KNX_RUNTIME_MIGRATION_PLAN.md` umgesetzt. Phase A ist seit 32.4.2 erledigt: die KNX-LastSeen-Dicts werden zusaetzlich im RuntimeContext gespiegelt. Phase B ist seit 32.4.3 erledigt: `knx_monitor_values` wird zusaetzlich im RuntimeContext gespiegelt. Phase C ist seit 32.4.4 erledigt: `knx_monitor_log` wird zusaetzlich im RuntimeContext gespiegelt. Phase D1 ist seit 32.4.5 erledigt: die KNX-Listener-Verwaltung liegt in `runtime_context.knx`. Phase E ist seit 32.4.6 erledigt: `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt.
+Die KNX-Migration wird vorsichtig nach dem separaten Detailplan `KNX_RUNTIME_MIGRATION_PLAN.md` umgesetzt. Phase A ist seit 32.4.2 erledigt: die KNX-LastSeen-Dicts werden im RuntimeContext gepflegt. Phase B ist seit 32.4.3 erledigt: `knx_monitor_values` wird im RuntimeContext gepflegt. Phase C ist seit 32.4.4 erledigt: `knx_monitor_log` wird im RuntimeContext gepflegt. Phase D1 ist seit 32.4.5 erledigt: die KNX-Listener-Verwaltung liegt in `runtime_context.knx`. Phase E ist seit 32.4.6 erledigt: `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt. Seit 32.4.7 sind die alten KNX-Globals entfernt.
 
 Empfohlene Reihenfolge:
 
@@ -172,4 +172,5 @@ Empfohlene Reihenfolge:
 - SSE-Routen erst nach klarer Versionierungsstrategie anfassen.
 - Context-Objekt zuerst nur einlesen/uebergeben, dann schrittweise Schreibpfade migrieren.
 - Legacy-Aliase erst entfernen, wenn Blueprints und Tests stabil sind.
-- Das Grundgeruest aus `app/runtime/` ist seit 32.4.6 fuer LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State, Broker-State, KNX-LastSeen, KNX-Monitor-Werte, KNX-Monitor-Log, KNX-Listener-Verwaltung und KNX-SSE-Versionierung importiert; xknx bleibt unveraendert im Legacy-Code.
+- Das Grundgeruest aus `app/runtime/` ist seit 32.4.7 fuer LiveLog, Bridge-State, MQTT-Monitor-State, UDP-State, Broker-State und KNX-Runtime-State importiert; xknx bleibt unveraendert im Legacy-Code.
+- Seit 32.4.7 gibt es fuer KNX Monitor-Log, Monitor-Werte, LastSeen-Dicts und Listener-Thread keine parallelen Legacy-Globals mehr.

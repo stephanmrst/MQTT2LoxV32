@@ -1,8 +1,8 @@
-# KNX Runtime Migration Plan 32.4.6
+# KNX Runtime Migration Plan 32.4.7
 
 Stand: Analyse von `legacy/app_legacy.py` und `app/services/knx.py`.
 
-Phase A ist seit 32.4.2 umgesetzt: Die KNX-LastSeen-Dicts fuer MQTT->KNX, KNX->MQTT und KNX->Loxone werden zusaetzlich in `runtime_context.knx` gespiegelt und von den betroffenen KNX-Seiten bevorzugt gelesen. Phase B ist seit 32.4.3 umgesetzt: `knx_monitor_values` wird zusaetzlich in `runtime_context.knx.monitor_values` gespiegelt und von KNX Hub sowie KNX Monitor Payload bevorzugt gelesen. Phase C ist seit 32.4.4 umgesetzt: `knx_monitor_log` wird zusaetzlich in `runtime_context.knx.monitor_log` gespiegelt und von KNX Monitor Payload bevorzugt gelesen. Phase D1 ist seit 32.4.5 umgesetzt: Die KNX-Listener-Verwaltung liegt in `runtime_context.knx`. Phase E ist seit 32.4.6 umgesetzt: `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt. xknx bleibt unveraendert im Legacy-Code.
+Phase A ist seit 32.4.2 umgesetzt: Die KNX-LastSeen-Dicts fuer MQTT->KNX, KNX->MQTT und KNX->Loxone werden in `runtime_context.knx` gepflegt und von den betroffenen KNX-Seiten gelesen. Phase B ist seit 32.4.3 umgesetzt: `knx_monitor_values` liegt in `runtime_context.knx.monitor_values`. Phase C ist seit 32.4.4 umgesetzt: `knx_monitor_log` liegt in `runtime_context.knx.monitor_log`. Phase D1 ist seit 32.4.5 umgesetzt: Die KNX-Listener-Verwaltung liegt in `runtime_context.knx`. Phase E ist seit 32.4.6 umgesetzt: `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt. Seit 32.4.7 sind die alten KNX-Global-State-Reste in `legacy/app_legacy.py` entfernt. xknx bleibt unveraendert im Legacy-Code.
 
 ## Ziel
 
@@ -80,6 +80,7 @@ KNX ist der sensibelste Runtime-Bereich, weil Listener, xknx-Callbacks, AsyncIO,
 | D1 | Listener-Verwaltung | Erledigt in 32.4.5: `listener_thread`, `listener_running`, `start_requested` und `stop_requested` liegen in `runtime_context.knx`; `_knx_listener_async`, Callback, xknx und asyncio bleiben unveraendert. | hoch |
 | D2 | Listener-Thread/Stop-Semantik | Spaeter pruefen, ob eigener KNX Stop-State den Bridge-Stop ergaenzen soll. | sehr hoch |
 | E | SSE-Versionierung | Erledigt in 32.4.6: `sse_versions["knx"]` wurde durch `runtime_context.knx.monitor_version` ersetzt. | hoch |
+| Cleanup | Alte KNX-Globals | Erledigt in 32.4.7: Legacy-Globals fuer KNX Monitor-Log, Monitor-Werte, LastSeen-Dicts und Listener-Thread entfernt. | mittel |
 
 ## Vorgeschlagene KNXState-Zielstruktur
 
