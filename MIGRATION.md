@@ -1,15 +1,95 @@
 # Migration
 
-## Aktueller Stand: 32.7.1
+## Aktueller Stand: 33.1.2
 
-Der Projektstand basiert auf dem bereinigten v32-Port. Die aktive Startkette ist:
+Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.1.2 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
 - `app/main.py`
 - `app/__init__.py`
 - `app/engine/port.py`
 - `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der bestehende Objektmanager bleibt auf `/objects` unveraendert. Der neue parallele Objektmanager V33 liegt auf `/objects_v33`, nutzt `app/services/object_registry.py` und speichert bei Nutzung nach `data/objects_v33.json`. V33-Objekte haben nun `uuid` als feste interne ID, `key` als technischen lesbaren Schluessel und `name` als frei aenderbaren Anzeigenamen. Die passive Adapter-Schnittstelle liegt in `app/services/object_adapter_engine.py`; Adapterbearbeitung ist in 33.1.2 als Platzhalterdialog aktiv, aber weiterhin ohne Runtime-Anbindung und ohne Mapping-Erzeugung. Das Adaptermodell ist in `docs/OBJECT_ADAPTER_MODEL.md` dokumentiert. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+
+## Von 33.1.1 nach 33.1.2
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.1.2 integriert die Adapterverwaltung in den neuen Objektmanager V33:
+
+- Objektbearbeitung zeigt MQTT, UDP, KNX, Loxone und Influx.
+- Adapterbereich nutzt schlichte Cards/Chips mit aktiv/inaktiv, Richtung, Datentyp und Kurzstatus.
+- Adapter koennen aktiviert, deaktiviert und in Platzhalterdialogen bearbeitet werden.
+- Adapterdaten kommen aus `object_registry.py`; Instanzen werden ueber `object_adapter_engine.py` verwaltet.
+- Keine Runtime-Anbindung, keine Mapping-Erzeugung, keine V32-Objects-Aenderung.
+
+## Von 33.1.0 nach 33.1.1
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.1.1 stabilisiert die interne Identitaet von V33-Objekten:
+
+- `uuid` ist die feste interne ID.
+- `key` ist der technische lesbare Schluessel.
+- `name` bleibt der frei aenderbare Anzeigename.
+- Bestehende V33-Registry-Eintraege ohne `uuid` oder `key` werden beim Laden automatisch ergaenzt.
+- Bearbeiten und Loeschen in `/objects_v33` verwenden nun `uuid`.
+- Keine Runtime-Aenderung, keine V32-Objects-Aenderung, keine Mapping-Aenderung.
+
+## Von 33.0.3 nach 33.1.0
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.1.0 startet den neuen Objektmanager V33 parallel:
+
+- Neue Route `/objects_v33`.
+- Neuer Blueprint `app/routes/objects_v33.py`.
+- Neue Templates unter `templates/objects_v33/`.
+- Datenquelle ist `app/services/object_registry.py`.
+- Bestehender Objektmanager unter `/objects` bleibt unveraendert.
+- Keine Runtime-Anbindung, keine Adapterbearbeitung, keine Aenderung bestehender Mappings.
+
+## Von 33.0.2 nach 33.0.3
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+33.0.3 bereitet nur die einheitliche V33-Adapter-Schnittstelle vor:
+
+- `app/services/object_adapter_engine.py` enthaelt passive Adapterklassen fuer MQTT, Loxone, UDP, KNX und Influx.
+- Adapter besitzen nur Validierung, Serialisierung, Deserialisierung und die gemeinsamen Felder `enabled`, `direction`, `datatype`.
+- `object_registry.py` kann diese Adapterobjekte speichern und laden.
+- Keine Kommunikation, keine Runtime-Logik, keine UI-Aenderung, keine Routen-Aenderung.
+
+## Von 33.0.1 nach 33.0.2
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+33.0.2 bereitet nur die V33-Objekt-Registry vor:
+
+- `app/services/object_registry.py` enthaelt passive CRUD- und Validierungsfunktionen fuer `ObjectDefinition`.
+- Speicherziel ist `data/objects_v33.json`; wenn die Datei fehlt, wird eine leere Liste verwendet.
+- Bestehende Objektmanager-Logik, Mapping-Dateien, Runtime, UI und Routen bleiben unveraendert.
+
+## Von 33.0.0 nach 33.0.1
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+33.0.1 dokumentiert nur das V33-Adaptermodell:
+
+- `docs/OBJECT_ADAPTER_MODEL.md` beschreibt gemeinsame Adapterfelder und die Protokollprofile fuer MQTT, Loxone, UDP, KNX und Influx.
+- Bestehende Mappings bleiben unveraendert.
+- Keine Runtime-Logik geaendert, keine UI-Aenderung, keine Routen-Aenderung.
+
+## Von 32.7.1 nach 33.0.0
+
+Keine manuelle Migration der Konfigurationsdateien erforderlich.
+
+33.0.0 legt nur die Grundlage fuer den objektzentrierten Umbau:
+
+- `docs/OBJECT_MANAGER_V33_PLAN.md` beschreibt Leitbild, Objektmodell, Adaptermodell, Migrationsstrategie, Risiken und Exit-Kriterien.
+- `app/services/object_model.py` enthaelt passive Dataclasses und Validierungshelfer fuer spaetere Objektmanager-2.0-Arbeit.
+- Bestehende Mappings bleiben aktive Kompatibilitaets- und Runtime-Quelle.
+- Keine Runtime-Logik geaendert, keine UI-Aenderung, keine Routen-Aenderung.
 
 ## Von 32.7.0 nach 32.7.1
 

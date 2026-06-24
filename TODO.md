@@ -1,5 +1,18 @@
 # TODO
 
+## 33.0.x
+
+- Object Manager V33 Plan pruefen: Leitbild "Ein Objekt. Alle Protokolle.", Objektmodell, Adaptermodell, Migrationsstrategie und Exit-Kriterien.
+- Object Adapter Model 33.0.1 pruefen: MQTT, Loxone, UDP, KNX und Influx gegen bestehende Mapping-Felder abgleichen.
+- Passive Object Registry 33.0.2 pruefen: fehlende `data/objects_v33.json` liefert leere Liste, Speichern/Lesen funktioniert, keine bestehende Config wird veraendert.
+- Passive Object Adapter Engine 33.0.3 pruefen: `validate`, `serialize`, `deserialize` und Registry-Roundtrip fuer alle Adapterklassen.
+- Objektmanager V33 33.1.0 pruefen: `/objects_v33`, Suche, neues Objekt, Bearbeiten, Loeschen, keine Adapterbearbeitung und keine Aenderung bestehender Mappings.
+- Objektidentitaet V33 33.1.1 pruefen: `uuid` als feste interne ID, `key` als technischer Schluessel, `name` frei aenderbar, Edit/Delete ueber `uuid`.
+- Adapterverwaltung V33 33.1.2 pruefen: MQTT, UDP, KNX, Loxone und Influx als Cards/Chips anzeigen, Kurzstatus pruefen, aktivieren/deaktivieren, Platzhalterdialoge bearbeiten.
+- `app/services/object_model.py` vorerst passiv lassen; keine Runtime-, UI-, Routen- oder Config-Verdrahtung ohne separate Migrationsphase.
+- Vor aktiver Objektmanager-2.0-Arbeit Smoke-Tests fuer bestehende Mappings, Objektmanager, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Live Log, SSE, Bridge und internen Broker festlegen.
+- Read-only Analyse bestehender Mapping-Dateien als naechsten sicheren V33-Schritt planen.
+
 ## 32.0.x
 
 - Architektur-Review 32.3.1 auswerten: zuerst RuntimeContext/Blueprint-Plan festlegen, dann weitere Auslagerungen angehen.

@@ -1,5 +1,64 @@
 # Changelog
 
+## 33.1.2
+
+- Adapterverwaltung im neuen Objektmanager V33 integriert.
+- `/objects_v33` zeigt bei der Objektbearbeitung alle bekannten Adapter: MQTT, UDP, KNX, Loxone und Influx.
+- Adapter werden als schlichte Cards/Chips mit aktiv/inaktiv, Richtung, Datentyp und Kurzstatus angezeigt.
+- Adapter koennen aktiviert, deaktiviert und ueber Platzhalterdialoge bearbeitet werden.
+- Adapterdaten werden aus `object_registry.py` gelesen und ueber `object_adapter_engine.py` als Adapterinstanzen verwaltet.
+- Keine Runtime-Anbindung, keine Mapping-Erzeugung, keine V32-Objects-Aenderung und keine bestehenden Mapping-Dateien geaendert.
+- Versionsstand auf `33.1.2` gesetzt.
+
+## 33.1.1
+
+- Stabile interne Objekt-UUID fuer Objektmanager V33 ergaenzt.
+- `ObjectDefinition` kompatibel um `uuid` und `key` erweitert: `uuid` ist die feste interne ID, `key` der technische lesbare Schluessel, `name` der frei aenderbare Anzeigename.
+- `object_registry.py` ergaenzt bestehende V33-Eintraege ohne `uuid`/`key` beim Laden automatisch.
+- `/objects_v33` bearbeitet und loescht Objekte nun ueber `uuid`.
+- Keine Runtime-Logik, keine V32-Objects-Route und keine bestehenden Mapping-Dateien geaendert.
+- Versionsstand auf `33.1.1` gesetzt.
+
+## 33.1.0
+
+- Parallelen Objektmanager V33 gestartet.
+- Neuer Blueprint `app/routes/objects_v33.py` mit Route `/objects_v33`.
+- Neue Templates unter `templates/objects_v33/` fuer Objektliste und Bearbeitung.
+- Erste V33-Oberflaeche mit Suche, Neues Objekt, Bearbeiten und Loeschen ohne Adapterbearbeitung.
+- Datenquelle ist die passive `object_registry.py`; bestehender Objektmanager, Runtime, UI, Routen und Mapping-Dateien bleiben unveraendert.
+- Versionsstand auf `33.1.0` gesetzt.
+
+## 33.0.3
+
+- Einheitliche passive Adapter-Schnittstelle vorbereitet: `app/services/object_adapter_engine.py`.
+- Basisklassen `BaseAdapter`, `MQTTAdapter`, `LoxoneAdapter`, `UDPAdapter`, `KNXAdapter` und `InfluxAdapter` mit `validate()`, `serialize()`, `deserialize()`, `enabled`, `direction` und `datatype` angelegt.
+- `app/services/object_registry.py` kann neue Adapterobjekte speichern und laden.
+- Keine Kommunikation, keine Runtime-Logik, keine UI, keine Routen und keine bestehenden Mapping-Dateien geaendert.
+- Versionsstand auf `33.0.3` gesetzt.
+
+## 33.0.2
+
+- Passive V33-Objekt-Registry vorbereitet: `app/services/object_registry.py`.
+- Registry-Funktionen fuer Laden, Speichern, Auflisten, Abrufen, Upsert, Loeschen und Validieren von `ObjectDefinition` vorbereitet.
+- Speicherziel fuer spaetere V33-Objekte ist `data/objects_v33.json`; fehlende Datei liefert eine leere Liste.
+- Bestehende Objektmanager-Logik, Runtime, UI, Routen, Configs und Mapping-Dateien bleiben unveraendert.
+- Versionsstand auf `33.0.2` gesetzt.
+
+## 33.0.1
+
+- Adaptermodell V33 dokumentiert: `docs/OBJECT_ADAPTER_MODEL.md`.
+- MQTT-, Loxone-, UDP-, KNX- und Influx-Adapterfelder mit gemeinsamen Feldern `enabled`, `direction`, `datatype`, `readonly` und `writeonly` beschrieben.
+- Keine Runtime-Logik, keine UI, keine Routen und keine Config-Dateien geaendert.
+- Versionsstand auf `33.0.1` gesetzt.
+
+## 33.0.0
+
+- Start der V33-Entwicklung mit Fokus auf Objektmanager 2.0.
+- Neue Planungsdokumentation `docs/OBJECT_MANAGER_V33_PLAN.md` angelegt.
+- Neues passives Service-Grundgeruest `app/services/object_model.py` mit `ObjectDefinition`, `ObjectAdapter`, `ObjectFlags` und Validierungshelfern angelegt.
+- Bestehende Runtime-Logik, Routen, UI, Config-Dateien und Mapping-Dateien bleiben unveraendert.
+- Versionsstand auf `33.0.0` gesetzt.
+
 ## 32.7.1
 
 - Aufraeumen nach Legacy Removal: der leere `legacy/`-Ordner und der alte `legacy/__pycache__/`-Rest wurden entfernt.

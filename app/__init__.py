@@ -26,6 +26,7 @@ def _register_blueprints(app):
     from .routes.loxone import bp as loxone_bp
     from .routes.mqtt import bp as mqtt_bp
     from .routes.objects import bp as objects_bp
+    from .routes.objects_v33 import bp as objects_v33_bp
     from .routes.system import bp as system_bp
     from .routes.udp import bp as udp_bp
 
@@ -34,6 +35,7 @@ def _register_blueprints(app):
         config_bp,
         backup_bp,
         objects_bp,
+        objects_v33_bp,
         mqtt_bp,
         udp_bp,
         loxone_bp,

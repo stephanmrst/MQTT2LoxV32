@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Objektmanager V33</title>
+  <style>
+    body { margin:0; background:#10151b; color:#e8edf2; font-family:Arial, sans-serif; }
+    main { max-width:1180px; margin:0 auto; padding:24px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+    h1 { font-size:24px; margin:0; }
+    form.search { display:flex; gap:8px; margin:0 0 18px; }
+    input, button, a.button { border:1px solid #344150; border-radius:6px; padding:9px 11px; font-size:14px; }
+    input { background:#151c24; color:#e8edf2; min-width:260px; }
+    button, a.button { background:#2f6f9f; color:#fff; text-decoration:none; cursor:pointer; }
+    table { width:100%; border-collapse:collapse; background:#151c24; }
+    th, td { border-bottom:1px solid #283340; padding:10px; text-align:left; vertical-align:middle; }
+    th { background:#1d2630; color:#aebdcc; font-size:13px; }
+    .empty { border:1px solid #283340; background:#151c24; padding:18px; border-radius:8px; }
+    .actions { display:flex; gap:8px; }
+    .danger { background:#874044; }
+    .muted { color:#9aa7b5; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Objektmanager V33</h1>
+    <a class="button" href="{{ url_for('objects_v33.objects_v33_new') }}">Neues Objekt</a>
+  </header>
+
+  <form class="search" method="get" action="{{ url_for('objects_v33.objects_v33_index') }}">
+    <input name="q" value="{{ query }}" placeholder="Objekte suchen">
+    <button type="submit">Suchen</button>
+  </form>
+
+  {% if objects %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Kategorie</th>
+          <th>Typ</th>
+          <th>Einheit</th>
+          <th>Anzahl Adapter</th>
+          <th>Aktiv</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in objects %}
+          <tr>
+            <td>{{ item.name or item.id }}</td>
+            <td>{{ item.category or '-' }}</td>
+            <td>{{ item.type or '-' }}</td>
+            <td>{{ item.unit or '-' }}</td>
+            <td>{{ item.adapters|length }}</td>
+            <td>{{ 'Ja' if item.enabled else 'Nein' }}</td>
+            <td>
+              <div class="actions">
+                <a class="button" href="{{ url_for('objects_v33.objects_v33_edit', object_uuid=item.uuid) }}">Bearbeiten</a>
+                <form method="post" action="{{ url_for('objects_v33.objects_v33_delete', object_uuid=item.uuid) }}">
+                  <button class="danger" type="submit">Löschen</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="empty">
+      <strong>Keine Objekte vorhanden.</strong>
+      <div class="muted">Der neue Objektmanager V33 verwendet eine eigene Registry und verändert keine bestehenden Mappings.</div>
+    </div>
+  {% endif %}
+</main>
+</body>
+</html>

@@ -6,7 +6,7 @@ from pathlib import Path
 from platform import python_version
 
 
-APP_VERSION = "32.7.1"
+APP_VERSION = "33.1.2"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
