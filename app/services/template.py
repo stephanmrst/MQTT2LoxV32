@@ -22,6 +22,10 @@ def render_layout(
     app_subtitle="Das Multiprotokoll-Gateway",
     app_legacy_name="MQTT2Lox",
     app_version="",
+    iframe_shell=False,
+    sidebar_links_html="",
+    external_influxdb_url="",
+    external_grafana_url="",
 ):
     return render_template_string(
         app_layout,
@@ -34,7 +38,11 @@ def render_layout(
         content=content,
         active=active,
         message=message,
-        status=bridge_status
+        status=bridge_status,
+        iframe_shell=iframe_shell,
+        sidebar_links_html=sidebar_links_html,
+        external_influxdb_url=external_influxdb_url,
+        external_grafana_url=external_grafana_url,
     )
 
 

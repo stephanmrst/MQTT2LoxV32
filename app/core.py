@@ -773,15 +773,27 @@ def build_sidebar_links_html():
     if not links:
         return ""
 
-    html = '<span class="spacer external-spacer"></span>'
+    html = '<span class="mp-nav-spacer"></span>'
     for item in links:
         label = escape(str(item.get("label", "")))
         url = escape(str(item.get("url", "")))
         if item.get("new_tab", True):
-            html += f'<a href="{url}" target="_blank" rel="noopener" onclick="setActive(this)">{label}</a>'
+            html += f'<a class="mp-nav-link" href="{url}" target="_blank" rel="noopener" onclick="setActive(this)">{label}</a>'
         else:
-            html += f'<a href="{url}" target="contentFrame" onclick="setActive(this)">{label}</a>'
+            html += f'<a class="mp-nav-link" href="{url}" target="contentFrame" onclick="setActive(this)">{label}</a>'
     return html
+
+
+def get_external_service_url(*labels):
+    label_set = {str(label or "").strip().lower() for label in labels if str(label or "").strip()}
+    for item in load_sidebar_links():
+        if not item.get("enabled", True):
+            continue
+        label = str(item.get("label", "") or "").strip().lower()
+        url = str(item.get("url", "") or "").strip()
+        if label in label_set and url:
+            return url
+    return ""
 
 
 DEFAULT_KNX_CONFIG = {
@@ -1467,7 +1479,7 @@ def handle_mqtt_to_udp(topic, payload):
     )
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="../static", static_url_path="/static")
 app.config["JSON_AS_ASCII"] = False
 if hasattr(app, "json"):
     app.json.ensure_ascii = False
@@ -2039,6 +2051,7 @@ APP_LAYOUT = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} · {{ app_name }}</title>
+<link rel="stylesheet" href="/static/css/sidebar.css">
 <style>
 :root {
     --bg:#0f1115;
@@ -2061,56 +2074,10 @@ body {
 }
 a { color:inherit; }
 .app-shell { display:flex; min-height:100vh; }
-.sidebar {
-    width:250px;
-    position:fixed;
-    inset:0 auto 0 0;
-    background:#0b0d12;
-    border-right:1px solid var(--border);
-    padding:22px 16px;
-    display:flex;
-    flex-direction:column;
-    gap:18px;
-}
-.brand {
-    font-size:24px;
-    font-weight:800;
-    letter-spacing:.2px;
-    display:flex;
-    align-items:center;
-    gap:10px;
-    margin-bottom:8px;
-}
-.brand .bolt { color:#ffb86b; }
-.nav-group-title {
-    color:var(--muted);
-    font-size:12px;
-    text-transform:uppercase;
-    letter-spacing:.12em;
-    margin:10px 10px 6px;
-}
-.nav-link {
-    display:flex;
-    align-items:center;
-    gap:10px;
-    padding:11px 12px;
-    border-radius:10px;
-    text-decoration:none;
-    color:#cfd6e6;
-    transition:.12s ease;
-}
-.nav-link:hover { background:var(--panel2); color:white; }
-.nav-link.active { background:var(--blue); color:white; }
-.sidebar-footer {
-    margin-top:auto;
-    color:var(--muted);
-    font-size:12px;
-    padding:10px;
-    border-top:1px solid var(--border);
-}
 .main {
-    margin-left:250px;
-    width:calc(100% - 250px);
+    flex:1;
+    min-width:0;
+    width:auto;
     min-height:100vh;
     padding:28px;
 }
@@ -2180,7 +2147,6 @@ th { background:#202534; }
 }
 .section-title { margin:0 0 12px; }
 @media(max-width:850px) {
-    .sidebar { position:relative; width:100%; inset:auto; }
     .app-shell { flex-direction:column; }
     .main { margin-left:0; width:100%; padding:18px; }
 }
@@ -2188,42 +2154,7 @@ th { background:#202534; }
 </head>
 <body>
 <div class="app-shell">
-    <aside class="sidebar">
-        <div class="brand"><span class="bolt">⚡</span><span>{{ app_name }}</span></div>
-
-        <div>
-            <div class="nav-group-title">Hauptmenü</div>
-            <a class="nav-link {{ 'active' if active == 'dashboard' else '' }}" href="/">Dashboard</a>
-            <a class="nav-link {{ 'active' if active == 'monitor' else '' }}" href="/monitor">MQTT Monitor</a>
-            <a class="nav-link {{ 'active' if active == 'mqtt_hub' else '' }}" href="/mqtt">MQTT Hub</a>
-            <a class="nav-link {{ 'active' if active == 'influx_explorer' else '' }}" href="/influx_explorer">Influx Explorer</a>
-            <a class="nav-link {{ 'active' if active == 'objects' else '' }}" href="/objects">Objektmanager</a>
-        </div>
-
-        <div>
-            <div class="nav-group-title">Werkzeuge</div>
-            <a class="nav-link {{ 'active' if active == 'global_search' else '' }}" href="/global_search_page">Suche</a>
-            <a class="nav-link {{ 'active' if active == 'conflict_scanner' else '' }}" href="/conflicts_page">Konfig prüfen</a>
-        </div>
-
-        <div>
-            <div class="nav-group-title">Extras</div>
-            <a class="nav-link" href="#" onclick="return false;">Externe Links</a>
-            <a class="nav-link" href="#" onclick="return false;">Zigbee</a>
-            <a class="nav-link" href="#" onclick="return false;">KNX</a>
-        </div>
-
-        <div>
-            <div class="nav-group-title">System</div>
-            <a class="nav-link {{ 'active' if active == 'settings' else '' }}" href="/settings">Einstellungen</a>
-        </div>
-
-        <div class="sidebar-footer">
-            Bridge: <b>{{ status }}</b><br>
-            {{ app_name }} {{ app_version }}<br>
-            <span>{{ app_legacy_name }} Technikbasis</span>
-        </div>
-    </aside>
+    {% include "shared/sidebar.html" %}
 
     <main class="main">
         <div class="topbar">
@@ -2261,6 +2192,10 @@ def render_layout(title, content, active="dashboard", subtitle="", message=""):
         APP_SUBTITLE,
         APP_LEGACY_NAME,
         APP_VERSION,
+        False,
+        "",
+        get_external_service_url("influxdb", "influx db"),
+        get_external_service_url("grafana"),
     )
 
 
@@ -3452,19 +3387,12 @@ SHELL_LAYOUT = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ app_name }}</title>
+<link rel="stylesheet" href="/static/css/sidebar.css">
 <style>
 :root {
     --bg:#1e252c;
-    --side:#171d23;
-    --side2:#151a20;
     --content:#202830;
     --text:#f4f7fb;
-    --muted:#b8c1cc;
-    --green:#7CFF75;
-    --button:#5f686f;
-    --button-hover:#727d85;
-    --active:#5f686f;
-    --border:#2a333c;
 }
 * { box-sizing:border-box; }
 html, body {
@@ -3478,121 +3406,14 @@ html, body {
 }
 .shell {
     display:grid;
-    grid-template-columns:185px 1fr;
-    grid-template-rows:92px 1fr;
+    grid-template-columns:var(--mp-sidebar-width) 1fr;
+    grid-template-rows:1fr;
     height:100vh;
     width:100vw;
 }
-.header {
-    grid-column:1 / 3;
-    grid-row:1;
-    display:flex;
-    align-items:center;
-    padding:0 14px;
-    background:var(--side2);
-}
-.brand {
-    display:flex;
-    align-items:center;
-    gap:14px;
-    min-width:185px;
-}
-.brand h1 {
-    margin:0;
-    font-size:24px;
-    line-height:1;
-    color:var(--green);
-    font-weight:800;
-}
-.status {
-    font-size:11px;
-    font-weight:700;
-    color:#fff;
-}
-.status b { color:var(--green); }
-.header-search {
-    display:flex;
-    align-items:center;
-    gap:8px;
-    margin-left:24px;
-    min-width:340px;
-    max-width:560px;
-    flex:1;
-}
-.header-search input {
-    height:30px;
-    border:1px solid #3b4652;
-    border-radius:4px;
-    background:#10151b;
-    color:#fff;
-    padding:0 10px;
-    font-size:13px;
-    width:100%;
-}
-.header-search button {
-    width:auto;
-    min-width:74px;
-    height:30px;
-    border:none;
-    border-radius:4px;
-    background:var(--button);
-    color:white;
-    font-size:13px;
-    font-weight:700;
-    cursor:pointer;
-}
-.header-search button:hover { background:var(--button-hover); }
-.top-actions {
-    margin-left:auto;
-    display:flex;
-    gap:8px;
-}
-.top-actions button {
-    width:116px;
-    height:24px;
-    border:none;
-    border-radius:3px;
-    background:var(--button);
-    color:white;
-    font-size:13px;
-    font-weight:700;
-    cursor:pointer;
-}
-.top-actions button:hover { background:var(--button-hover); }
-.sidebar {
-    grid-column:1;
-    grid-row:2;
-    background:var(--side);
-    padding-top:16px;
-}
-.nav {
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    gap:15px;
-}
-.nav a {
-    min-width:116px;
-    text-align:center;
-    color:white;
-    text-decoration:none;
-    font-weight:700;
-    font-size:14px;
-    padding:6px 10px;
-    border-radius:4px;
-}
-.nav a.active,
-.nav a:hover {
-    background:var(--active);
-}
-.nav .spacer { height:26px; }
-.nav .external-spacer { height:8px; }
-.settings-submenu { display:none; flex-direction:column; align-items:center; gap:9px; margin-top:-6px; }
-.settings-submenu a { min-width:116px; font-size:12px; opacity:.92; padding:4px 8px; }
-.settings-submenu.open { display:flex; }
 .content-wrap {
     grid-column:2;
-    grid-row:2;
+    grid-row:1;
     background:var(--content);
     overflow:hidden;
     position:relative;
@@ -3609,35 +3430,6 @@ html, body {
         display:block;
         height:auto;
     }
-    .header {
-        height:auto;
-        padding:14px;
-        flex-wrap:wrap;
-        gap:12px;
-    }
-    .brand { min-width:0; }
-    .header-search {
-        margin-left:0;
-        min-width:100%;
-        max-width:none;
-        width:100%;
-    }
-    .top-actions {
-        margin-left:0;
-        width:100%;
-    }
-    .top-actions button { flex:1; }
-    .sidebar {
-        padding:10px;
-    }
-    .nav {
-        flex-direction:row;
-        align-items:flex-start;
-        justify-content:flex-start;
-        flex-wrap:wrap;
-        gap:8px;
-    }
-    .nav .spacer { display:none; }
     .content-wrap {
         height:calc(100vh - 145px);
         min-height:600px;
@@ -3647,39 +3439,7 @@ html, body {
 </head>
 <body>
 <div class="shell">
-    <header class="header">
-        <div class="brand">
-            <div>
-                <h1>{{ app_name }}</h1>
-                <div class="status">{{ app_subtitle }}</div>
-            </div>
-            <div class="status">Status: <b id="bridgeStatus">{{ status }}</b></div>
-        </div>
-
-
-        <div class="top-actions">
-            <button onclick="bridgeControl('/start')">Start</button>
-            <button onclick="bridgeControl('/stop')">Stopp</button>
-        </div>
-    </header>
-
-    <aside class="sidebar">
-                <nav class="nav">
-            <a class="active" href="/dashboard_embed" target="contentFrame" onclick="setActive(this)">Dashboard</a>
-            <a href="/monitor" target="contentFrame" onclick="setActive(this)">MQTT Monitor</a>
-<a href="/topics2" target="contentFrame" onclick="setActive(this)">Loxone Monitor</a>
-            <a href="/mqtt" target="contentFrame" onclick="setActive(this)">MQTT Hub</a>
-            <a href="/influx_explorer" target="contentFrame" onclick="setActive(this)">Influx Explorer</a>
-            <a href="/objects" target="contentFrame" onclick="setActive(this)">Objektmanager</a>
-            <a href="/knx" target="contentFrame" onclick="setActive(this)">KNX</a>
-            <a href="/knx_monitor" target="contentFrame" onclick="setActive(this)">KNX Monitor</a>
-            <a href="/global_search" target="contentFrame" onclick="setActive(this)">Suche</a>
-            <a href="/conflicts" target="contentFrame" onclick="setActive(this)">Konfig prüfen</a>
-            <span class="spacer"></span>
-            {{ sidebar_links_html|safe }}
-            <a href="/settings_embed" target="contentFrame" onclick="setActive(this)">Einstellungen</a>
-        </nav>
-    </aside>
+    {% include "shared/sidebar.html" %}
 
     <main class="content-wrap">
         <iframe id="contentFrame" name="contentFrame" src="/dashboard_embed"></iframe>
@@ -3688,12 +3448,12 @@ html, body {
 
 <script>
 function setActive(el) {
-    document.querySelectorAll(".nav a").forEach(a => a.classList.remove("active"));
+    document.querySelectorAll(".mp-sidebar-nav a").forEach(a => a.classList.remove("active"));
     el.classList.add("active");
 }
 
 function activateSearchNav() {
-    const links = document.querySelectorAll(".nav a");
+    const links = document.querySelectorAll(".mp-sidebar-nav a");
     links.forEach(a => a.classList.remove("active"));
     links.forEach(a => {
         const href = a.getAttribute("href") || "";
@@ -3938,6 +3698,10 @@ def index(message=""):
         app_version=APP_VERSION,
         status=runtime_context.bridge.status,
         sidebar_links_html=build_sidebar_links_html(),
+        active="dashboard",
+        iframe_shell=True,
+        external_influxdb_url=get_external_service_url("influxdb", "influx db"),
+        external_grafana_url=get_external_service_url("grafana"),
     )
 
 

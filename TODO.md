@@ -11,6 +11,15 @@
 - Adapterverwaltung V33 33.1.2 pruefen: MQTT, UDP, KNX, Loxone und Influx als Cards/Chips anzeigen, Kurzstatus pruefen, aktivieren/deaktivieren, Platzhalterdialoge bearbeiten.
 - Adapter-Komponenten V33 33.2.0 pruefen: eigene Editor-Komponenten fuer MQTT, UDP, KNX, Loxone und Influx, getrennte Objekt-/Adapter-Speicherung und Registry-Roundtrip.
 - Branding 33.2.1 pruefen: App-Header und Browser-Titel zeigen `MP-Gateway`; `MQTT2Lox` bleibt technischer Projekt-/Repo-Name.
+- Routing-Vorschau V33 33.2.2 pruefen: MQTT+Loxone, KNX+MQTT, MQTT+Influx, Richtungsauswertung und inaktive Adapter ohne echte Mapping-Dateien.
+- Sidebar-Link V33 33.2.3 pruefen: `Objektmanager V33` oeffnet `/objects_v33`; alter Objektmanager bleibt auf `/objects`.
+- Industrial-Dark-Layout V33 33.2.3 pruefen: linke Objektliste, rechte Detailansicht, Tabs, Adapter speichern, Routing-Vorschau sichtbar.
+- Objektmanager-V33-Optik 33.2.4 pruefen: alle Protokolle pro Karte sichtbar, aktive farbig, inaktive grau, Auswahl deutlich.
+- MP-Gateway-Designlinie 33.2.5 pruefen: Filterchips ohne Initialen, kraeftige Protokollfarben, `docs/UI_GUIDELINES.md` als Vorgabe fuer neue UI-Arbeit.
+- Sidebar-Komponente 33.2.6/33.2.7 pruefen: Dashboard, MQTT Monitor, MQTT Hub, Loxone Monitor, Objektmanager, KNX, KNX Monitor, Suche, Konfig pruefen, InfluxDB, Grafana und Einstellungen nutzen dieselbe Sidebar-Optik.
+- Layout-Fundament 33.2.7 pruefen: Sidebar-Gruppen `MP-Gateway` und `Externe Dienste`, beide Objektmanager-Links, `/objects_v33` unveraendert und alter `/objects`-Objektmanager erreichbar.
+- Sidebar-Feinschliff 33.2.7a pruefen: keine `MP-Gateway`-Gruppenueberschrift, alter Objektmanager nicht in Sidebar, `Objektmanager V33` sichtbar, externe Dienste nur InfluxDB/Grafana.
+- Sidebar-Link-Korrektur 33.2.7c pruefen: `Influx Explorer` -> `/influx_explorer`, `InfluxDB` und `Grafana` -> externe Config-URLs, leere URLs deaktiviert.
 - `app/services/object_model.py` vorerst passiv lassen; keine Runtime-, UI-, Routen- oder Config-Verdrahtung ohne separate Migrationsphase.
 - Vor aktiver Objektmanager-2.0-Arbeit Smoke-Tests fuer bestehende Mappings, Objektmanager, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Live Log, SSE, Bridge und internen Broker festlegen.
 - Read-only Analyse bestehender Mapping-Dateien als naechsten sicheren V33-Schritt planen.

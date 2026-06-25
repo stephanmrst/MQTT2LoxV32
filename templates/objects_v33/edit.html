@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <title>Objektmanager V33</title>
+  <title>Objektmanager</title>
   <style>
     body { margin:0; background:#10151b; color:#e8edf2; font-family:Arial, sans-serif; }
     main { max-width:900px; margin:0 auto; padding:24px; }
@@ -28,6 +28,10 @@
     .adapter-card input, .adapter-card select { padding:8px; font-size:13px; }
     .pill { display:inline-block; border-radius:999px; padding:3px 8px; background:#35414e; font-size:12px; }
     .pill.on { background:#2d6950; }
+    table { width:100%; border-collapse:collapse; background:#151c24; }
+    th, td { border-bottom:1px solid #283340; padding:9px; text-align:left; }
+    th { background:#1d2630; color:#aebdcc; font-size:13px; }
+    .empty { border:1px solid #283340; background:#151c24; border-radius:8px; padding:12px; color:#9aa7b5; }
   </style>
 </head>
 <body>
@@ -97,6 +101,34 @@
           </form>
         {% endfor %}
       </div>
+    </section>
+
+    <section>
+      <h2>Routing-Vorschau</h2>
+      {% if routing_preview %}
+        <table>
+          <thead>
+            <tr>
+              <th>Quelle</th>
+              <th>Ziel</th>
+              <th>Richtung</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in routing_preview %}
+              <tr>
+                <td>{{ item.source }}</td>
+                <td>{{ item.target }}</td>
+                <td>{{ item.direction }}</td>
+                <td><span class="pill on">{{ item.status }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">Keine aktiven Adapter-Kombinationen für die Vorschau.</div>
+      {% endif %}
     </section>
   {% endif %}
 </main>

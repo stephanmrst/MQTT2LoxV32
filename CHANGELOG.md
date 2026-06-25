@@ -1,5 +1,88 @@
 # Changelog
 
+## 33.2.7c
+
+- Sidebar-Link-Korrektur fuer externe Dienste.
+- `Influx Explorer` bleibt im MP-Gateway-Menue intern auf `/influx_explorer`.
+- `InfluxDB` unter `Externe Dienste` nutzt nun die externe URL aus der Sidebar-Konfiguration und zeigt keinen falschen internen Fallback mehr.
+- `Grafana` unter `Externe Dienste` nutzt nun die externe URL aus der Sidebar-Konfiguration.
+- Fehlt eine externe URL, wird der Eintrag deaktiviert angezeigt.
+- Keine Runtime-Aenderung, keine Objektlogik-Aenderung, keine Adapterlogik-Aenderung und keine Routen-Aenderung.
+- Versionsstand auf `33.2.7c` gesetzt.
+
+## 33.2.7a
+
+- Sidebar-Feinschliff ohne Routing- oder Runtime-Aenderung.
+- Sichtbare Gruppenueberschrift `MP-Gateway` aus der Sidebar entfernt.
+- Alter Objektmanager-Link aus der Sidebar entfernt; sichtbar bleibt nur `Objektmanager V33`.
+- Bereich `Externe Dienste` auf `InfluxDB` und `Grafana` bereinigt.
+- Keine Layoutaenderungen darueber hinaus, keine Objektlogik- oder Adapterlogik-Aenderung.
+- Versionsstand auf `33.2.7a` gesetzt.
+
+## 33.2.7
+
+- Sidebar weiter bereinigt und in die Gruppen `MP-Gateway` und `Externe Dienste` gegliedert.
+- MP-Gateway-Gruppe enthaelt Dashboard, MQTT Monitor, MQTT Hub, Loxone Monitor, Objektmanager, Objektmanager V33, KNX, KNX Monitor, Suche, Konfig pruefen, Influx Explorer und Einstellungen.
+- Externe Dienste enthalten InfluxDB und Grafana klar getrennt von der internen Navigation.
+- Neues Layout-Fundament vorbereitet: `templates/layout/base.html` und `templates/layout/page_header.html`.
+- `/objects_v33` nutzt die neue Base-Struktur, bleibt funktional aber unveraendert.
+- Keine Routen umgestellt, kein Redirect eingefuehrt, kein alter Objektmanager entfernt.
+- Keine Runtime-Aenderung, keine Registry-Logik-Aenderung, keine Objektlogik-Aenderung, keine Adapterlogik-Aenderung und keine Mapping-Erzeugung.
+- Versionsstand auf `33.2.7` gesetzt.
+
+## 33.2.6
+
+- Sidebar als gemeinsame MP-Gateway-Komponente nach `templates/shared/sidebar.html` ausgelagert.
+- Zentrale Sidebar-Styles in `static/css/sidebar.css` ergaenzt und in Shell- sowie Standardlayout eingebunden.
+- Shell-Navigation vereinheitlicht: Dashboard, MQTT Monitor, Loxone Monitor, MQTT Hub, Objektmanager, Objektmanager V33, KNX, KNX Monitor, Suche, Konfig pruefen, InfluxDB, Grafana und Einstellungen nutzen dieselbe Komponente.
+- Aktiver Menuepunkt wird automatisch ueber die gemeinsame Klasse hervorgehoben und nutzt den gruenen linken Akzent.
+- Header, App-Name, Untertitel, Status, Abstaende, Schriftgroessen, Buttonhoehen und Sidebar-Breite vereinheitlicht.
+- Keine Runtime-Aenderung, keine Registry-Logik-Aenderung, keine Routing-Logik-Aenderung und keine Mapping-Erzeugung.
+- Versionsstand auf `33.2.6` gesetzt.
+
+## 33.2.5
+
+- Objektmanager V33 weiter auf die festgelegte MP-Gateway-Designlinie gebracht.
+- Filterchips bereinigt: `Alle`, `Aktiv`, `MQTT`, `Loxone`, `UDP`, `KNX`, `Influx`.
+- Protokoll-Badges sind nun kraeftiger: MQTT blau, Loxone gruen, UDP violett, KNX orange, Influx tuerkis/blau.
+- Inaktive Adapter-Badges bleiben grau und gedimmt.
+- Ausgewaehlte Objektkarte deutlicher mit Rahmen, hellerem Hintergrund und dezentem Glow hervorgehoben.
+- Sidebar-Active-State optisch geschaerft, ohne Navigation oder Routen zu aendern.
+- Neue Doku `docs/UI_GUIDELINES.md` angelegt.
+- Keine Runtime-Aenderung, keine Registry-Logik-Aenderung, keine Adapterlogik-Aenderung und keine Mapping-Erzeugung.
+- Versionsstand auf `33.2.5` gesetzt.
+
+## 33.2.4
+
+- Objektmanager V33 optisch weiter an das Industrial-Dark-Referenzlayout angepasst.
+- Linke Objektliste mit klareren Initialen, staerkerer Auswahlmarkierung, besseren Abstaenden und ruhigerer Zeilenhoehe ueberarbeitet.
+- Jede Objektkarte zeigt nun immer alle Protokoll-Badges: MQTT, Loxone, UDP, KNX und Influx.
+- Aktive Protokolle werden farbig hervorgehoben, inaktive Protokolle grau gedimmt.
+- Projektfarbschema bleibt erhalten; Protokollfarben wurden dezent integriert.
+- Keine Runtime-Aenderung, keine Registry-Logik-Aenderung, keine Adapterlogik-Aenderung und keine Mapping-Erzeugung.
+- Versionsstand auf `33.2.4` gesetzt.
+
+## 33.2.3
+
+- Objektmanager V33 in der Sidebar verlinkt.
+- Neuer Sidebar-Eintrag `Objektmanager V33` zeigt auf `/objects_v33`.
+- `/objects_v33` optisch an das Industrial-Dark-Layout angepasst: Objektliste links, Detail-/Editorbereich rechts.
+- Linke Spalte mit Suchfeld, Neu laden, Health Check, Filterchips und Objektkarten ergaenzt.
+- Rechte Spalte mit Objektkopf, Aktionsbuttons und Tabs fuer Allgemein, MQTT, Loxone, UDP, KNX, Influx und Routing ergaenzt.
+- Adapter-Editoren liegen nun in ihren jeweiligen Tabs; Routing-Vorschau liegt im Routing-Tab.
+- Bestehender Objektmanager-Eintrag `/objects` bleibt unveraendert.
+- Keine Runtime-Aenderung, keine Registry-Logik-Aenderung, keine Adapterlogik-Aenderung und keine V32-Objects-Routen geaendert.
+- Versionsstand auf `33.2.3` gesetzt.
+
+## 33.2.2
+
+- Routing-Vorschau fuer den Objektmanager V33 ergaenzt.
+- Neuer passiver Service `app/services/object_routing_preview.py` mit `build_object_routing_preview(object_def)`.
+- `/objects_v33/edit/<uuid>` zeigt moegliche spaetere Verbindungen aktiver Adapter mit Quelle, Ziel, Richtung und Status `Vorschau`.
+- Inaktive Adapter werden nicht beruecksichtigt; Influx wird nur als Ziel angezeigt.
+- Keine Runtime-Anbindung, keine echten Mapping-Dateien geschrieben und keine V32-Objects-Aenderung.
+- Versionsstand auf `33.2.2` gesetzt.
+
 ## 33.2.1
 
 - Branding-Vorbereitung fuer MP-Gateway ergaenzt.

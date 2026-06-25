@@ -1,15 +1,114 @@
 # Migration
 
-## Aktueller Stand: 33.2.1
+## Aktueller Stand: 33.2.7c
 
-Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.2.1 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
+Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.2.7c die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
 - `app/main.py`
 - `app/__init__.py`
 - `app/engine/port.py`
 - `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der bestehende Objektmanager bleibt auf `/objects` unveraendert. Der neue parallele Objektmanager V33 liegt auf `/objects_v33`, nutzt `app/services/object_registry.py` und speichert bei Nutzung nach `data/objects_v33.json`. V33-Objekte haben nun `uuid` als feste interne ID, `key` als technischen lesbaren Schluessel und `name` als frei aenderbaren Anzeigenamen. Die passive Adapter-Schnittstelle liegt in `app/services/object_adapter_engine.py`; Adapterbearbeitung nutzt in 33.2.0 eigene Komponenten unter `app/templates/objects_v33/adapters/`, bleibt aber weiterhin ohne Runtime-Anbindung und ohne Mapping-Erzeugung. Das Branding liegt in `app/branding.py`: `MP-Gateway` ist der neue sichtbare App-Name, `MQTT2Lox` bleibt vorerst technischer Projekt-/Repo-Name. Das Adaptermodell ist in `docs/OBJECT_ADAPTER_MODEL.md` dokumentiert. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.2.7c korrigiert nur Sidebar-Links: `Influx Explorer` bleibt intern auf `/influx_explorer`, `InfluxDB` und `Grafana` verwenden externe URLs aus der Sidebar-Konfiguration oder werden deaktiviert angezeigt. Es gibt keine Routing-, Runtime-, Objektlogik- oder Adapterlogik-Aenderung.
+
+## Von 33.2.7a nach 33.2.7c
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.7c ist nur eine Sidebar-Link-Korrektur:
+
+- `Influx Explorer` bleibt intern auf `/influx_explorer`.
+- `InfluxDB` verwendet die externe URL aus der Konfiguration.
+- `Grafana` verwendet die externe URL aus der Konfiguration.
+- Fehlt eine externe URL, wird der Eintrag deaktiviert angezeigt.
+- Kein falscher Fallback auf interne Seiten.
+- Keine Route umgestellt, keine Runtime-Aenderung, keine Objektlogik- oder Adapterlogik-Aenderung.
+
+## Von 33.2.7 nach 33.2.7a
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.7a ist nur ein Sidebar-Feinschliff:
+
+- Gruppenueberschrift `MP-Gateway` entfernt.
+- Alter Objektmanager-Link aus der Sidebar entfernt.
+- `Objektmanager V33` bleibt unveraendert sichtbar.
+- `Externe Dienste` zeigt nur InfluxDB und Grafana.
+- Keine Route umgestellt, kein Redirect eingefuehrt, kein alter Objektmanager entfernt.
+- Keine Registry-Logik-Aenderung, keine Objektlogik-Aenderung, keine Adapterlogik-Aenderung, keine Runtime-Aenderung.
+
+## Von 33.2.6 nach 33.2.7
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.7 ist nur eine Layout-Fundament-Version:
+
+- Sidebar ist in `MP-Gateway` und `Externe Dienste` gegliedert.
+- Beide Objektmanager-Links bleiben erhalten: `/objects` und `/objects_v33`.
+- Externe Dienste zeigen InfluxDB und Grafana getrennt.
+- `templates/layout/base.html` und `templates/layout/page_header.html` wurden vorbereitet.
+- `/objects_v33` nutzt die neue Base-Struktur.
+- Keine Route umgestellt, kein Redirect eingefuehrt, kein alter Objektmanager entfernt.
+- Keine Registry-Logik-Aenderung, keine Objektlogik-Aenderung, keine Adapterlogik-Aenderung, keine Runtime-Aenderung, keine Mapping-Erzeugung.
+
+## Von 33.2.5 nach 33.2.6
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.6 ist nur eine UI-/Template-Version:
+
+- Die globale Sidebar liegt als gemeinsame Komponente in `templates/shared/sidebar.html`.
+- Die Sidebar-Optik liegt zentral in `static/css/sidebar.css`.
+- Shell-Layout und Standardlayout binden dieselbe Sidebar-Komponente ein.
+- Aktiver Menuepunkt, Header, Status, Abstaende, Schriftgroessen und Sidebar-Breite sind vereinheitlicht.
+- Keine Registry-Logik-Aenderung, keine Runtime-Aenderung, keine Routing-Logik-Aenderung, keine Mapping-Erzeugung.
+
+## Von 33.2.4 nach 33.2.5
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.5 ist nur eine UI-/Layout-Version:
+
+- Filterchips zeigen keine vorangestellten Anfangsbuchstaben mehr.
+- Protokoll-Badges bleiben immer sichtbar und nutzen die festgelegten MP-Gateway-Protokollfarben.
+- Ausgewaehlte Objektkarten werden deutlicher hervorgehoben.
+- `docs/UI_GUIDELINES.md` dokumentiert Layout und Protokollfarben.
+- Keine Registry-Logik-Aenderung, keine Adapterlogik-Aenderung, keine Runtime-Aenderung, keine Mapping-Erzeugung.
+
+## Von 33.2.3 nach 33.2.4
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.4 passt nur das Layout des Objektmanagers V33 an:
+
+- Pro Objektkarte werden MQTT, Loxone, UDP, KNX und Influx immer angezeigt.
+- Aktive Adapter-Badges sind farbig, inaktive Adapter-Badges grau gedimmt.
+- Objektkarten haben klarere Initialen, Abstaende und eine deutlichere Auswahlmarkierung.
+- Keine Registry-Logik-Aenderung, keine Adapterlogik-Aenderung, keine Runtime-Aenderung, keine Mapping-Erzeugung.
+
+## Von 33.2.2 nach 33.2.3
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.3 verlinkt nur den neuen Objektmanager V33 in der Sidebar:
+
+- Neuer Sidebar-Eintrag `Objektmanager V33`.
+- Ziel-URL ist `/objects_v33`.
+- Bestehender Eintrag `Objektmanager` bleibt unveraendert auf `/objects`.
+- `/objects_v33` nutzt nun ein zweigeteiltes Industrial-Dark-Layout mit Tabs fuer Allgemein, Adapter und Routing.
+- Keine Runtime-Aenderung, keine Registry-Logik-Aenderung, keine Adapterlogik-Aenderung, keine V32-Objects-Aenderung.
+
+## Von 33.2.1 nach 33.2.2
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.2 ergaenzt nur eine passive Routing-Vorschau im Objektmanager V33:
+
+- `app/services/object_routing_preview.py` baut Vorschau-Eintraege aus aktiven Adaptern.
+- `/objects_v33/edit/<uuid>` zeigt Quelle, Ziel, Richtung und Status `Vorschau`.
+- Influx wird nur als Ziel bewertet.
+- Inaktive Adapter werden ignoriert.
+- Keine Runtime-Anbindung, keine Mapping-Aenderung, keine V32-Objects-Aenderung.
 
 ## Von 33.2.0 nach 33.2.1
 

@@ -1,78 +1,385 @@
-<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <title>Objektmanager V33</title>
+{% extends "layout/base.html" %}
+{% block title %}Objektmanager V33{% endblock %}
+{% block page_styles %}
   <style>
-    body { margin:0; background:#10151b; color:#e8edf2; font-family:Arial, sans-serif; }
-    main { max-width:1180px; margin:0 auto; padding:24px; }
-    header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
-    h1 { font-size:24px; margin:0; }
-    form.search { display:flex; gap:8px; margin:0 0 18px; }
-    input, button, a.button { border:1px solid #344150; border-radius:6px; padding:9px 11px; font-size:14px; }
-    input { background:#151c24; color:#e8edf2; min-width:260px; }
-    button, a.button { background:#2f6f9f; color:#fff; text-decoration:none; cursor:pointer; }
-    table { width:100%; border-collapse:collapse; background:#151c24; }
-    th, td { border-bottom:1px solid #283340; padding:10px; text-align:left; vertical-align:middle; }
-    th { background:#1d2630; color:#aebdcc; font-size:13px; }
-    .empty { border:1px solid #283340; background:#151c24; padding:18px; border-radius:8px; }
-    .actions { display:flex; gap:8px; }
-    .danger { background:#874044; }
-    .muted { color:#9aa7b5; }
+    :root {
+      --bg:#101419;
+      --panel:#171d23;
+      --panel2:#1e252d;
+      --panel3:#11171d;
+      --border:#2e3944;
+      --text:#edf3f8;
+      --muted:#8f9daa;
+      --accent:#7aa2f7;
+      --green:#77d787;
+      --amber:#f0c36a;
+      --red:#d46a6a;
+      --mqtt:#5f8fd8;
+      --loxone:#5aaa7a;
+      --udp:#9073d8;
+      --knx:#d8944f;
+      --influx:#4aa9c7;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:Arial, sans-serif; }
+    a { color:inherit; text-decoration:none; }
+    button, .button {
+      border:1px solid var(--border);
+      border-radius:4px;
+      background:#303a45;
+      color:var(--text);
+      min-height:32px;
+      padding:0 12px;
+      cursor:pointer;
+      font-weight:700;
+      font-size:13px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+    }
+    button:hover, .button:hover { background:#3d4854; }
+    button.primary, .button.primary { background:#315a7d; border-color:#47769d; }
+    button.danger, .button.danger { background:#553137; border-color:#7a444c; }
+    button[disabled] { opacity:.48; cursor:not-allowed; }
+    input, textarea, select {
+      width:100%;
+      border:1px solid var(--border);
+      border-radius:4px;
+      background:#10171e;
+      color:var(--text);
+      padding:8px 9px;
+      font-size:13px;
+    }
+    textarea { min-height:84px; resize:vertical; }
+    label { display:block; color:#c9d4dd; font-size:12px; margin:0 0 5px; }
+    .page { display:grid; grid-template-columns:360px minmax(0,1fr); height:100vh; min-height:720px; }
+    .left {
+      border-right:1px solid var(--border);
+      background:var(--panel3);
+      padding:18px 16px;
+      overflow:auto;
+    }
+    .right {
+      padding:18px;
+      overflow:auto;
+      background:linear-gradient(180deg, #151b21 0%, #101419 100%);
+    }
+    .left-head, .detail-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      margin-bottom:14px;
+    }
+    h1, h2 { margin:0; }
+    h1 { font-size:22px; letter-spacing:.2px; }
+    h2 { font-size:18px; }
+    .count { color:var(--muted); font-size:12px; margin-top:4px; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+    .search { margin-bottom:12px; }
+    .chips { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px; }
+    .chip {
+      border:1px solid var(--border);
+      background:#18212a;
+      color:#bac6d0;
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:12px;
+      font-weight:700;
+      line-height:1;
+    }
+    .chip.active { background:#274767; color:#fff; border-color:#47769d; box-shadow:inset 3px 0 0 var(--accent); }
+    .object-list { display:grid; gap:11px; }
+    .object-card {
+      display:grid;
+      grid-template-columns:34px minmax(0,1fr);
+      gap:10px;
+      border:1px solid var(--border);
+      background:var(--panel);
+      border-radius:6px;
+      padding:11px 12px;
+      line-height:1.25;
+    }
+    .object-card:hover { border-color:#5e7895; background:var(--panel2); }
+    .object-card.selected {
+      border-color:#9bbff0;
+      background:#223140;
+      box-shadow:inset 4px 0 0 var(--accent), 0 0 0 1px rgba(122,162,247,.34), 0 8px 24px rgba(63,99,155,.18);
+    }
+    .object-initial {
+      width:34px;
+      height:34px;
+      border:1px solid #40505f;
+      border-radius:5px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#202b35;
+      color:#dbe8f5;
+      font-weight:900;
+      font-size:13px;
+      margin-top:1px;
+    }
+    .object-body { min-width:0; }
+    .card-top { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px; }
+    .object-name { font-weight:900; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .object-meta { color:var(--muted); font-size:12px; margin:4px 0 9px; }
+    .badges { display:flex; gap:5px; flex-wrap:wrap; }
+    .badge {
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      background:#26313c;
+      color:#d8e2ea;
+      padding:3px 7px;
+      font-size:11px;
+      font-weight:800;
+      min-height:20px;
+    }
+    .badge.type { background:#29384a; color:#9fc4ff; }
+    .badge.on { background:#163d2a; color:#84ee9b; }
+    .badge.off { background:#3c3034; color:#e4a0aa; }
+    .badge.proto { border:1px solid transparent; background:#253344; color:#cdd9e5; }
+    .badge.proto.inactive { background:#202832; color:#6f7c88; border-color:#303b45; }
+    .badge.proto-mqtt.active { background:#1d4f91; color:#d8eaff; border-color:#69a6ff; }
+    .badge.proto-loxone.active { background:#1d6a3f; color:#d8ffe5; border-color:#6fe09a; }
+    .badge.proto-udp.active { background:#543b92; color:#eee7ff; border-color:#a78cff; }
+    .badge.proto-knx.active { background:#7a481d; color:#ffe5c2; border-color:#f0a85f; }
+    .badge.proto-influx.active { background:#166277; color:#d6f8ff; border-color:#58c7e3; }
+    .detail-card {
+      border:1px solid var(--border);
+      background:var(--panel);
+      border-radius:7px;
+      padding:16px;
+      margin-bottom:14px;
+    }
+    .uuid { color:var(--muted); font-size:12px; margin-top:5px; word-break:break-all; }
+    .head-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .tabs { margin-top:12px; }
+    .tabs > input { display:none; }
+    .tab-labels { display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid var(--border); margin-bottom:14px; }
+    .tab-labels label {
+      margin:0;
+      border:1px solid var(--border);
+      border-bottom:none;
+      background:#151c24;
+      border-radius:5px 5px 0 0;
+      padding:8px 11px;
+      cursor:pointer;
+      color:#cbd6df;
+      font-weight:800;
+    }
+    #tab-general:checked ~ .tab-labels label[for=tab-general],
+    #tab-mqtt:checked ~ .tab-labels label[for=tab-mqtt],
+    #tab-loxone:checked ~ .tab-labels label[for=tab-loxone],
+    #tab-udp:checked ~ .tab-labels label[for=tab-udp],
+    #tab-knx:checked ~ .tab-labels label[for=tab-knx],
+    #tab-influx:checked ~ .tab-labels label[for=tab-influx],
+    #tab-routing:checked ~ .tab-labels label[for=tab-routing] {
+      background:#223143;
+      color:#fff;
+      border-color:#4e657c;
+    }
+    .tab-panel { display:none; }
+    #tab-general:checked ~ .panels .general-panel,
+    #tab-mqtt:checked ~ .panels .mqtt-panel,
+    #tab-loxone:checked ~ .panels .loxone-panel,
+    #tab-udp:checked ~ .panels .udp-panel,
+    #tab-knx:checked ~ .panels .knx-panel,
+    #tab-influx:checked ~ .panels .influx-panel,
+    #tab-routing:checked ~ .panels .routing-panel { display:block; }
+    .grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; }
+    .field { min-width:0; }
+    .check { display:flex; gap:8px; align-items:center; margin-top:22px; }
+    .check input { width:auto; }
+    .adapter-form { max-width:720px; }
+    .adapter-form .check { margin-top:0; }
+    table { width:100%; border-collapse:collapse; background:#121920; }
+    th, td { border-bottom:1px solid var(--border); padding:9px; text-align:left; font-size:13px; }
+    th { background:#1f2933; color:#aebdcc; }
+    .empty {
+      border:1px dashed var(--border);
+      border-radius:7px;
+      padding:16px;
+      color:var(--muted);
+      background:#121920;
+    }
+    .errors { border:1px solid #7a3b3f; background:#321c20; border-radius:7px; padding:12px; margin-bottom:14px; }
+    @media(max-width:980px) {
+      .page { grid-template-columns:1fr; height:auto; }
+      .left { border-right:none; border-bottom:1px solid var(--border); }
+      .grid { grid-template-columns:1fr; }
+    }
   </style>
-</head>
-<body>
-<main>
-  <header>
-    <h1>Objektmanager V33</h1>
-    <a class="button" href="{{ url_for('objects_v33.objects_v33_new') }}">Neues Objekt</a>
-  </header>
+{% endblock %}
+{% block page_content %}
+<main class="page">
+  <aside class="left">
+    <div class="left-head">
+      <div>
+        <h1>Objektmanager</h1>
+        <div class="count">Objektverwaltung f&uuml;r MP-Gateway</div>
+        <div class="count">{{ visible_count }} sichtbar</div>
+      </div>
+      <a class="button primary" href="{{ url_for('objects_v33.objects_v33_new') }}">+ Neu</a>
+    </div>
 
-  <form class="search" method="get" action="{{ url_for('objects_v33.objects_v33_index') }}">
-    <input name="q" value="{{ query }}" placeholder="Objekte suchen">
-    <button type="submit">Suchen</button>
-  </form>
+    <form class="search" method="get" action="{{ url_for('objects_v33.objects_v33_index') }}">
+      <input name="q" value="{{ query }}" placeholder="Objekte suchen">
+      <input type="hidden" name="filter" value="{{ active_filter }}">
+    </form>
 
-  {% if objects %}
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Kategorie</th>
-          <th>Typ</th>
-          <th>Einheit</th>
-          <th>Anzahl Adapter</th>
-          <th>Aktiv</th>
-          <th>Aktionen</th>
-        </tr>
-      </thead>
-      <tbody>
+    <div class="toolbar">
+      <a class="button" href="{{ url_for('objects_v33.objects_v33_index') }}">Neu laden</a>
+      <a class="button" href="/conflicts">Health Check</a>
+    </div>
+
+    <div class="chips">
+      {% for value, label in [('all', 'Alle'), ('active', 'Aktiv'), ('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
+        <a class="chip {% if active_filter == value %}active{% endif %}" href="{{ url_for('objects_v33.objects_v33_index', q=query, filter=value) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+
+    <div class="object-list">
+      {% if objects %}
         {% for item in objects %}
-          <tr>
-            <td>{{ item.name or item.id }}</td>
-            <td>{{ item.category or '-' }}</td>
-            <td>{{ item.type or '-' }}</td>
-            <td>{{ item.unit or '-' }}</td>
-            <td>{{ item.adapters|length }}</td>
-            <td>{{ 'Ja' if item.enabled else 'Nein' }}</td>
-            <td>
-              <div class="actions">
-                <a class="button" href="{{ url_for('objects_v33.objects_v33_edit', object_uuid=item.uuid) }}">Bearbeiten</a>
-                <form method="post" action="{{ url_for('objects_v33.objects_v33_delete', object_uuid=item.uuid) }}">
-                  <button class="danger" type="submit">Löschen</button>
+          {% set protocols = adapter_protocols(item) %}
+          <a class="object-card {% if selected and item.uuid == selected.uuid %}selected{% endif %}" href="{{ url_for('objects_v33.objects_v33_index', selected=item.uuid, q=query, filter=active_filter) }}">
+            <div class="object-initial">{{ (item.name or item.key or item.id or '?')[:1]|upper }}</div>
+            <div class="object-body">
+              <div class="card-top">
+                <span class="badge type">{{ item.type or 'Objekt' }}</span>
+                <span class="badge {% if item.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if item.enabled else 'Inaktiv' }}</span>
+              </div>
+              <div class="object-name">{{ item.name or item.key or item.id }}</div>
+              <div class="object-meta">{{ item.type or 'auto' }}{% if item.unit %} · {{ item.unit }}{% endif %}</div>
+              <div class="badges">
+                {% for protocol, label in [('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
+                  <span class="badge proto proto-{{ protocol }} {% if protocol in protocols %}active{% else %}inactive{% endif %}">{{ label }}</span>
+                {% endfor %}
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      {% else %}
+        <div class="empty">Keine Objekte vorhanden.</div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <section class="right">
+    {% if selected %}
+      {% set is_new = not selected.uuid %}
+      {% set object_def = selected %}
+      {% if errors %}
+        <div class="errors">
+          {% for error in errors %}
+            <div>{{ error }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="detail-card">
+        <div class="detail-head">
+          <div>
+            <h1>{{ object_def.name or 'Neues Objekt' }}</h1>
+            <div class="uuid">UUID: {{ object_def.uuid or 'wird beim Speichern erzeugt' }}</div>
+          </div>
+          <div class="head-actions">
+            <span class="badge {% if object_def.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if object_def.enabled else 'Inaktiv' }}</span>
+            <button form="objectGeneralForm" class="primary" type="submit">Speichern</button>
+            <button type="button" disabled>Duplizieren</button>
+            {% if object_def.uuid %}
+              <form method="post" action="{{ url_for('objects_v33.objects_v33_delete', object_uuid=object_def.uuid) }}">
+                <button class="danger" type="submit">Löschen</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="tabs">
+          <input id="tab-general" type="radio" name="tabs" checked>
+          <input id="tab-mqtt" type="radio" name="tabs">
+          <input id="tab-loxone" type="radio" name="tabs">
+          <input id="tab-udp" type="radio" name="tabs">
+          <input id="tab-knx" type="radio" name="tabs">
+          <input id="tab-influx" type="radio" name="tabs">
+          <input id="tab-routing" type="radio" name="tabs">
+
+          <div class="tab-labels">
+            <label for="tab-general">Allgemein</label>
+            <label for="tab-mqtt">MQTT</label>
+            <label for="tab-loxone">Loxone</label>
+            <label for="tab-udp">UDP</label>
+            <label for="tab-knx">KNX</label>
+            <label for="tab-influx">Influx</label>
+            <label for="tab-routing">Routing</label>
+          </div>
+
+          <div class="panels">
+            <div class="tab-panel general-panel">
+              <form id="objectGeneralForm" method="post" action="{{ url_for('objects_v33.objects_v33_save') }}">
+                <input type="hidden" name="uuid" value="{{ object_def.uuid }}">
+                <div class="grid">
+                  <div class="field"><label for="name">Name</label><input id="name" name="name" value="{{ object_def.name }}" required></div>
+                  <div class="field"><label for="key">Key</label><input id="key" name="key" value="{{ object_def.key or object_def.id }}"></div>
+                  <div class="field"><label for="type">Typ / Datentyp</label><input id="type" name="type" value="{{ object_def.type }}"></div>
+                  <div class="field"><label for="room">Raum</label><input id="room" name="room" value="{{ object_def.room }}"></div>
+                  <div class="field"><label for="category">Kategorie</label><input id="category" name="category" value="{{ object_def.category }}"></div>
+                  <div class="field"><label for="unit">Einheit</label><input id="unit" name="unit" value="{{ object_def.unit }}"></div>
+                  <div class="field"><label for="icon">Icon</label><input id="icon" value="" disabled></div>
+                  <div class="field"><label for="scaling">Skalierung</label><input id="scaling" value="" disabled></div>
+                </div>
+                <label for="notes" style="margin-top:12px;">Beschreibung</label>
+                <textarea id="notes" name="notes">{{ object_def.notes }}</textarea>
+                <label class="check">
+                  <input type="checkbox" name="enabled" {% if object_def.enabled %}checked{% endif %}>
+                  Aktiv
+                </label>
+              </form>
+            </div>
+
+            {% for adapter in selected_adapters %}
+              <div class="tab-panel {{ adapter.protocol }}-panel">
+                <form class="adapter-form" method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.uuid, protocol=adapter.protocol) }}">
+                  {% include adapter_template_name(adapter.protocol) %}
+                  <div class="toolbar" style="margin-top:14px;">
+                    <button type="submit" class="primary">Adapter speichern</button>
+                  </div>
                 </form>
               </div>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <div class="empty">
-      <strong>Keine Objekte vorhanden.</strong>
-      <div class="muted">Der neue Objektmanager V33 verwendet eine eigene Registry und verändert keine bestehenden Mappings.</div>
-    </div>
-  {% endif %}
+            {% endfor %}
+
+            <div class="tab-panel routing-panel">
+              {% if selected_preview %}
+                <table>
+                  <thead>
+                    <tr><th>Quelle</th><th>Ziel</th><th>Richtung</th><th>Status</th></tr>
+                  </thead>
+                  <tbody>
+                    {% for item in selected_preview %}
+                      <tr>
+                        <td>{{ item.source }}</td>
+                        <td>{{ item.target }}</td>
+                        <td>{{ item.direction }}</td>
+                        <td><span class="badge on">{{ item.status }}</span></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              {% else %}
+                <div class="empty">Keine aktiven Adapter-Kombinationen für die Vorschau.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="detail-card">
+        <div class="empty">Wähle links ein Objekt aus oder lege ein neues Objekt an.</div>
+      </div>
+    {% endif %}
+  </section>
 </main>
-</body>
-</html>
+{% endblock %}
