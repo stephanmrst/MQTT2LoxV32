@@ -1,9 +1,10 @@
-"""Application factory for MQTT2Lox."""
+"""Application factory for MP-Gateway."""
 
 import sys
 from pathlib import Path
 
 from .engine import port
+from .branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -74,6 +75,9 @@ def create_app():
 
     app = core.app
     app.config["APP_VERSION"] = port.APP_VERSION
+    app.config["APP_NAME"] = APP_NAME
+    app.config["APP_SUBTITLE"] = APP_SUBTITLE
+    app.config["APP_LEGACY_NAME"] = APP_LEGACY_NAME
     app.config["PORT_MODE"] = "v32"
     app.config["LOXWEBSOCKET_AVAILABLE"] = port.LOXWEBSOCKET_AVAILABLE
     app.config["STARTUP_STATUS"] = port.startup_status()

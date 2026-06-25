@@ -5,8 +5,12 @@ import types
 from pathlib import Path
 from platform import python_version
 
+try:
+    from app.branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
+except ModuleNotFoundError:
+    from branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
 
-APP_VERSION = "33.1.2"
+APP_VERSION = "33.2.1"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -175,6 +179,9 @@ def run_startup_check():
 def startup_status():
     return {
         "ok": True,
+        "app_name": APP_NAME,
+        "app_subtitle": APP_SUBTITLE,
+        "app_legacy_name": APP_LEGACY_NAME,
         "version": APP_VERSION,
         "python_version": python_version(),
         "checks": DEPENDENCIES,

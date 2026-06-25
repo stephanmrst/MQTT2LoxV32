@@ -1,8 +1,8 @@
 # Roadmap
 
-## Aktueller Stand: 33.1.2
+## Aktueller Stand: 33.2.1
 
-Die Anwendung laeuft als bereinigte v32-Basis und fuehrt mit 33.1.2 den neuen Objektmanager V33 parallel zum bestehenden Objektmanager weiter. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. 33.0.x hat Modell, Adaptermodell, Registry und Adapterengine vorbereitet. 33.1.0 ergaenzt `/objects_v33` mit eigener Liste und Bearbeitung. 33.1.1 stabilisiert die interne V33-Objektidentitaet mit `uuid`, `key` und frei aenderbarem `name`. 33.1.2 integriert Adapter-Platzhalterdialoge fuer MQTT, UDP, KNX, Loxone und Influx, ohne bestehende Runtime, UI, Routen, Configs oder Mappings zu veraendern.
+Die Anwendung laeuft als bereinigte v32-Basis und fuehrt mit 33.2.1 den neuen Objektmanager V33 parallel zum bestehenden Objektmanager weiter. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. 33.0.x hat Modell, Adaptermodell, Registry und Adapterengine vorbereitet. 33.1.x hat `/objects_v33`, stabile Objekt-UUIDs und die erste Adapterverwaltung ergaenzt. 33.2.0 gibt MQTT, UDP, KNX, Loxone und Influx eigene passive Editor-Komponenten. 33.2.1 fuehrt `MP-Gateway` als sichtbaren neuen App-Namen ein; `MQTT2Lox` bleibt vorerst technischer Projekt-/Repo-Name.
 
 ## Naechste Schritte
 
@@ -13,6 +13,8 @@ Die Anwendung laeuft als bereinigte v32-Basis und fuehrt mit 33.1.2 den neuen Ob
 - Objektmanager V33 33.1.0 pruefen: `/objects_v33`, Suche, neues Objekt, Bearbeiten, Loeschen und unveraenderter bestehender `/objects`-Objektmanager.
 - Objektidentitaet V33 33.1.1 pruefen: alte Registry-Eintraege ohne `uuid`/`key`, Bearbeiten/Loeschen per `uuid`, frei aenderbarer `name`.
 - Adapterverwaltung V33 33.1.2 pruefen: alle fuenf Adapter als Cards/Chips anzeigen, aktivieren/deaktivieren, Kurzstatus pruefen, Platzhalter bearbeiten und Registry-Roundtrip.
+- Adapter-Komponenten V33 33.2.0 pruefen: dynamische Includes im Objekteditor, protokollspezifische Felder, getrennte Objekt-/Adapter-Formulare und Registry-Roundtrip.
+- Branding 33.2.1 pruefen: Shell-Titel/Header zeigen `MP-Gateway`, technische Pfade und Config-Dateien bleiben bei `MQTT2Lox`.
 - `app/services/object_model.py` erst aktiv verdrahten, wenn Smoke-Tests fuer bestehende Mappings, Objektmanager und Bridge-Pfade definiert sind.
 - Bestehende Mapping-Dateien bis zur ausdruecklichen V33-Migrationsphase als aktive Runtime-Quelle behalten.
 - Weitere Funktionsbereiche schrittweise in v32-Module auslagern, ohne Verhalten zu aendern.

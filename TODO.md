@@ -9,6 +9,8 @@
 - Objektmanager V33 33.1.0 pruefen: `/objects_v33`, Suche, neues Objekt, Bearbeiten, Loeschen, keine Adapterbearbeitung und keine Aenderung bestehender Mappings.
 - Objektidentitaet V33 33.1.1 pruefen: `uuid` als feste interne ID, `key` als technischer Schluessel, `name` frei aenderbar, Edit/Delete ueber `uuid`.
 - Adapterverwaltung V33 33.1.2 pruefen: MQTT, UDP, KNX, Loxone und Influx als Cards/Chips anzeigen, Kurzstatus pruefen, aktivieren/deaktivieren, Platzhalterdialoge bearbeiten.
+- Adapter-Komponenten V33 33.2.0 pruefen: eigene Editor-Komponenten fuer MQTT, UDP, KNX, Loxone und Influx, getrennte Objekt-/Adapter-Speicherung und Registry-Roundtrip.
+- Branding 33.2.1 pruefen: App-Header und Browser-Titel zeigen `MP-Gateway`; `MQTT2Lox` bleibt technischer Projekt-/Repo-Name.
 - `app/services/object_model.py` vorerst passiv lassen; keine Runtime-, UI-, Routen- oder Config-Verdrahtung ohne separate Migrationsphase.
 - Vor aktiver Objektmanager-2.0-Arbeit Smoke-Tests fuer bestehende Mappings, Objektmanager, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Live Log, SSE, Bridge und internen Broker festlegen.
 - Read-only Analyse bestehender Mapping-Dateien als naechsten sicheren V33-Schritt planen.

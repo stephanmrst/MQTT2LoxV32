@@ -5,11 +5,19 @@ import re
 from flask import Blueprint, redirect, render_template, request, url_for
 
 try:
-    from app.services.object_adapter_engine import ADAPTER_TYPES, deserialize_adapter
+    from app.services.object_adapter_engine import (
+        ADAPTER_TYPES,
+        adapter_from_form,
+        adapter_template_name,
+    )
     from app.services.object_model import ObjectDefinition
     from app.services import object_registry
 except ModuleNotFoundError:
-    from services.object_adapter_engine import ADAPTER_TYPES, deserialize_adapter
+    from services.object_adapter_engine import (
+        ADAPTER_TYPES,
+        adapter_from_form,
+        adapter_template_name,
+    )
     from services.object_model import ObjectDefinition
     from services import object_registry
 
@@ -93,6 +101,7 @@ def objects_v33_new():
         "objects_v33/edit.html",
         object_def=ObjectDefinition(id=""),
         adapters=[],
+        adapter_template_name=adapter_template_name,
         errors=[],
         is_new=True,
     )
@@ -107,6 +116,7 @@ def objects_v33_edit(object_uuid):
         "objects_v33/edit.html",
         object_def=object_def,
         adapters=_ensure_known_adapters(object_def),
+        adapter_template_name=adapter_template_name,
         errors=[],
         is_new=False,
     )
@@ -139,6 +149,7 @@ def objects_v33_save():
             "objects_v33/edit.html",
             object_def=object_def,
             adapters=_ensure_known_adapters(object_def),
+            adapter_template_name=adapter_template_name,
             errors=str(exc).split("; "),
             is_new=False,
         ), 400
@@ -163,6 +174,7 @@ def objects_v33_adapter_edit(object_uuid, protocol):
         "objects_v33/adapter.html",
         object_def=object_def,
         adapter=adapter,
+        adapter_template_name=adapter_template_name,
         errors=[],
     )
 
@@ -174,20 +186,14 @@ def objects_v33_adapter_save(object_uuid, protocol):
     if object_def is None or protocol not in ADAPTER_TYPES:
         return redirect(url_for("objects_v33.objects_v33_index"))
 
-    adapter = deserialize_adapter(
-        {
-            "protocol": protocol,
-            "enabled": "enabled" in request.form,
-            "direction": request.form.get("direction", "both"),
-            "datatype": request.form.get("datatype", "auto"),
-        }
-    )
+    adapter = adapter_from_form(protocol, request.form)
     errors = adapter.validate()
     if errors:
         return render_template(
             "objects_v33/adapter.html",
             object_def=object_def,
             adapter=adapter,
+            adapter_template_name=adapter_template_name,
             errors=errors,
         ), 400
 

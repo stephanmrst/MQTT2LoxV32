@@ -1,15 +1,39 @@
 # Migration
 
-## Aktueller Stand: 33.1.2
+## Aktueller Stand: 33.2.1
 
-Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.1.2 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
+Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.2.1 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
 - `app/main.py`
 - `app/__init__.py`
 - `app/engine/port.py`
 - `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der bestehende Objektmanager bleibt auf `/objects` unveraendert. Der neue parallele Objektmanager V33 liegt auf `/objects_v33`, nutzt `app/services/object_registry.py` und speichert bei Nutzung nach `data/objects_v33.json`. V33-Objekte haben nun `uuid` als feste interne ID, `key` als technischen lesbaren Schluessel und `name` als frei aenderbaren Anzeigenamen. Die passive Adapter-Schnittstelle liegt in `app/services/object_adapter_engine.py`; Adapterbearbeitung ist in 33.1.2 als Platzhalterdialog aktiv, aber weiterhin ohne Runtime-Anbindung und ohne Mapping-Erzeugung. Das Adaptermodell ist in `docs/OBJECT_ADAPTER_MODEL.md` dokumentiert. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der bestehende Objektmanager bleibt auf `/objects` unveraendert. Der neue parallele Objektmanager V33 liegt auf `/objects_v33`, nutzt `app/services/object_registry.py` und speichert bei Nutzung nach `data/objects_v33.json`. V33-Objekte haben nun `uuid` als feste interne ID, `key` als technischen lesbaren Schluessel und `name` als frei aenderbaren Anzeigenamen. Die passive Adapter-Schnittstelle liegt in `app/services/object_adapter_engine.py`; Adapterbearbeitung nutzt in 33.2.0 eigene Komponenten unter `app/templates/objects_v33/adapters/`, bleibt aber weiterhin ohne Runtime-Anbindung und ohne Mapping-Erzeugung. Das Branding liegt in `app/branding.py`: `MP-Gateway` ist der neue sichtbare App-Name, `MQTT2Lox` bleibt vorerst technischer Projekt-/Repo-Name. Das Adaptermodell ist in `docs/OBJECT_ADAPTER_MODEL.md` dokumentiert. Loxone-Hilfsfunktionen liegen in `app/services/loxone.py`. KNX-Hilfs- und Bridge-Funktionen liegen in `app/services/knx.py`; KNX Listener- und Monitor-Handler bleiben unveraendert im App-Core angebunden. Influx-Schreib-, Formatierungs- und Explorer-Hilfsfunktionen liegen in `app/services/influx.py`. Runtime-/Status-/Live-Log- und interner-Broker-Hilfsfunktionen liegen in `app/services/runtime.py`. Backup-Dateisuche und Backup-/Restore-Zip-Logik liegen in `app/services/backup.py`. Template-/HTML-Hilfsfunktionen liegen in `app/services/template.py`. Dashboard-, Config-, Backup-, Object-, MQTT-, UDP-, Loxone-, Influx-, API/Such-, Event-, KNX- und System-Routen sind als Blueprints in `app/routes/` registriert und delegieren auf den App-Core beziehungsweise Payload-Funktionen. Bridge-Start/Stop-Helfer liegen in `app/engine/bridge.py`.
+
+## Von 33.2.0 nach 33.2.1
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.1 bereitet das Branding vor:
+
+- Neuer sichtbarer App-Name: `MP-Gateway`.
+- Untertitel: `Das Multiprotokoll-Gateway`.
+- Legacy-/Technikname: `MQTT2Lox`.
+- Paket-, Ordner-, Routen-, Env- und Config-Namen bleiben unveraendert.
+- Keine Runtime-Aenderung, keine Mapping-Aenderung.
+
+## Von 33.1.2 nach 33.2.0
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.0 strukturiert die passive Adapterbearbeitung im neuen Objektmanager V33:
+
+- Adapter-Komponenten liegen unter `app/templates/objects_v33/adapters/`.
+- MQTT, UDP, KNX, Loxone und Influx speichern eigene Grundeinstellungen am V33-Objekt.
+- Allgemeine Objektdaten und Adapterdaten werden in getrennten Formularen gespeichert.
+- `object_adapter_engine.py` verwaltet Deserialisierung und Serialisierung der Adapterdaten.
+- Keine Runtime-Anbindung, keine Mapping-Erzeugung, keine Aenderung bestehender Mappings.
 
 ## Von 33.1.1 nach 33.1.2
 

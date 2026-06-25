@@ -1,0 +1,27 @@
+<label class="check">
+  <input type="checkbox" name="enabled" {% if adapter.enabled %}checked{% endif %}>
+  Aktiv
+</label>
+
+<label for="{{ adapter.protocol }}_direction">Richtung</label>
+<select id="{{ adapter.protocol }}_direction" name="direction">
+  <option value="both" {% if adapter.direction == 'both' %}selected{% endif %}>both</option>
+  <option value="in" {% if adapter.direction == 'in' %}selected{% endif %}>in</option>
+  <option value="out" {% if adapter.direction == 'out' %}selected{% endif %}>out</option>
+</select>
+
+<label for="{{ adapter.protocol }}_datatype">Datentyp</label>
+<select id="{{ adapter.protocol }}_datatype" name="datatype">
+  {% for datatype in ['auto', 'bool', 'number', 'text', 'json', 'enum'] %}
+    <option value="{{ datatype }}" {% if adapter.datatype == datatype %}selected{% endif %}>{{ datatype }}</option>
+  {% endfor %}
+</select>
+
+<label for="{{ adapter.protocol }}_target_ip">Ziel-IP</label>
+<input id="{{ adapter.protocol }}_target_ip" name="target_ip" value="{{ adapter.target_ip }}">
+
+<label for="{{ adapter.protocol }}_target_port">Ziel-Port</label>
+<input id="{{ adapter.protocol }}_target_port" name="target_port" value="{{ adapter.target_port }}">
+
+<label for="{{ adapter.protocol }}_format">Format</label>
+<input id="{{ adapter.protocol }}_format" name="format" value="{{ adapter.format }}">

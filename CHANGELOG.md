@@ -1,5 +1,23 @@
 # Changelog
 
+## 33.2.1
+
+- Branding-Vorbereitung fuer MP-Gateway ergaenzt.
+- Zentrale Konstanten `APP_NAME`, `APP_SUBTITLE` und `APP_LEGACY_NAME` in `app/branding.py` eingefuehrt.
+- Sichtbare Shell-Titel und Header auf `MP-Gateway` und `Das Multiprotokoll-Gateway` umgestellt.
+- `MQTT2Lox` bleibt vorerst technischer Projekt-/Repo-Name; Paket-, Ordner-, Routen- und Config-Namen bleiben unveraendert.
+- Keine Runtime-Aenderung und keine Mapping-Erzeugung.
+- Versionsstand auf `33.2.1` gesetzt.
+
+## 33.2.0
+
+- Adapter erhalten eigene Editor-Komponenten unter `app/templates/objects_v33/adapters/`.
+- MQTT, UDP, KNX, Loxone und Influx besitzen eigene passive Editor-Bausteine fuer protokollspezifische Grundeinstellungen.
+- Der Objekteditor bindet die Adapter dynamisch ein; allgemeine Objektdaten bleiben in einem getrennten Formular.
+- `object_adapter_engine.py` verwaltet Laden, Serialisieren und Speichern der Adapterdaten aus den Editor-Formularen.
+- Keine Runtime-Anbindung, keine Mapping-Erzeugung und keine bestehenden Mapping-Dateien geaendert.
+- Versionsstand auf `33.2.0` gesetzt.
+
 ## 33.1.2
 
 - Adapterverwaltung im neuen Objektmanager V33 integriert.

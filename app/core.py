@@ -1,4 +1,4 @@
-# === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
+﻿# === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
 import asyncio
 import json
 import os
@@ -30,8 +30,10 @@ from services import runtime as runtime_service
 from services import backup as backup_service
 from services import template as template_service
 try:
+    from app.branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
     from app.runtime.context import create_runtime_context
 except ModuleNotFoundError:
+    from branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
     from runtime.context import create_runtime_context
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -2036,7 +2038,7 @@ APP_LAYOUT = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }} · MQTT2Lox</title>
+<title>{{ title }} · {{ app_name }}</title>
 <style>
 :root {
     --bg:#0f1115;
@@ -2187,7 +2189,7 @@ th { background:#202534; }
 <body>
 <div class="app-shell">
     <aside class="sidebar">
-        <div class="brand"><span class="bolt">⚡</span><span>MQTT2Lox</span></div>
+        <div class="brand"><span class="bolt">⚡</span><span>{{ app_name }}</span></div>
 
         <div>
             <div class="nav-group-title">Hauptmenü</div>
@@ -2218,7 +2220,8 @@ th { background:#202534; }
 
         <div class="sidebar-footer">
             Bridge: <b>{{ status }}</b><br>
-            MQTT2Lox 33.1.2
+            {{ app_name }} {{ app_version }}<br>
+            <span>{{ app_legacy_name }} Technikbasis</span>
         </div>
     </aside>
 
@@ -2245,7 +2248,20 @@ def nav_active(name, active):
 
 
 def render_layout(title, content, active="dashboard", subtitle="", message=""):
-    return template_service.render_layout(render_template_string, APP_LAYOUT, runtime_context.bridge.status, title, content, active, subtitle, message)
+    return template_service.render_layout(
+        render_template_string,
+        APP_LAYOUT,
+        runtime_context.bridge.status,
+        title,
+        content,
+        active,
+        subtitle,
+        message,
+        APP_NAME,
+        APP_SUBTITLE,
+        APP_LEGACY_NAME,
+        APP_VERSION,
+    )
 
 
 
@@ -3435,7 +3451,7 @@ SHELL_LAYOUT = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MQTT2Lox</title>
+<title>{{ app_name }}</title>
 <style>
 :root {
     --bg:#1e252c;
@@ -3633,7 +3649,10 @@ html, body {
 <div class="shell">
     <header class="header">
         <div class="brand">
-            <h1>Loxone Bridge</h1>
+            <div>
+                <h1>{{ app_name }}</h1>
+                <div class="status">{{ app_subtitle }}</div>
+            </div>
             <div class="status">Status: <b id="bridgeStatus">{{ status }}</b></div>
         </div>
 
@@ -3911,7 +3930,15 @@ def live_log_data():
 
 
 def index(message=""):
-    return render_template_string(SHELL_LAYOUT, status=runtime_context.bridge.status, sidebar_links_html=build_sidebar_links_html())
+    return render_template_string(
+        SHELL_LAYOUT,
+        app_name=APP_NAME,
+        app_subtitle=APP_SUBTITLE,
+        app_legacy_name=APP_LEGACY_NAME,
+        app_version=APP_VERSION,
+        status=runtime_context.bridge.status,
+        sidebar_links_html=build_sidebar_links_html(),
+    )
 
 
 def settings_page(message=""):
@@ -10831,6 +10858,8 @@ def objects_delete_all():
 
 object_service.bind_context(sys.modules[__name__])
 object_service.normalize_knx_group_address = knx_service.normalize_knx_ga
+
+
 
 
 

@@ -9,7 +9,7 @@
     h1 { font-size:24px; margin:0 0 6px; }
     .muted { color:#9aa7b5; margin-bottom:20px; }
     label { display:block; margin:14px 0 6px; color:#b8c4d0; }
-    select { width:100%; box-sizing:border-box; background:#151c24; color:#e8edf2; border:1px solid #344150; border-radius:6px; padding:10px; font-size:14px; }
+    input, select { width:100%; box-sizing:border-box; background:#151c24; color:#e8edf2; border:1px solid #344150; border-radius:6px; padding:10px; font-size:14px; }
     .check { display:flex; gap:8px; align-items:center; margin-top:16px; }
     .actions { display:flex; gap:10px; margin-top:20px; align-items:center; }
     button, a.button { border:1px solid #344150; border-radius:6px; padding:10px 12px; background:#2f6f9f; color:#fff; text-decoration:none; cursor:pointer; font-size:14px; }
@@ -32,24 +32,7 @@
   {% endif %}
 
   <form method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.uuid, protocol=adapter.protocol) }}">
-    <label class="check">
-      <input type="checkbox" name="enabled" {% if adapter.enabled %}checked{% endif %}>
-      Aktiv
-    </label>
-
-    <label for="direction">Richtung</label>
-    <select id="direction" name="direction">
-      <option value="both" {% if adapter.direction == 'both' %}selected{% endif %}>both</option>
-      <option value="in" {% if adapter.direction == 'in' %}selected{% endif %}>in</option>
-      <option value="out" {% if adapter.direction == 'out' %}selected{% endif %}>out</option>
-    </select>
-
-    <label for="datatype">Datentyp</label>
-    <select id="datatype" name="datatype">
-      {% for datatype in ['auto', 'bool', 'number', 'text', 'json', 'enum'] %}
-        <option value="{{ datatype }}" {% if adapter.datatype == datatype %}selected{% endif %}>{{ datatype }}</option>
-      {% endfor %}
-    </select>
+    {% include adapter_template_name(adapter.protocol) %}
 
     <div class="placeholder">
       Protokollspezifische Felder sind Platzhalter und werden in einer späteren V33-Phase ergänzt.

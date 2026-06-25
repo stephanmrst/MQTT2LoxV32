@@ -9,9 +9,26 @@ def build_datalist_html(datalist_id, options):
     return html
 
 
-def render_layout(render_template_string, app_layout, bridge_status, title, content, active="dashboard", subtitle="", message=""):
+def render_layout(
+    render_template_string,
+    app_layout,
+    bridge_status,
+    title,
+    content,
+    active="dashboard",
+    subtitle="",
+    message="",
+    app_name="MP-Gateway",
+    app_subtitle="Das Multiprotokoll-Gateway",
+    app_legacy_name="MQTT2Lox",
+    app_version="",
+):
     return render_template_string(
         app_layout,
+        app_name=app_name,
+        app_subtitle=app_subtitle,
+        app_legacy_name=app_legacy_name,
+        app_version=app_version,
         title=title,
         subtitle=subtitle,
         content=content,
