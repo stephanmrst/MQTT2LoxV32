@@ -24,16 +24,7 @@
     <a class="mp-nav-link {{ 'active' if active == 'influx_explorer' else '' }}" href="/influx_explorer" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Influx Explorer</a>
     <a class="mp-nav-link {{ 'active' if active == 'settings' else '' }}" href="{{ '/settings_embed' if iframe_shell else '/settings' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Einstellungen</a>
     <div class="mp-nav-group-title">Externe Dienste</div>
-    {% if external_influxdb_url %}
-      <a class="mp-nav-link {{ 'active' if active == 'influxdb' else '' }}" href="{{ external_influxdb_url }}" target="_blank" rel="noopener" onclick="setActive(this)">InfluxDB</a>
-    {% else %}
-      <span class="mp-nav-link disabled" aria-disabled="true">InfluxDB</span>
-    {% endif %}
-    {% if external_grafana_url %}
-      <a class="mp-nav-link {{ 'active' if active == 'grafana' else '' }}" href="{{ external_grafana_url }}" target="_blank" rel="noopener" onclick="setActive(this)">Grafana</a>
-    {% else %}
-      <span class="mp-nav-link disabled" aria-disabled="true">Grafana</span>
-    {% endif %}
+    {{ sidebar_links_html|safe }}
   </nav>
 
   <div class="mp-sidebar-footer">

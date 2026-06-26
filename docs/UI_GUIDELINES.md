@@ -18,7 +18,9 @@
 - Es werden keine Icons in der globalen Sidebar verwendet.
 - Sidebar-Eintraege sind in klare Gruppen zu sortieren. Interne MP-Gateway-Seiten stehen in `MP-Gateway`; externe Integrationen stehen in `Externe Dienste`.
 - Nach dem Sidebar-Feinschliff 33.2.7a wird in der Sidebar nur `Objektmanager V33` angezeigt; die spaetere Umbenennung in `Objektmanager` erfolgt separat.
-- Externe Sidebar-Dienste duerfen keinen internen Fallback-Link verwenden. `InfluxDB` und `Grafana` nutzen externe Config-URLs oder werden deaktiviert angezeigt.
+- Externe Sidebar-Dienste werden generisch aus der Sidebar-Button-Konfiguration geladen. Nur aktive Eintraege werden angezeigt; Name, URL, Reihenfolge und `new_tab` kommen aus der Config.
+- `new_tab=true` oeffnet externe Dienste in einem neuen Browser-Tab. `new_tab=false` oeffnet im Shell-Betrieb im rechten Content-Bereich.
+- Externe Sidebar-Dienste duerfen keinen internen Fallback-Link verwenden. `Influx Explorer` bleibt die interne MP-Gateway-Seite; externe Dienste kommen ausschliesslich aus der Config.
 - Neue Seiten sollen schrittweise auf `templates/layout/base.html` und `templates/layout/page_header.html` aufbauen.
 
 ## Objektkarten

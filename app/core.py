@@ -600,9 +600,13 @@ def load_sidebar_links():
     for item in data:
         if not isinstance(item, dict):
             continue
+        enabled = item.get("active", item.get("enabled", True))
+        label = item.get("name", item.get("label", ""))
         cleaned.append({
-            "enabled": bool(item.get("enabled", True)),
-            "label": str(item.get("label", "")).strip(),
+            "enabled": bool(enabled),
+            "active": bool(enabled),
+            "label": str(label).strip(),
+            "name": str(label).strip(),
             "url": str(item.get("url", "")).strip(),
             "new_tab": bool(item.get("new_tab", True))
         })
@@ -768,32 +772,25 @@ def get_effective_mqtt_config(config):
     return mqtt_module.get_effective_mqtt_config(config, load_internal_broker_config)
 
 
-def build_sidebar_links_html():
-    links = [x for x in load_sidebar_links() if x.get("enabled") and x.get("label") and x.get("url")]
+def build_sidebar_links_html(iframe_shell=False):
+    links = [
+        x for x in load_sidebar_links()
+        if x.get("enabled", x.get("active", True)) and (x.get("label") or x.get("name")) and x.get("url")
+    ]
     if not links:
         return ""
 
-    html = '<span class="mp-nav-spacer"></span>'
+    html = ""
     for item in links:
-        label = escape(str(item.get("label", "")))
+        label = escape(str(item.get("label") or item.get("name") or ""))
         url = escape(str(item.get("url", "")))
         if item.get("new_tab", True):
-            html += f'<a class="mp-nav-link" href="{url}" target="_blank" rel="noopener" onclick="setActive(this)">{label}</a>'
-        else:
+            html += f'<a class="mp-nav-link" href="{url}" target="_blank" rel="noopener noreferrer" onclick="setActive(this)">{label}</a>'
+        elif iframe_shell:
             html += f'<a class="mp-nav-link" href="{url}" target="contentFrame" onclick="setActive(this)">{label}</a>'
+        else:
+            html += f'<a class="mp-nav-link" href="{url}" onclick="setActive(this)">{label}</a>'
     return html
-
-
-def get_external_service_url(*labels):
-    label_set = {str(label or "").strip().lower() for label in labels if str(label or "").strip()}
-    for item in load_sidebar_links():
-        if not item.get("enabled", True):
-            continue
-        label = str(item.get("label", "") or "").strip().lower()
-        url = str(item.get("url", "") or "").strip()
-        if label in label_set and url:
-            return url
-    return ""
 
 
 DEFAULT_KNX_CONFIG = {
@@ -2193,9 +2190,7 @@ def render_layout(title, content, active="dashboard", subtitle="", message=""):
         APP_LEGACY_NAME,
         APP_VERSION,
         False,
-        "",
-        get_external_service_url("influxdb", "influx db"),
-        get_external_service_url("grafana"),
+        build_sidebar_links_html(False),
     )
 
 
@@ -3639,7 +3634,9 @@ def sidebar_links_save():
 
         links.append({
             "enabled": f"enabled_{i}" in request.form,
+            "active": f"enabled_{i}" in request.form,
             "label": label,
+            "name": label,
             "url": url,
             "new_tab": f"new_tab_{i}" in request.form
         })
@@ -3697,11 +3694,9 @@ def index(message=""):
         app_legacy_name=APP_LEGACY_NAME,
         app_version=APP_VERSION,
         status=runtime_context.bridge.status,
-        sidebar_links_html=build_sidebar_links_html(),
+        sidebar_links_html=build_sidebar_links_html(True),
         active="dashboard",
         iframe_shell=True,
-        external_influxdb_url=get_external_service_url("influxdb", "influx db"),
-        external_grafana_url=get_external_service_url("grafana"),
     )
 
 

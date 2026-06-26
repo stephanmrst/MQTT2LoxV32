@@ -1,5 +1,33 @@
 # Changelog
 
+## 33.2.8a
+
+- UI-Feinschliff fuer den Objektmanager V33.
+- Linke Objektliste und rechter Editorbereich nutzen nun denselben Arbeitsflaechen-Hintergrund.
+- Sidebar bleibt unveraendert dunkel.
+- Objektkarten, Panels, Buttons und Protokoll-Badges bleiben unveraendert.
+- Keine Runtime-Aenderung, keine Objektlogik-Aenderung und keine Adapterlogik-Aenderung.
+- Versionsstand auf `33.2.8a` gesetzt.
+
+## 33.2.8
+
+- Objektmanager-V33-Hauptbereich optisch an Dashboard-/Standardseiten angeglichen.
+- `/objects_v33` nutzt nun fuer Body, Hauptflaeche und Detailpanel den Standard-Grundhintergrund.
+- Sidebar, Objektkarten-Farben und Protokoll-Badges bleiben unveraendert.
+- Keine Runtime-Aenderung, keine Objektlogik-Aenderung und keine Adapterlogik-Aenderung.
+- Versionsstand auf `33.2.8` gesetzt.
+
+## 33.2.7g
+
+- Externe Sidebar-Buttons wieder generisch aus der Sidebar-Button-Konfiguration gerendert.
+- Unter `Externe Dienste` werden nur aktive Config-Eintraege angezeigt; Name, URL, Reihenfolge und `new_tab` kommen aus der Config.
+- `new_tab=true` oeffnet externe Links mit `target="_blank"` und `rel="noopener noreferrer"`.
+- `new_tab=false` oeffnet Links im Shell-Betrieb wieder im rechten Content-Bereich.
+- Hart codierte externe Eintraege fuer InfluxDB/Grafana entfernt; neue aktive Config-Eintraege erscheinen automatisch.
+- `Influx Explorer` bleibt unveraendert als interne MP-Gateway-Seite auf `/influx_explorer`.
+- Keine Runtime-Aenderung, keine Objektmanager-Logik-Aenderung, keine Adapterlogik-Aenderung und keine Routen-Aenderung.
+- Versionsstand auf `33.2.7g` gesetzt.
+
 ## 33.2.7c
 
 - Sidebar-Link-Korrektur fuer externe Dienste.

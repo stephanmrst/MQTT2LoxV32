@@ -322,9 +322,13 @@ def load_sidebar_links():
     for item in data:
         if not isinstance(item, dict):
             continue
+        enabled = item.get("active", item.get("enabled", True))
+        label = item.get("name", item.get("label", ""))
         cleaned.append({
-            "enabled": bool(item.get("enabled", True)),
-            "label": str(item.get("label", "")).strip(),
+            "enabled": bool(enabled),
+            "active": bool(enabled),
+            "label": str(label).strip(),
+            "name": str(label).strip(),
             "url": str(item.get("url", "")).strip(),
             "new_tab": bool(item.get("new_tab", True)),
         })

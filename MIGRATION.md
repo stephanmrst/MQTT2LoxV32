@@ -1,15 +1,51 @@
 # Migration
 
-## Aktueller Stand: 33.2.7c
+## Aktueller Stand: 33.2.8a
 
-Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.2.7c die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
+Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.2.8a die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
 - `app/main.py`
 - `app/__init__.py`
 - `app/engine/port.py`
 - `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.2.7c korrigiert nur Sidebar-Links: `Influx Explorer` bleibt intern auf `/influx_explorer`, `InfluxDB` und `Grafana` verwenden externe URLs aus der Sidebar-Konfiguration oder werden deaktiviert angezeigt. Es gibt keine Routing-, Runtime-, Objektlogik- oder Adapterlogik-Aenderung.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.2.8a ist nur ein UI-Feinschliff: Objektliste und Editorbereich des Objektmanager V33 nutzen dieselbe Arbeitsflaeche. Es gibt keine Routing-, Runtime-, Objektlogik- oder Adapterlogik-Aenderung.
+
+## Von 33.2.8 nach 33.2.8a
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.8a ist nur eine UI-/CSS-Angleichung:
+
+- Linke Objektliste und rechter Editorbereich nutzen denselben Arbeitsflaechen-Hintergrund.
+- Sidebar bleibt unveraendert dunkel.
+- Objektkarten, Panels, Buttons und Protokoll-Badges bleiben unveraendert.
+- Keine Route umgestellt, keine Runtime-Aenderung, keine Objektlogik- oder Adapterlogik-Aenderung.
+
+## Von 33.2.7g nach 33.2.8
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.8 ist nur eine UI-/CSS-Angleichung:
+
+- `/objects_v33` nutzt fuer Hauptflaeche und Detailbereich den Standard-Grundhintergrund.
+- Sidebar bleibt unveraendert.
+- Objektkarten-Farben und Protokoll-Badges bleiben unveraendert.
+- Keine Route umgestellt, keine Runtime-Aenderung, keine Objektlogik- oder Adapterlogik-Aenderung.
+
+## Von 33.2.7c nach 33.2.7g
+
+Keine manuelle Migration der bestehenden Konfigurations- oder Mapping-Dateien erforderlich.
+
+33.2.7g ist nur ein Restore der externen Sidebar-Buttons:
+
+- Externe Dienste werden generisch aus der Sidebar-Button-Konfiguration geladen.
+- Nur aktive Eintraege mit Name und URL werden angezeigt.
+- Name, URL, Reihenfolge und `new_tab` werden aus der Config uebernommen.
+- `new_tab=true` oeffnet im neuen Browser-Tab.
+- `new_tab=false` oeffnet im Shell-Betrieb wieder im rechten Content-Bereich.
+- `Influx Explorer` bleibt die interne MP-Gateway-Seite `/influx_explorer`.
+- Keine Route umgestellt, keine Runtime-Aenderung, keine Objektlogik- oder Adapterlogik-Aenderung.
 
 ## Von 33.2.7a nach 33.2.7c
 

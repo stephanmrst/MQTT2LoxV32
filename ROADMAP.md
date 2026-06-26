@@ -1,8 +1,8 @@
 # Roadmap
 
-## Aktueller Stand: 33.2.7c
+## Aktueller Stand: 33.2.8a
 
-Die Anwendung laeuft als bereinigte v32-Basis und fuehrt mit 33.2.7c den neuen Objektmanager V33 parallel zum bestehenden Objektmanager weiter. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. 33.2.7c korrigiert nur Sidebar-Links: Influx Explorer bleibt intern, InfluxDB und Grafana nutzen externe URLs aus der Konfiguration oder werden deaktiviert angezeigt.
+Die Anwendung laeuft als bereinigte v32-Basis und fuehrt mit 33.2.8a den neuen Objektmanager V33 parallel zum bestehenden Objektmanager weiter. Technische Versionspraefixe wurden aus Python-Dateinamen, Imports und internen Modulreferenzen entfernt. Config-, MQTT-, UDP-, Object-, Loxone-, KNX-, Influx-, Runtime-, Backup- und Template-Hilfsfunktionen sind in Service-Module ausgelagert. Unter `app/runtime/` existiert ein Dataclass-Grundgeruest fuer den RuntimeContext; LiveLog, Bridge-State, MQTT-Monitor-State, UDP-Laufzeitdaten, Broker-State und KNX-Runtime-State sind angebunden. 33.2.8a vereinheitlicht die Objektmanager-V33-Arbeitsflaeche: Objektliste und Editor nutzen denselben Dashboard-/Editor-Hintergrund, waehrend Sidebar, Karten und Badges unveraendert bleiben.
 
 ## Naechste Schritte
 
@@ -24,6 +24,9 @@ Die Anwendung laeuft als bereinigte v32-Basis und fuehrt mit 33.2.7c den neuen O
 - Layout-Fundament 33.2.7 pruefen: Sidebar-Gruppen, externe Dienste, `/objects_v33` auf Base-Layout und unveraenderte Erreichbarkeit von `/objects`.
 - Sidebar-Feinschliff 33.2.7a pruefen: keine `MP-Gateway`-Gruppenueberschrift, kein alter Objektmanager-Link, nur `Objektmanager V33`, externe Dienste nur InfluxDB und Grafana.
 - Sidebar-Link-Korrektur 33.2.7c pruefen: Influx Explorer intern, InfluxDB/Grafana extern aus Config, leere externe URLs deaktiviert ohne internen Fallback.
+- Sidebar-Button-Restore 33.2.7g pruefen: externe Dienste generisch aus Config, aktive Eintraege automatisch, `new_tab=true` neuer Tab, `new_tab=false` rechter Content-Bereich.
+- Objektmanager-Hintergrund 33.2.8 pruefen: `/objects_v33` wirkt farblich mit Dashboard/Standardseiten zusammengehoerig, Sidebar und Objektkarten bleiben unveraendert.
+- Objektmanager-Arbeitsflaeche 33.2.8a pruefen: linke Objektliste und rechter Editor haben denselben Hintergrund, Objektkarten heben sich weiterhin klar ab.
 - `app/services/object_model.py` erst aktiv verdrahten, wenn Smoke-Tests fuer bestehende Mappings, Objektmanager und Bridge-Pfade definiert sind.
 - Bestehende Mapping-Dateien bis zur ausdruecklichen V33-Migrationsphase als aktive Runtime-Quelle behalten.
 - Weitere Funktionsbereiche schrittweise in v32-Module auslagern, ohne Verhalten zu aendern.

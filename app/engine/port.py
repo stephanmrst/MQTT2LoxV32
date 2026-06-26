@@ -10,7 +10,7 @@ try:
 except ModuleNotFoundError:
     from branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
 
-APP_VERSION = "33.2.7c"
+APP_VERSION = "33.2.8a"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"

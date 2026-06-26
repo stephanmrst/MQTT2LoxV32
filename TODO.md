@@ -20,6 +20,9 @@
 - Layout-Fundament 33.2.7 pruefen: Sidebar-Gruppen `MP-Gateway` und `Externe Dienste`, beide Objektmanager-Links, `/objects_v33` unveraendert und alter `/objects`-Objektmanager erreichbar.
 - Sidebar-Feinschliff 33.2.7a pruefen: keine `MP-Gateway`-Gruppenueberschrift, alter Objektmanager nicht in Sidebar, `Objektmanager V33` sichtbar, externe Dienste nur InfluxDB/Grafana.
 - Sidebar-Link-Korrektur 33.2.7c pruefen: `Influx Explorer` -> `/influx_explorer`, `InfluxDB` und `Grafana` -> externe Config-URLs, leere URLs deaktiviert.
+- Sidebar-Button-Restore 33.2.7g pruefen: aktive externe Config-Eintraege erscheinen generisch, neue Eintraege automatisch, deaktivierte verschwinden, `new_tab=false` oeffnet im rechten Content-Bereich.
+- Objektmanager-Hintergrund 33.2.8 pruefen: Dashboard und `/objects_v33` wirken farblich zusammengehoerig, Sidebar unveraendert, Objektkarten und Protokoll-Badges unveraendert.
+- Objektmanager-Arbeitsflaeche 33.2.8a pruefen: Objektliste und Editor wirken wie eine gemeinsame Oberflaeche, Objektkarten heben sich klar vom Hintergrund ab.
 - `app/services/object_model.py` vorerst passiv lassen; keine Runtime-, UI-, Routen- oder Config-Verdrahtung ohne separate Migrationsphase.
 - Vor aktiver Objektmanager-2.0-Arbeit Smoke-Tests fuer bestehende Mappings, Objektmanager, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Live Log, SSE, Bridge und internen Broker festlegen.
 - Read-only Analyse bestehender Mapping-Dateien als naechsten sicheren V33-Schritt planen.
