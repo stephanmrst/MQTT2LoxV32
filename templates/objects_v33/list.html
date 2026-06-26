@@ -143,6 +143,10 @@
     .badge.type { background:#29384a; color:#9fc4ff; }
     .badge.on { background:#163d2a; color:#84ee9b; }
     .badge.off { background:#3c3034; color:#e4a0aa; }
+    .badge.route-active { background:#163d2a; color:#84ee9b; }
+    .badge.route-incomplete { background:#4b3b1d; color:#f5d28b; }
+    .badge.route-disabled { background:#303840; color:#9ba7b3; }
+    .badge.route-error { background:#4d252a; color:#ff9aa8; }
     .badge.proto { border:1px solid transparent; background:#253344; color:#cdd9e5; }
     .badge.proto.inactive { background:#202832; color:#6f7c88; border-color:#303b45; }
     .badge.proto-mqtt.active { background:#1d4f91; color:#d8eaff; border-color:#69a6ff; }
@@ -209,6 +213,7 @@
       background:#121920;
     }
     .errors { border:1px solid #7a3b3f; background:#321c20; border-radius:7px; padding:12px; margin-bottom:14px; }
+    .notice { border:1px solid #556b80; background:#172433; color:#d9e8f5; border-radius:7px; padding:12px; margin-bottom:14px; }
     @media(max-width:980px) {
       .page { grid-template-columns:1fr; height:auto; }
       .left { border-right:none; border-bottom:1px solid var(--border); }
@@ -223,7 +228,7 @@
       <div>
         <h1>Objektmanager</h1>
         <div class="count">Objektverwaltung f&uuml;r MP-Gateway</div>
-        <div class="count">{{ visible_count }} sichtbar</div>
+        <div class="count"><span id="objectVisibleCount">{{ visible_count }}</span> sichtbar</div>
       </div>
       <a class="button primary" href="{{ url_for('objects_v33.objects_v33_new') }}">+ Neu</a>
     </div>
@@ -244,7 +249,7 @@
       {% endfor %}
     </div>
 
-    <div class="object-list">
+    <div class="object-list" id="objectList" data-selected="{{ selected.id if selected else '' }}">
       {% if objects %}
         {% for item in objects %}
           {% set protocols = adapter_protocols(item) %}
@@ -254,9 +259,11 @@
               <div class="card-top">
                 <span class="badge type">{{ item.type or 'Objekt' }}</span>
                 <span class="badge {% if item.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if item.enabled else 'Inaktiv' }}</span>
+                {% set status = route_status(item) %}
+                <span class="badge {% if status == 'aktiv' %}route-active{% elif status == 'deaktiviert' %}route-disabled{% elif status == 'fehler' %}route-error{% else %}route-incomplete{% endif %}">{{ status }}</span>
               </div>
               <div class="object-name">{{ item.name or item.key or item.id }}</div>
-              <div class="object-meta">{{ item.type or 'auto' }}{% if item.unit %} · {{ item.unit }}{% endif %}</div>
+              <div class="object-meta">{{ item.type or 'auto' }}{% if item.unit %} &middot; {{ item.unit }}{% endif %}</div>
               <div class="badges">
                 {% for protocol, label in [('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
                   <span class="badge proto proto-{{ protocol }} {% if protocol in protocols %}active{% else %}inactive{% endif %}">{{ label }}</span>
@@ -272,6 +279,9 @@
   </aside>
 
   <section class="right">
+    {% if notice %}
+      <div class="notice">{{ notice }}</div>
+    {% endif %}
     {% if selected %}
       {% set is_new = not selected.uuid %}
       {% set object_def = selected %}
@@ -291,24 +301,27 @@
           </div>
           <div class="head-actions">
             <span class="badge {% if object_def.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if object_def.enabled else 'Inaktiv' }}</span>
+            {% set detail_status = route_status(object_def) %}
+            <span class="badge {% if detail_status == 'aktiv' %}route-active{% elif detail_status == 'deaktiviert' %}route-disabled{% elif detail_status == 'fehler' %}route-error{% else %}route-incomplete{% endif %}">{{ detail_status }}</span>
             <button form="objectGeneralForm" class="primary" type="submit">Speichern</button>
             <button type="button" disabled>Duplizieren</button>
-            {% if object_def.uuid %}
-              <form method="post" action="{{ url_for('objects_v33.objects_v33_delete', object_uuid=object_def.uuid) }}">
-                <button class="danger" type="submit">Löschen</button>
+            {% if object_def.id %}
+              <form method="post" action="{{ url_for('objects_v33.objects_v33_delete', object_uuid=object_def.id) }}" onsubmit="return submitObjectDelete(this)">
+                <button class="danger" type="submit">Loeschen</button>
               </form>
             {% endif %}
           </div>
         </div>
 
         <div class="tabs">
-          <input id="tab-general" type="radio" name="tabs" checked>
-          <input id="tab-mqtt" type="radio" name="tabs">
-          <input id="tab-loxone" type="radio" name="tabs">
-          <input id="tab-udp" type="radio" name="tabs">
-          <input id="tab-knx" type="radio" name="tabs">
-          <input id="tab-influx" type="radio" name="tabs">
-          <input id="tab-routing" type="radio" name="tabs">
+          {% set active_tab = selected_tab|default('general') %}
+          <input id="tab-general" type="radio" name="tabs" {% if active_tab == 'general' %}checked{% endif %}>
+          <input id="tab-mqtt" type="radio" name="tabs" {% if active_tab == 'mqtt' %}checked{% endif %}>
+          <input id="tab-loxone" type="radio" name="tabs" {% if active_tab == 'loxone' %}checked{% endif %}>
+          <input id="tab-udp" type="radio" name="tabs" {% if active_tab == 'udp' %}checked{% endif %}>
+          <input id="tab-knx" type="radio" name="tabs" {% if active_tab == 'knx' %}checked{% endif %}>
+          <input id="tab-influx" type="radio" name="tabs" {% if active_tab == 'influx' %}checked{% endif %}>
+          <input id="tab-routing" type="radio" name="tabs" {% if active_tab == 'routing' %}checked{% endif %}>
 
           <div class="tab-labels">
             <label for="tab-general">Allgemein</label>
@@ -326,13 +339,13 @@
                 <input type="hidden" name="uuid" value="{{ object_def.uuid }}">
                 <div class="grid">
                   <div class="field"><label for="name">Name</label><input id="name" name="name" value="{{ object_def.name }}" required></div>
-                  <div class="field"><label for="key">Key</label><input id="key" name="key" value="{{ object_def.key or object_def.id }}"></div>
-                  <div class="field"><label for="type">Typ / Datentyp</label><input id="type" name="type" value="{{ object_def.type }}"></div>
-                  <div class="field"><label for="room">Raum</label><input id="room" name="room" value="{{ object_def.room }}"></div>
+                  <div class="field"><label for="key">Key</label><input id="key" name="key" value="{{ object_def.key or object_def.id }}" {% if object_def.id %}readonly{% endif %}></div>
+                  <div class="field"><label for="datatype">Datentyp</label><input id="datatype" name="datatype" value="{{ object_def.datatype }}"></div>
                   <div class="field"><label for="category">Kategorie</label><input id="category" name="category" value="{{ object_def.category }}"></div>
+                  <div class="field"><label for="room">Raum</label><input id="room" name="room" value="{{ object_def.room }}"></div>
                   <div class="field"><label for="unit">Einheit</label><input id="unit" name="unit" value="{{ object_def.unit }}"></div>
-                  <div class="field"><label for="icon">Icon</label><input id="icon" value="" disabled></div>
-                  <div class="field"><label for="scaling">Skalierung</label><input id="scaling" value="" disabled></div>
+                  <div class="field"><label for="icon">Icon</label><input id="icon" name="icon" value="{{ object_def.icon }}"></div>
+                  <div class="field"><label for="scaling">Skalierung</label><input id="scaling" name="scaling" value="{{ object_def.scaling }}"></div>
                 </div>
                 <label for="notes" style="margin-top:12px;">Beschreibung</label>
                 <textarea id="notes" name="notes">{{ object_def.notes }}</textarea>
@@ -355,16 +368,17 @@
             {% endfor %}
 
             <div class="tab-panel routing-panel">
-              {% if selected_preview %}
+              {% set route_report = selected_route_report or {'routes': selected_preview, 'missing_endpoints': [], 'errors': [], 'status': detail_status} %}
+              {% if route_report.routes %}
                 <table>
                   <thead>
                     <tr><th>Quelle</th><th>Ziel</th><th>Richtung</th><th>Status</th></tr>
                   </thead>
                   <tbody>
-                    {% for item in selected_preview %}
+                    {% for item in route_report.routes %}
                       <tr>
-                        <td>{{ item.source }}</td>
-                        <td>{{ item.target }}</td>
+                        <td>{{ item.source }}{% if item.source_address %}<br><span class="count">{{ item.source_address }}</span>{% endif %}</td>
+                        <td>{{ item.target }}{% if item.target_address %}<br><span class="count">{{ item.target_address }}</span>{% endif %}</td>
                         <td>{{ item.direction }}</td>
                         <td><span class="badge on">{{ item.status }}</span></td>
                       </tr>
@@ -372,7 +386,17 @@
                   </tbody>
                 </table>
               {% else %}
-                <div class="empty">Keine aktiven Adapter-Kombinationen für die Vorschau.</div>
+                <div class="empty">Keine erzeugten Routen vorhanden.</div>
+              {% endif %}
+              {% if route_report.missing_endpoints %}
+                <div class="empty" style="margin-top:12px;">Fehlende Endpunkte: {{ route_report.missing_endpoints|join(', ') }}</div>
+              {% endif %}
+              {% if route_report.errors %}
+                <div class="errors" style="margin-top:12px;">
+                  {% for error in route_report.errors %}
+                    <div>{{ error }}</div>
+                  {% endfor %}
+                </div>
               {% endif %}
             </div>
           </div>
@@ -380,9 +404,23 @@
       </div>
     {% else %}
       <div class="detail-card">
-        <div class="empty">Wähle links ein Objekt aus oder lege ein neues Objekt an.</div>
+        <div class="empty">Waehle links ein Objekt aus oder lege ein neues Objekt an.</div>
       </div>
     {% endif %}
   </section>
 </main>
+<script>
+function submitObjectDelete(form) {
+  if (!form || form.dataset.submitted === "1") return false;
+  const action = form.getAttribute("action") || "";
+  if (!action || /\/delete\/?$/.test(action)) return false;
+  form.dataset.submitted = "1";
+  const button = form.querySelector("button[type=submit]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Loesche...";
+  }
+  return true;
+}
+</script>
 {% endblock %}

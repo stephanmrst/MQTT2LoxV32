@@ -1,7 +1,8 @@
-"""Passive Object Manager V33 registry.
+"""Deprecated passive Object Manager V33 registry.
 
-The registry stores future object definitions in data/objects_v33.json. It is
-not connected to routes, runtime state, or existing mapping files.
+DEPRECATED: Production Object Manager V33 uses app.services.object_service and
+config/objects.json. This module is kept only to read/migrate old passive
+experiments from data/objects_v33.json and must not be wired into active routes.
 """
 
 import json
@@ -35,6 +36,7 @@ except ModuleNotFoundError:
 APP_ROOT = Path(os.environ.get("MQTT2LOX_APP_ROOT", Path.cwd()))
 DATA_DIR = Path(os.environ.get("MQTT2LOX_DATA_DIR", APP_ROOT / "data"))
 OBJECTS_FILE = DATA_DIR / "objects_v33.json"
+DEPRECATED = True
 
 
 def _normalize_key(value: str) -> str:
@@ -158,7 +160,7 @@ def load_objects() -> list[ObjectDefinition]:
 
 
 def save_objects(objects: list[ObjectDefinition]) -> None:
-    """Persist V33 objects to data/objects_v33.json."""
+    """Deprecated legacy persist helper for data/objects_v33.json."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {"objects": [_object_to_dict(item) for item in objects]}
     with OBJECTS_FILE.open("w", encoding="utf-8") as handle:

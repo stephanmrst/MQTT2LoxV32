@@ -1,15 +1,157 @@
 # Migration
 
-## Aktueller Stand: 33.2.8a
+## Aktueller Stand: 33.3.16
 
-Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.2.8a die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
+Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.3.16 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
 - `app/main.py`
 - `app/__init__.py`
 - `app/engine/port.py`
 - `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.2.8a ist nur ein UI-Feinschliff: Objektliste und Editorbereich des Objektmanager V33 nutzen dieselbe Arbeitsflaeche. Es gibt keine Routing-, Runtime-, Objektlogik- oder Adapterlogik-Aenderung.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.3.16 verwendet fuer V33 nur noch eine kanonische Objektstruktur: Stammdaten auf Objektebene und Protokoll-Endpunkte als top-level Protokollbloecke wie `loxone`. Die produktive Objektquelle ist `config/objects.json`; `data/objects_v33.json` ist nur noch als deprecated Legacy-Snapshot markiert. Loxone-Explorer-Create ist anhand der Loxone-UUID idempotent und leitet nach Erfolg oder abgefangenem Fehler zur Objektmanager-Liste zurueck. Im eingebetteten Loxone Explorer nutzt der Create-Button denselben direkten `window.location.href`-Aufruf wie im separaten Fenster; die Shell-`postMessage`-Navigation wird fuer diesen Flow nicht verwendet. 33.3.16 stabilisiert nur den Frontend-State vor dem Create-Aufruf. Loxone-State-Erfassung bleibt aktiv, aber MQTT-Publishing ist an aktive Objektmanager-Routen `Loxone -> MQTT` gebunden. Delete im Objektmanager akzeptiert `id`, `uuid` und `key`, ist bei fehlenden Objekten tolerant und redirectet nach `/objects_v33` ohne geloeschte Auswahl. Die Sidebar-Versionsanzeige wird aus der zentralen `VERSION`-Datei gerendert.
+
+## Von 33.3.15 nach 33.3.16
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Nur der Frontend-State des Loxone Explorers wurde stabilisiert: Der Create-Button baut seine Parameter aus einem frischen Snapshot der aktuellen Topic-Liste und setzt Button-/In-Progress-State bei Browser-Page-Restore zurueck. Backend-Import und Speicherlogik bleiben unveraendert.
+
+## Von 33.3.14 nach 33.3.15
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Nur Logging ergaenzt: Direkt vor der bekannten Create-Fehlermeldung werden Request-Daten und die ausloesende Exception-Phase mit `CREATE OBJECT FAILED` geloggt. Importlogik und Redirectlogik bleiben unveraendert.
+
+## Von 33.3.13 nach 33.3.14
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Die Backend-Importlogik bleibt unveraendert. Es wurde nur Debug-Logging ergaenzt, um Standalone- und Embedded-Aufruf von `/objects_v33/create_from_explorer` anhand von Browser-Konsole und Live-Log vergleichen zu koennen.
+
+## Von 33.3.12 nach 33.3.13
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Der alte pauschale Loxone-State-Publish nach MQTT wird gestoppt. Loxone-Werte werden weiterhin empfangen und fuer Explorer/Anzeige gespeichert. MQTT-Ausgabe erfolgt nur, wenn ein aktives Objekt mit vollstaendigem Loxone-Endpunkt und vollstaendigem MQTT-Endpunkt existiert und die Loxone-UUID oder IO-Adresse zum eingehenden State passt.
+
+## Von 33.3.11 nach 33.3.12
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Die Backend-Importlogik bleibt unveraendert. Nur der eingebettete Loxone-Explorer-Flow wurde an den separaten Fenster-Flow angeglichen: Der Create-Button navigiert direkt zur bestehenden `/objects_v33/create_from_explorer`-Route, ohne Parent-Frame-Rewrite und ohne zusaetzlichen Embed-Parameter.
+
+## Von 33.3.10 nach 33.3.11
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Bestehende Objekte bleiben unveraendert. Beim Loeschen werden alte Identitaetsfelder `uuid` und `key` weiterhin erkannt, falls ein Objekt noch nicht in der neuen `id`-Form angelegt wurde. Nach dem Loeschen wird keine Auswahl in der URL behalten; die Objektliste entscheidet neu, ob das erste verbleibende Objekt oder eine leere Detailansicht angezeigt wird.
+
+## Von 33.3.9 nach 33.3.10
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Bestehende Objekte bleiben unveraendert. Neue Loxone-Explorer-Aufrufe pruefen vor dem Erstellen, ob bereits ein Objekt mit derselben Loxone-UUID existiert. In diesem Fall wird der vorhandene Eintrag geoeffnet statt ein zweites Objekt anzulegen. Fehler im Explorer-Create werden geloggt und per Redirect zum Objektmanager behandelt.
+
+## Von 33.3.8 nach 33.3.9
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Die Backend-Importlogik bleibt unveraendert. Nur die eingebettete Explorer-Navigation wurde ergaenzt: Im Shell-IFrame sendet der Explorer eine same-origin `postMessage` an `window.parent`; die Shell laedt daraufhin `/objects_v33/create_from_explorer` im `contentFrame`, haengt einen Cache-Buster an und erhaelt diesen nach dem Redirect auf die Objektmanager-Liste. Direkte Explorer-Fenster verwenden weiterhin den normalen Redirect.
+
+## Von 33.3.7 nach 33.3.8
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Die Sidebar-Version unten links wird beim Rendern aus `VERSION` gelesen. Nach Aenderung der Versionsdatei ist ein Server-Neustart empfohlen, damit alle importierten Konstanten und Templates denselben Stand anzeigen.
+
+## Von 33.3.6 nach 33.3.7
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Die Versionsanzeige wird aus der zentralen `VERSION`-Datei geladen. Explorer-Importe laufen weiter ueber `/objects_v33/create_from_explorer` und speichern ueber `object_service.create_object()` nach `config/objects.json`. `/objects_v33/new` erzeugt kein temporaeres Detailobjekt mehr; alte Explorer-Links mit Parametern werden direkt zur echten Speicherung umgeleitet. Der alte clientseitige Objektlisten-Renderer wurde entfernt.
+
+## Von 33.3.5 nach 33.3.6
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Neue Loxone-Explorer-Objekte schreiben technische Loxone-Daten direkt nach `object.loxone`. Alte `adapters.loxone`-Eintraege bleiben lesbar und werden beim naechsten Speichern in `object.loxone` ueberfuehrt. Objektliste, Detailansicht und Loxone-Tab verwenden weiterhin dieselbe gespeicherte Quelle aus `config/objects.json`.
+
+## Von 33.3.4 nach 33.3.5
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Bestehende Objektvarianten werden beim Lesen tolerant in den internen Adapterpfad migriert:
+
+- alte Adapter-Listen und Adapter-Dicts
+- `protocols.<protocol>`
+- top-level `<protocol>` wie `loxone`
+- Legacy-Felder `source_type`, `source_address`, `target_type`, `target_address`, `mqtt_topic`, `loxone_topic`, `knx_ga`, `udp_topic` und `influx_topic`
+
+Beim naechsten Speichern schreibt `config/objects.json` nur noch Stammdaten und top-level Protokollbloecke. Objektliste, Detailansicht und Protokoll-Tabs verwenden dieselbe gespeicherte Quelle.
+
+## Von 33.3.3 nach 33.3.4
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Neue Loxone-Explorer-Objekte bekommen einen Key aus dem Anzeigenamen mit Unterstrichen statt eine Loxone-UUID im Allgemein-Bereich. Technische Felder werden im `loxone`-Adapter in `config/objects.json` gespeichert: `enabled`, `direction`, `datatype`, `uuid`, `io_address`, `control_type`, `visu_name`, `room` und `unit`. Bestehende Objekte bleiben unveraendert und werden weiterhin tolerant gelesen.
+
+## Von 33.3.2 nach 33.3.3
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Neue Loxone-Explorer-Objekte erhalten beim Erstellen einen aktivierten Loxone-Adapter. Bestehende Objekte ohne Adapter bleiben unveraendert; sie koennen im Objektmanager durch erneutes Setzen des Loxone-Tabs oder erneutes Erstellen aus dem Explorer ergaenzt werden. Ein einzelner Loxone-Endpunkt macht ein Objekt weiterhin nur `unvollstaendig`; fuer aktive Routen ist ein zweiter vollstaendiger Protokoll-Endpunkt erforderlich.
+
+## Von 33.3.1 nach 33.3.2
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Neue Objekte aus dem Loxone Explorer werden direkt in `config/objects.json` erstellt. Allgemein-Felder enthalten nur logische Daten; Loxone-UUID, IO-Adresse, Control-Typ und Visu-Name werden im Loxone-Adapter gespeichert. Bestehende Objekte bleiben unveraendert und werden tolerant weiter gelesen.
+
+## Von 33.3.0 nach 33.3.1
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Bestehende Objektfelder `source_type`, `source_address`, `target_type`, `target_address` und `influx_enabled` bleiben tolerant lesbar, werden aber nicht mehr im Allgemein-Tab gepflegt und nicht mehr fuer Status oder Routing verwendet. Vollstaendige aktive Adapter bestimmen den Status:
+
+- weniger als zwei vollstaendige aktive Endpunkte: `unvollstaendig`
+- mindestens zwei vollstaendige aktive Endpunkte: `aktiv`
+- deaktiviertes Objekt: `deaktiviert`
+- ungueltige Adapterkonfiguration: `fehler`
+
+Objektgenerierte Routen werden weiterhin virtuell beim Laden in bestehende Mapping-Strukturen gemerged. Unterstuetzt sind `mqtt->loxone`, `mqtt->knx`, `mqtt->udp`, `mqtt->influx`, `knx->mqtt`, `knx->loxone`, `knx->influx`, `udp->mqtt`, `udp->knx` und `udp->influx`.
+
+## Von 33.9.0 nach 33.3.0
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Objektrouten werden virtuell beim Laden erzeugt und nicht als neue Parallelstruktur gespeichert:
+
+- `source_type=mqtt`, `target_type=loxone`, `target_address=<Loxone IO>` erzeugt einen virtuellen `mqtt2lox`-Eintrag.
+- `source_type=mqtt`, `target_type=knx`, `target_address=<Gruppenadresse>` erzeugt einen virtuellen `mqtt2knx`-Eintrag.
+- `source_type=mqtt`, `target_type=udp`, `target_address=<udp_topic>@<host>:<port>` erzeugt einen virtuellen `mqtt2udp`-Eintrag.
+- `source_type=mqtt`, `target_type=influx`, `target_address=<Influx Topic>` erzeugt virtuelle `topic_config`-Influx-Aktivierung.
+- Objekte ohne Ziel bleiben sichtbar, erhalten aber den Status `unvollständig` und starten keine Runtime-Route.
+
+## Von 33.2.8a nach 33.9.0
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+`config/objects.json` wird weiter verwendet. Bestehende alte Objekt-Eintraege werden vom neuen Object Service tolerant gelesen und beim naechsten Speichern mit den V33-Core-Feldern ergaenzt:
+
+- `id`
+- `name`
+- `source_type`
+- `source_address`
+- `target_type`
+- `datatype`
+- `unit`
+- `enabled`
+- `influx_enabled`
+- `created_at`
+- `updated_at`
+
+Neue API-Routen stehen unter `/api/objects` bereit. Es werden noch keine Runtime-Mappings erzeugt und keine bestehenden Protokollfunktionen umgebaut.
 
 ## Von 33.2.8 nach 33.2.8a
 

@@ -2,7 +2,8 @@
   "loxone/gesamtleistungw/value": {
     "enabled": true,
     "writable": false,
-    "custom_name": ""
+    "custom_name": "",
+    "influx": false
   },
   "zigbee2mqtt/Laube Temperaturanzeige": {
     "enabled": true

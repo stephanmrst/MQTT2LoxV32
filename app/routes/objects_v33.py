@@ -1,60 +1,180 @@
 """Object Manager V33 routes."""
 
+import inspect
 import re
+import threading
 
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, redirect, render_template, request, url_for
 
 try:
     from app.services.object_adapter_engine import (
         ADAPTER_TYPES,
         adapter_from_form,
         adapter_template_name,
+        deserialize_adapter,
     )
-    from app.services.object_model import ObjectDefinition
-    from app.services import object_registry
+    from app.services import object_service
     from app.services.object_routing_preview import build_object_routing_preview
 except ModuleNotFoundError:
     from services.object_adapter_engine import (
         ADAPTER_TYPES,
         adapter_from_form,
         adapter_template_name,
+        deserialize_adapter,
     )
-    from services.object_model import ObjectDefinition
-    from services import object_registry
+    from services import object_service
     from services.object_routing_preview import build_object_routing_preview
 
 
 bp = Blueprint("objects_v33", __name__, template_folder="../../templates")
+_EXPLORER_CREATE_LOCK = threading.Lock()
 
 
 def _slugify(value: str) -> str:
     text = str(value or "").strip().lower()
-    text = re.sub(r"[^a-z0-9_-]+", "-", text)
+    text = re.sub(r"[^a-z0-9]+", "_", text)
     text = text.strip("-_")
     return text or "object"
 
 
+def _looks_like_uuid(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(re.fullmatch(r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F-]{36})", text))
+
+
+def _request_first(*names: str) -> str:
+    for name in names:
+        value = _clean_prefill(request.args.get(name, ""))
+        if value:
+            return value
+    return ""
+
+
+def _datatype_from_request() -> str:
+    datatype = _request_first("datatype", "value_type", "type")
+    if datatype and datatype.lower() != "auto":
+        return datatype
+    value = _request_first("value", "last_value")
+    if not value:
+        return datatype or "auto"
+    lowered = value.lower()
+    if lowered in {"true", "false", "on", "off", "yes", "no", "ja", "nein"}:
+        return "bool"
+    try:
+        float(value.replace(",", "."))
+        return "number"
+    except ValueError:
+        return "text"
+
+
 def _new_object_key(name: str) -> str:
     base = _slugify(name)
-    existing = {item.key for item in object_registry.list_objects()}
+    existing = {item.key for item in object_service.list_objects()}
     if base not in existing:
         return base
     index = 2
-    while f"{base}-{index}" in existing:
+    while f"{base}_{index}" in existing:
         index += 1
-    return f"{base}-{index}"
+    return f"{base}_{index}"
 
 
 def _adapter_protocols(object_def):
-    return [
-        str(getattr(adapter, "protocol", "") or "").strip().lower()
-        for adapter in object_def.adapters
-        if getattr(adapter, "enabled", False)
-    ]
+    protocols = []
+    for adapter in object_def.adapters:
+        if isinstance(adapter, dict):
+            adapter = deserialize_adapter(adapter)
+        if getattr(adapter, "enabled", False):
+            protocols.append(str(getattr(adapter, "protocol", "") or "").strip().lower())
+    return sorted(set(protocol for protocol in protocols if protocol))
+
+
+def _route_status(object_def):
+    return object_service.get_object_route_status(object_def)
+
+
+def _reload_object_routes():
+    core = current_app.extensions.get("app_core")
+    if core and hasattr(core, "reload_object_routes"):
+        core.reload_object_routes()
+
+
+def _safe_reload_object_routes(context: str = "") -> bool:
+    try:
+        _reload_object_routes()
+        return True
+    except Exception as exc:
+        current_app.logger.exception("Objektrouten konnten nicht neu geladen werden: %s", exc)
+        core = current_app.extensions.get("app_core")
+        if core and hasattr(core, "add_log_entry"):
+            try:
+                core.add_log_entry(f"Object Routes Reload Fehler context={context or ''} error={exc}")
+            except Exception:
+                pass
+        return False
+
+
+def _log_explorer_import(source: str, uuid: str, name: str, object_id: str, action: str, error: str = ""):
+    message = (
+        "Object Explorer Import "
+        f"source={source or ''} uuid={uuid or ''} name={name or ''} "
+        f"object_id={object_id or ''} action={action or ''}"
+    )
+    if error:
+        message += f" error={error}"
+    try:
+        current_app.logger.info(message)
+    except Exception:
+        pass
+    core = current_app.extensions.get("app_core")
+    if core and hasattr(core, "add_log_entry"):
+        try:
+            core.add_log_entry(message)
+        except Exception:
+            pass
+
+
+def _log_explorer_debug(stage: str, **data):
+    safe_data = {}
+    for key, value in data.items():
+        try:
+            safe_data[key] = value if isinstance(value, (str, int, float, bool, type(None), dict, list, tuple)) else str(value)
+        except Exception:
+            safe_data[key] = "<unserializable>"
+    message = f"Object Explorer Debug stage={stage} data={safe_data}"
+    try:
+        current_app.logger.info(message)
+    except Exception:
+        pass
+    core = current_app.extensions.get("app_core")
+    if core and hasattr(core, "add_log_entry"):
+        try:
+            core.add_log_entry(message)
+        except Exception:
+            pass
+
+
+def _log_object_delete(object_id: str, found: bool, deleted: bool, redirect_target: str, error: str = ""):
+    message = (
+        "Object Delete "
+        f"object_id={object_id or ''} found={str(bool(found)).lower()} "
+        f"deleted={str(bool(deleted)).lower()} redirect={redirect_target or ''}"
+    )
+    if error:
+        message += f" error={error}"
+    try:
+        current_app.logger.info(message)
+    except Exception:
+        pass
+    core = current_app.extensions.get("app_core")
+    if core and hasattr(core, "add_log_entry"):
+        try:
+            core.add_log_entry(message)
+        except Exception:
+            pass
 
 
 def _filtered_objects(query: str, active_filter: str = "all"):
-    objects = object_registry.list_objects()
+    objects = object_service.list_objects()
     needle = str(query or "").strip().lower()
     active_filter = str(active_filter or "all").strip().lower()
     filtered = [
@@ -75,10 +195,33 @@ def _filtered_objects(query: str, active_filter: str = "all"):
 def _adapter_map(object_def):
     adapters = {}
     for adapter in object_def.adapters:
+        if isinstance(adapter, dict):
+            adapter = deserialize_adapter(adapter)
         protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
         if protocol:
             adapters[protocol] = adapter
     return adapters
+
+
+def _normalize_external_uuid(value: str) -> str:
+    return str(value or "").strip().lower().replace("-", "")
+
+
+def _find_object_by_loxone_uuid(loxone_uuid: str):
+    needle = _normalize_external_uuid(loxone_uuid)
+    if not needle:
+        return None
+    for item in object_service.list_objects():
+        adapter = _adapter_map(item).get("loxone")
+        if adapter is None:
+            continue
+        candidates = [
+            getattr(adapter, "uuid", ""),
+            getattr(adapter, "io_address", ""),
+        ]
+        if any(_normalize_external_uuid(candidate) == needle for candidate in candidates):
+            return item
+    return None
 
 
 def _ensure_known_adapters(object_def):
@@ -92,13 +235,146 @@ def _ensure_known_adapters(object_def):
     return result
 
 
+def _adapter_for_core_fields(protocol, address, datatype="auto", enabled=True, direction="both"):
+    adapter_cls = ADAPTER_TYPES[protocol]
+    kwargs = {"enabled": enabled, "direction": direction, "datatype": datatype}
+    if protocol == "mqtt":
+        kwargs["topic"] = address
+    elif protocol == "knx":
+        kwargs["group_address"] = address
+    elif protocol == "loxone":
+        kwargs["uuid"] = address
+        kwargs["io_address"] = address
+    elif protocol == "udp":
+        kwargs["format"] = address
+    elif protocol == "influx":
+        kwargs["measurement"] = address
+    return adapter_cls(**kwargs)
+
+
+def _object_from_prefill():
+    explorer = _clean_prefill(request.args.get("explorer", "")).lower()
+    source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "mqtt").lower()
+    source_address = _request_first("source_address", "source_topic", "topic", "loxone_io", "io_address", "name", "value")
+    name = request.args.get("name", "").strip()
+    if not name:
+        try:
+            from app.models.object_model import object_name_from_address
+        except ModuleNotFoundError:
+            from models.object_model import object_name_from_address
+        name = object_name_from_address(source_address)
+
+    payload = {
+        "id": "",
+        "name": name,
+        "datatype": _datatype_from_request(),
+        "category": request.args.get("category", ""),
+        "room": request.args.get("room", ""),
+        "unit": request.args.get("unit", ""),
+        "notes": request.args.get("description", request.args.get("notes", "")),
+        "enabled": True,
+    }
+
+    # Wichtig: Explorer-Importe dürfen niemals technische Daten in Allgemein legen.
+    # Loxone-Explorer befüllt ausschließlich den Loxone-Endpunkt, MQTT-Explorer ausschließlich MQTT.
+    if explorer == "loxone" or source_type == "loxone":
+        adapter = _loxone_adapter_from_request(_datatype_from_request())
+        if adapter.uuid or adapter.io_address:
+            payload["loxone"] = adapter.serialize()
+    elif explorer == "mqtt" or source_type == "mqtt":
+        topic = _request_first("topic", "source_address", "source_topic")
+        if topic:
+            payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, _datatype_from_request(), True, "both").serialize()
+    elif source_type in ADAPTER_TYPES and source_address:
+        payload[source_type] = _adapter_for_core_fields(source_type, source_address, _datatype_from_request(), True, "both").serialize()
+    return payload
+
+
+def _clean_prefill(value: str) -> str:
+    return str(value or "").strip()
+
+
+def _loxone_adapter_from_request(datatype: str):
+    return ADAPTER_TYPES["loxone"](
+        enabled=True,
+        direction="both",
+        datatype=datatype or "auto",
+        uuid=_request_first("loxone_uuid", "state_uuid", "uuid", "control_uuid"),
+        io_address=_request_first("loxone_io", "io_address", "source_address", "path", "topic", "name"),
+        control_type=_request_first("control_type", "cat"),
+        visu_name=_request_first("visu_name", "display_name", "label"),
+        room=_request_first("room"),
+        unit=_request_first("unit"),
+    )
+
+
+def _object_payload_from_explorer() -> dict:
+    explorer = _clean_prefill(request.args.get("explorer", "")).lower()
+    source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "").lower()
+    if not explorer:
+        explorer = source_type or "mqtt"
+
+    display_name = _clean_prefill(request.args.get("name", request.args.get("display_name", "")))
+    fallback_name = (
+        _clean_prefill(request.args.get("visu_name", ""))
+        or _clean_prefill(request.args.get("loxone_io", ""))
+        or _clean_prefill(request.args.get("topic", request.args.get("source_address", "")))
+    )
+    name = display_name or fallback_name or "Neues Objekt"
+    datatype = _datatype_from_request()
+    requested_key = _request_first("key")
+    object_key = requested_key if requested_key and not _looks_like_uuid(requested_key) else _new_object_key(name)
+
+    payload = {
+        "id": object_key,
+        "name": name,
+        "datatype": datatype,
+        "category": _clean_prefill(request.args.get("category", "")),
+        "room": _clean_prefill(request.args.get("room", "")),
+        "unit": _clean_prefill(request.args.get("unit", "")),
+        "notes": _clean_prefill(request.args.get("description", request.args.get("notes", ""))),
+        "enabled": True,
+    }
+
+    if explorer == "loxone" or source_type == "loxone":
+        adapter = _loxone_adapter_from_request(datatype)
+        payload["loxone"] = adapter.serialize()
+        if not payload["room"]:
+            payload["room"] = adapter.room
+        if not payload["unit"]:
+            payload["unit"] = adapter.unit
+        if not payload["category"]:
+            payload["category"] = "Loxone"
+    elif explorer == "mqtt" or source_type == "mqtt":
+        topic = _request_first("topic", "source_address", "source_topic")
+        if topic:
+            payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, datatype, True, "both").serialize()
+            if not payload["category"]:
+                payload["category"] = "MQTT"
+
+    return payload
+
+
+def _objects_index_redirect(object_id: str = "", tab: str = "general", notice: str = ""):
+    redirect_args = {}
+    if object_id:
+        redirect_args["selected"] = object_id
+    redirect_args["tab"] = tab or "general"
+    embed_ts = _clean_prefill(request.args.get("_embed_ts", ""))
+    if embed_ts:
+        redirect_args["_embed_ts"] = embed_ts
+    if notice:
+        redirect_args["notice"] = notice
+    return redirect(url_for("objects_v33.objects_v33_index", **redirect_args))
+
+
 @bp.route("/objects_v33")
 def objects_v33_index():
     query = request.args.get("q", "")
     active_filter = request.args.get("filter", "all")
     objects = _filtered_objects(query, active_filter)
     selected_id = request.args.get("selected", "").strip()
-    selected = object_registry.get_object(selected_id) if selected_id else (objects[0] if objects else None)
+    selected = object_service.get_object(selected_id) if selected_id else (objects[0] if objects else None)
     return render_template(
         "objects_v33/list.html",
         objects=objects,
@@ -106,35 +382,124 @@ def objects_v33_index():
         selected=selected,
         selected_adapters=_ensure_known_adapters(selected) if selected else [],
         selected_preview=build_object_routing_preview(selected) if selected else [],
+        selected_route_report=object_service.get_object_route_report(selected) if selected else None,
         adapter_template_name=adapter_template_name,
         query=query,
         active_filter=active_filter,
         adapter_protocols=_adapter_protocols,
+        route_status=_route_status,
+        selected_tab=request.args.get("tab", "general"),
+        notice=request.args.get("notice", ""),
     )
 
 
 @bp.route("/objects_v33/new")
 def objects_v33_new():
+    # /new ist nur für manuelles +Neu. Alte Explorer-Links mit Parametern werden
+    # hier abgefangen und direkt in eine echte Speicherung umgeleitet.
+    explorer_keys = {"explorer", "source_type", "source", "source_address", "source_topic", "topic", "loxone_uuid", "loxone_io"}
+    if any(key in request.args for key in explorer_keys):
+        return redirect(url_for("objects_v33.objects_v33_create_from_explorer", **request.args.to_dict(flat=True)))
+
+    objects = _filtered_objects("", "all")
     return render_template(
         "objects_v33/list.html",
-        objects=_filtered_objects("", "all"),
-        visible_count=len(_filtered_objects("", "all")),
-        selected=ObjectDefinition(id=""),
-        object_def=ObjectDefinition(id=""),
+        objects=objects,
+        visible_count=len(objects),
+        selected=None,
+        object_def=None,
         selected_adapters=[],
         adapter_template_name=adapter_template_name,
         selected_preview=[],
+        selected_route_report=None,
         query="",
         active_filter="all",
         adapter_protocols=_adapter_protocols,
+        route_status=_route_status,
+        selected_tab="general",
+        notice=request.args.get("notice", ""),
         errors=[],
         is_new=True,
     )
 
 
+@bp.route("/objects_v33/create_from_explorer")
+def objects_v33_create_from_explorer():
+    explorer = _clean_prefill(request.args.get("explorer", "")).lower()
+    source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "").lower()
+    source = explorer or source_type or "mqtt"
+    tab = "loxone" if source == "loxone" else (_clean_prefill(request.args.get("tab", source or "general")) or "general")
+    loxone_uuid = _request_first("loxone_uuid", "state_uuid", "uuid", "control_uuid")
+    display_name = _clean_prefill(request.args.get("name", request.args.get("visu_name", ""))) or "Neues Objekt"
+    request_args = request.args.to_dict(flat=True)
+    _log_explorer_debug(
+        "request",
+        route="objects_v33_create_from_explorer",
+        url=request.url,
+        path=request.path,
+        referrer=request.referrer or "",
+        embedded_hint="_embed_ts" in request.args,
+        args=request_args,
+        selected_uuid=loxone_uuid,
+        selected_name=display_name,
+        selected_topic=_clean_prefill(request.args.get("topic", "")),
+        selected_io=_clean_prefill(request.args.get("loxone_io", request.args.get("io_address", ""))),
+    )
+
+    try:
+        with _EXPLORER_CREATE_LOCK:
+            create_phase = "find_existing_by_loxone_uuid"
+            existing = _find_object_by_loxone_uuid(loxone_uuid) if source == "loxone" else None
+            if existing is not None:
+                _log_explorer_debug("existing", args=request_args, object_id=existing.id, payload={})
+                _log_explorer_import(source, loxone_uuid, existing.name or display_name, existing.id, "existing")
+                return _objects_index_redirect(existing.id, tab)
+
+            create_phase = "build_payload_from_explorer"
+            payload = _object_payload_from_explorer()
+            _log_explorer_debug("payload", args=request_args, payload=payload)
+            create_phase = "create_object"
+            object_def = object_service.create_object(payload)
+            create_phase = "reload_object_routes"
+            _reload_object_routes()
+            _log_explorer_debug("created", args=request_args, object_id=object_def.id, payload=payload)
+            _log_explorer_import(source, loxone_uuid, object_def.name or display_name, object_def.id, "created")
+            return _objects_index_redirect(object_def.id, tab)
+    except Exception as exc:
+        current_app.logger.exception("Explorer-Import fehlgeschlagen")
+        fallback = None
+        try:
+            fallback = _find_object_by_loxone_uuid(loxone_uuid) if source == "loxone" else None
+        except Exception:
+            current_app.logger.exception("Explorer-Import Fallback-Suche fehlgeschlagen")
+        object_id = fallback.id if fallback is not None else ""
+        _log_explorer_import(source, loxone_uuid, display_name, object_id, "error", str(exc))
+        frame = inspect.currentframe()
+        notice_location = f"{__file__}:{(frame.f_lineno + 1) if frame else 'unknown'}"
+        reason = f"exception during {locals().get('create_phase', 'unknown')}: {type(exc).__name__}: {exc}"
+        current_app.logger.error("CREATE OBJECT FAILED")
+        current_app.logger.error(f"request.args={request.args}")
+        current_app.logger.error(f"request.form={request.form}")
+        current_app.logger.error(f"json={request.get_json(silent=True)}")
+        current_app.logger.error(f"reason={reason}")
+        notice = "Objekt konnte nicht erstellt werden. Bitte Auswahl pruefen und erneut versuchen."
+        _log_explorer_debug(
+            "notice",
+            generator="objects_v33_create_from_explorer",
+            location=notice_location,
+            url=request.url,
+            args=request_args,
+            object_id=object_id,
+            error=str(exc),
+            reason=reason,
+            notice=notice,
+        )
+        return _objects_index_redirect(object_id, tab, notice)
+
+
 @bp.route("/objects_v33/edit/<object_uuid>")
 def objects_v33_edit(object_uuid):
-    object_def = object_registry.get_object(object_uuid)
+    object_def = object_service.get_object(object_uuid)
     if object_def is None:
         return redirect(url_for("objects_v33.objects_v33_index"))
     return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.uuid))
@@ -143,28 +508,22 @@ def objects_v33_edit(object_uuid):
 @bp.route("/objects_v33/save", methods=["POST"])
 def objects_v33_save():
     object_uuid = request.form.get("uuid", "").strip()
-    object_key = request.form.get("key", "").strip()
-    name = request.form.get("name", "").strip()
-    if not object_key:
-        object_key = _new_object_key(name)
-
-    existing = object_registry.get_object(object_uuid) if object_uuid else None
-    object_def = ObjectDefinition(
-        id=object_key,
-        uuid=object_uuid,
-        key=object_key,
-        name=name,
-        category=request.form.get("category", "").strip(),
-        type=request.form.get("type", "").strip(),
-        unit=request.form.get("unit", "").strip(),
-        room=request.form.get("room", "").strip(),
-        notes=request.form.get("notes", "").strip(),
-        enabled="enabled" in request.form,
-        adapters=list(existing.adapters) if existing else [],
-    )
+    payload = {
+        "id": object_uuid or request.form.get("key", "").strip() or _new_object_key(request.form.get("name", "")),
+        "name": request.form.get("name", "").strip(),
+        "datatype": request.form.get("datatype", request.form.get("type", "auto")).strip(),
+        "unit": request.form.get("unit", "").strip(),
+        "enabled": "enabled" in request.form,
+        "notes": request.form.get("notes", "").strip(),
+        "room": request.form.get("room", "").strip(),
+        "category": request.form.get("category", "").strip(),
+        "icon": request.form.get("icon", "").strip(),
+        "scaling": request.form.get("scaling", "").strip(),
+    }
     try:
-        object_registry.upsert_object(object_def)
+        object_def = object_service.update_object(object_uuid, payload) if object_uuid else object_service.create_object(payload)
     except ValueError as exc:
+        object_def = object_service.get_object(object_uuid) if object_uuid else object_service.create_object(payload)
         return render_template(
             "objects_v33/edit.html",
             object_def=object_def,
@@ -175,18 +534,43 @@ def objects_v33_save():
             is_new=False,
         ), 400
 
-    return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.uuid))
+    if object_def is None:
+        object_def = object_service.create_object(payload)
+    _reload_object_routes()
+    return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))
 
 
 @bp.route("/objects_v33/delete/<object_uuid>", methods=["POST"])
 def objects_v33_delete(object_uuid):
-    object_registry.delete_object(object_uuid)
-    return redirect(url_for("objects_v33.objects_v33_index"))
+    object_id = _clean_prefill(object_uuid)
+    redirect_target = url_for("objects_v33.objects_v33_index")
+    found = False
+    deleted = False
+    error = ""
+
+    try:
+        found = object_service.get_object(object_id) is not None
+    except Exception as exc:
+        error = str(exc)
+        current_app.logger.exception("Objektloeschen: Suche fehlgeschlagen")
+
+    try:
+        deleted = object_service.delete_object(object_id)
+    except Exception as exc:
+        error = f"{error}; {exc}" if error else str(exc)
+        current_app.logger.exception("Objektloeschen fehlgeschlagen")
+
+    reload_ok = _safe_reload_object_routes("delete")
+    if not reload_ok and not error:
+        error = "route_reload_failed"
+
+    _log_object_delete(object_id, found, deleted, redirect_target, error)
+    return redirect(redirect_target)
 
 
 @bp.route("/objects_v33/edit/<object_uuid>/adapter/<protocol>")
 def objects_v33_adapter_edit(object_uuid, protocol):
-    object_def = object_registry.get_object(object_uuid)
+    object_def = object_service.get_object(object_uuid)
     protocol = str(protocol or "").strip().lower()
     if object_def is None or protocol not in ADAPTER_TYPES:
         return redirect(url_for("objects_v33.objects_v33_index"))
@@ -202,7 +586,7 @@ def objects_v33_adapter_edit(object_uuid, protocol):
 
 @bp.route("/objects_v33/edit/<object_uuid>/adapter/<protocol>/save", methods=["POST"])
 def objects_v33_adapter_save(object_uuid, protocol):
-    object_def = object_registry.get_object(object_uuid)
+    object_def = object_service.get_object(object_uuid)
     protocol = str(protocol or "").strip().lower()
     if object_def is None or protocol not in ADAPTER_TYPES:
         return redirect(url_for("objects_v33.objects_v33_index"))
@@ -221,5 +605,8 @@ def objects_v33_adapter_save(object_uuid, protocol):
     adapters = _adapter_map(object_def)
     adapters[protocol] = adapter
     object_def.adapters = [adapters[item] for item in ("mqtt", "udp", "knx", "loxone", "influx") if item in adapters]
-    object_registry.upsert_object(object_def)
-    return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.uuid))
+    payload = object_service.serialize_object(object_def)
+    payload[protocol] = adapter.serialize()
+    object_service.update_object(object_def.id, payload)
+    _reload_object_routes()
+    return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))

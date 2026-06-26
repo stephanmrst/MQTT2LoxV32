@@ -10,7 +10,6 @@ try:
 except ModuleNotFoundError:
     from branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
 
-APP_VERSION = "33.2.8a"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 APP_ROOT = PROJECT_ROOT
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -19,6 +18,21 @@ BACKUP_DIR = PROJECT_ROOT / "backups"
 DEPENDENCIES = {}
 LOXWEBSOCKET_AVAILABLE = False
 LOXWEBSOCKET_STATUS = "Loxone: Bibliothek nicht installiert"
+
+
+def _load_app_version() -> str:
+    try:
+        version = (PROJECT_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return "0.0.0"
+    return version or "0.0.0"
+
+
+def current_app_version() -> str:
+    return _load_app_version()
+
+
+APP_VERSION = _load_app_version()
 
 
 class OptionalDependencyError(RuntimeError):

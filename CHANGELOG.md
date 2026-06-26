@@ -1,5 +1,167 @@
 # Changelog
 
+## 33.3.16
+
+- Loxone-Explorer-Create nutzt beim Klick einen frischen Snapshot aus `tm2Topics` statt eine moeglicherweise veraltete `tm2Selected`-Objektreferenz.
+- Debug-Log vor `create_from_explorer` um `selectedRow`, `selectedUuid`, `selectedObject`, Ziel-URL und Request-Parameter erweitert.
+- Tree-Zeilen tragen `data-topic`, damit die aktuell markierte Row vor dem Create eindeutig geloggt werden kann.
+- Create-Button-State wird bei Browser-Page-Restore zurueckgesetzt, damit keine alte In-Progress-/Button-Referenz erhalten bleibt.
+- Keine Backend-Aenderung am Import.
+- Versionsstand auf `33.3.16` gesetzt.
+
+## 33.3.15
+
+- Direkt vor der Create-Fehlermeldung explizite Error-Logs ergaenzt: `CREATE OBJECT FAILED`, `request.args`, `request.form`, JSON-Payload und `reason`.
+- Keine Aenderung an Create-Logik, Importlogik, Redirects oder Bedingungen.
+- Versionsstand auf `33.3.15` gesetzt.
+
+## 33.3.14
+
+- Debug-Logging fuer Loxone-Explorer-Create ergaenzt, ohne Backend-Importlogik zu aendern.
+- Frontend loggt vor der Navigation Embedded-Status, aktuelle URL, ausgewaehlte UUID, Name, Topic/IO, Objekt und Ziel-URL.
+- `/objects_v33/create_from_explorer` loggt Request-URL, Referrer, Query-Args, ausgewaehlte Werte, erzeugtes Payload und Notice-Ursprung.
+- Die Meldung `Objekt konnte nicht erstellt werden. Bitte Auswahl pruefen und erneut versuchen.` wird mit Generator-Funktion und Datei/Zeile geloggt.
+- Versionsstand auf `33.3.14` gesetzt.
+
+## 33.3.13
+
+- Legacy-Auto-Publish von Loxone-State-Updates nach MQTT gestoppt.
+- `publish_value()` aktualisiert weiterhin Anzeige-/Explorer-Werte, publisht aber nur noch bei aktiver Objektmanager-Route `Loxone -> MQTT`.
+- Objekt-Routengenerator um aktive `loxone2mqtt`-Routen aus vollständigen Loxone- und MQTT-Endpunkten erweitert.
+- Runtime-Gate prueft aktives Objekt, aktivierte Loxone-/MQTT-Adapter, vollstaendige Endpunkte und passende Loxone-UUID/IO-Adresse.
+- Loxone-Erfassung bleibt aktiv; ungefragtes MQTT-Publishing ohne Objekt-Route wird uebersprungen und gedrosselt geloggt.
+- Versionsstand auf `33.3.13` gesetzt.
+
+## 33.3.12
+
+- Eingebetteten Loxone-Explorer-Create an den separaten Fenster-Flow angeglichen.
+- `tm2CreateObjectSelected()` ruft `/objects_v33/create_from_explorer` nun auch im IFrame per direktem `window.location.href` auf.
+- Die Loxone-Create-Sondernavigation ueber `postMessage` und Shell-Frame-Rewrite wird fuer diesen Button nicht mehr verwendet.
+- Backend-Importlogik bleibt unveraendert.
+- Versionsstand auf `33.3.12` gesetzt.
+
+## 33.3.11
+
+- Objektmanager-V33-Loeschen robust gemacht: Delete akzeptiert `id`, `uuid` oder `key` und bleibt bei fehlendem oder bereits geloeschtem Objekt ohne 500.
+- Delete-Route faengt Such-, Schreib- und Route-Reload-Fehler ab, loggt sie und leitet immer sauber auf `/objects_v33` ohne `selected` zurueck.
+- Objektliste wird nach dem Loeschen neu geladen; ein geloeschtes Objekt wird rechts nicht mehr als Auswahl uebergeben.
+- Loesch-Button postet nur bei vorhandener Objekt-ID, deaktiviert sich beim ersten Submit und ignoriert Mehrfachklicks.
+- Delete-Logging fuer `object_id`, `found`, `deleted`, `redirect` und `error` ergaenzt.
+- Versionsstand auf `33.3.11` gesetzt.
+
+## 33.3.10
+
+- Loxone-Explorer-Button gegen Mehrfachklick gesichert; nach dem ersten Klick wird er deaktiviert und zeigt `Erstelle...`.
+- `/objects_v33/create_from_explorer` fuer Loxone idempotent gemacht: gleiche Loxone-UUID oeffnet das vorhandene Objekt statt ein zweites zu erstellen.
+- Explorer-Create-Fehler werden abgefangen, geloggt und per Objektmanager-Redirect mit Hinweis behandelt statt als Internal Server Error zu enden.
+- Erfolgreiche Loxone-Explorer-Creates leiten stabil auf `/objects_v33?selected=<object_id>&tab=loxone` weiter.
+- Import-Logging fuer `source`, `uuid`, `name`, `object_id` und `action=created/existing/error` ergaenzt.
+- Versionsstand auf `33.3.10` gesetzt.
+
+## 33.3.9
+
+- Eingebettete Explorer-Objektanlage ueber eine `postMessage`-Bruecke zur Shell gefuehrt.
+- Die Shell setzt bei Explorer-Create den `contentFrame` gezielt auf den Objektmanager V33 und markiert den Sidebar-Link.
+- Cache-Busting fuer eingebettete Objektmanager-Navigation ergaenzt und nach dem Create-Redirect beibehalten.
+- Direkte Explorer-Fenster behalten den bestehenden Redirect unveraendert bei.
+- Versionsstand auf `33.3.9` gesetzt.
+
+## 33.3.8
+
+- Sidebar-Versionsanzeige dynamisiert: `app_version` wird beim Rendern aus der zentralen `VERSION`-Datei gelesen.
+- App-Context-Processor stellt `app_name`, `app_subtitle`, `app_legacy_name` und die aktuelle `app_version` fuer Templates bereit.
+- Versionsstand auf `33.3.8` gesetzt.
+
+## 33.3.7
+
+- `APP_VERSION` wird aus der zentralen `VERSION`-Datei gelesen; hart codierte alte Versionswerte in `app/engine/port.py` entfallen.
+- Alter toter JavaScript-Renderer in `templates/objects_v33/list.html` entfernt, damit nur noch die serverseitige Objektmanager-V33-Pipeline aktiv ist.
+- `/objects_v33/new` oeffnet fuer manuelle Neuanlage kein ungespeichertes Detailobjekt mehr; Explorer-Parameter werden weiterhin nach `/objects_v33/create_from_explorer` umgeleitet.
+- Object Service erkennt alle kanonischen top-level Protokollbloecke beim Speichern und normalisiert sie in das zentrale Objektmodell.
+- `object_registry.py` und `data/objects_v33.json` als deprecated markiert; produktive V33-Objekte bleiben in `config/objects.json`.
+- Versionsstand auf `33.3.7` gesetzt.
+
+## 33.3.6
+
+- Objekt-Speicherform fuer V33 final auf Stammdaten plus top-level Protokollbloecke konsolidiert, z.B. `object.loxone`.
+- Neue Loxone-Explorer-Objekte schreiben Loxone-Daten direkt nach `loxone` statt in eine zusaetzliche `adapters`-Speicherstruktur.
+- Alte `adapters`-Eintraege bleiben lesbar und werden beim Speichern in die kanonische Protokollblock-Form migriert.
+- Adapter-Speichern schreibt den bearbeiteten Protokollblock direkt auf `object.<protocol>`.
+- Versionsstand auf `33.3.6` gesetzt.
+
+## 33.3.5
+
+- Objektmodell fuer Objektmanager V33 konsolidiert: neue Objekte schreiben Protokolldaten nur noch kanonisch in Protokollbloecke.
+- Legacy-Felder wie `source_type`, `source_address`, `target_type`, `loxone_topic`, `mqtt_topic`, `knx_ga`, `udp_topic` und top-level `loxone` werden beim Lesen migriert, aber nicht mehr neu in `config/objects.json` geschrieben.
+- Loxone-Explorer-Create speichert den Loxone-Endpunkt als Loxone-Protokollblock mit `enabled`, `direction`, `datatype`, `uuid`, `io_address`, `control_type`, `visu_name`, `room` und `unit`.
+- Objektliste und Detailansicht laden nach Explorer-Create aus derselben gespeicherten Service-Quelle; der clientseitige `/api/objects`-Listenersatz wurde entfernt.
+- Adapter werden intern weiter als Liste nutzbar gemacht, aber in `objects.json` nicht als zweite Struktur gespeichert.
+- Versionsstand auf `33.3.5` gesetzt.
+
+## 33.3.4
+
+- Loxone-Explorer-Create nachgezogen: Loxone-Adapter wird mit Aktiv, Richtung, Datentyp, UUID, IO-Adresse, Control-Typ, Visu-Name, Raum und Einheit befuellt.
+- Key-Erzeugung fuer neue Explorer-Objekte nutzt Klarnamen mit Unterstrichen, z.B. `gesamtleistungw_value`, und uebernimmt keine UUID als Allgemein-Key.
+- Loxone-Create akzeptiert zusaetzliche Parameter-Aliase fuer UUID, IO-Adresse, Name/Pfad, Control-Type, Visu-Name, Raum und Einheit.
+- Explorer-JavaScript uebergibt die Datenpunkt-UUID bevorzugt als Loxone-UUID und den letzten Wert zur Datentyp-Erkennung.
+- Nach Explorer-Create bleibt die Weiterleitung auf das neu erstellte Objekt mit aktivem Loxone-Tab erhalten.
+- Versionsstand auf `33.3.4` gesetzt.
+
+## 33.3.3
+
+- Loxone-Explorer-Objektanlage robust nachgezogen.
+- Loxone-Endpunkt wird beim Explorer-Create immer als aktivierter `loxone`-Adapter gespeichert.
+- Alte `/objects_v33/new`-Vorbelegungen mit Loxone-Parametern fuellen nun ebenfalls den Loxone-Tab statt Allgemein-Quelle/Ziel.
+- Leere Legacy-Quelle erzeugt keinen aktivierten MQTT-Fallback-Adapter mehr.
+- Loxone Explorer uebergibt bevorzugt die Control-UUID als UUID und den State-/IO-Pfad als IO-Adresse.
+- Status bleibt bei nur einem vollstaendigen Loxone-Endpunkt `unvollstaendig`; Routing wird erst mit zweitem vollstaendigem Endpunkt aktiv.
+- Versionsstand auf `33.3.3` gesetzt.
+
+## 33.3.2
+
+- Loxone Explorer kann Objekte direkt im Objektmanager V33 erstellen.
+- Explorer-Create speichert ausschliesslich Klardaten im Allgemein-Bereich: Name, Key, Datentyp, Kategorie, Raum, Einheit, Beschreibung und Aktiv.
+- Technische Loxone-Daten werden nur im Loxone-Adapter gespeichert: UUID, IO-Adresse, Control-Typ, Visu-Name, Raum und Einheit.
+- Nach dem Erstellen oeffnet der Objektmanager automatisch den Loxone-Tab des neuen Objekts.
+- Loxone-Tab um Felder fuer IO-Adresse, Control-Typ, Visu-Name, Raum und Einheit erweitert.
+- `/objects_v33/new` nutzt technische Vorbelegungen als Adapterdaten statt als Allgemein-Quelle/-Ziel.
+- Versionsstand auf `33.3.2` gesetzt.
+
+## 33.3.1
+
+- Objektmanager V33 auf objektzentrierte Anschluss-Architektur umgestellt.
+- Allgemein-Tab enthaelt nur noch Objekt-Stammdaten: Name, Key, Datentyp, Kategorie, Raum, Einheit, Icon, Skalierung, Beschreibung und Aktiv.
+- Quelle, Quelladresse, Ziel, Zieladresse und Influx-Aktivierung aus dem Allgemein-Tab entfernt.
+- Objektstatus wird nicht mehr aus Allgemein-Feldern berechnet, sondern aus vollstaendigen aktiven Protokoll-Endpunkten.
+- Routing-Tab zeigt erzeugte Adapter-Routen, Status und fehlende Endpunkte fuer unvollstaendige Objekte.
+- Route-Generator erzeugt aktive Runtime-Routen aus Protokoll-Endpunkten fuer bestehende Mapping-Strukturen, inklusive KNX-/UDP-Richtungen.
+- Adapter-Speichern schreibt keine Quelle-/Ziel-Felder mehr in das Objekt zurueck.
+- Versionsstand auf `33.3.1` gesetzt.
+
+## 33.3.0
+
+- Objektbasierte aktive Routen fuer den ersten Runtime-Durchstich vorbereitet.
+- `build_routes_from_objects()` erzeugt aus aktivierten Objekten virtuelle Routen in bestehenden Runtime-Strukturen.
+- MQTT-Objekte werden zuerst angebunden: `mqtt -> loxone`, `mqtt -> knx`, `mqtt -> udp` und `mqtt -> influx` werden in vorhandene Loader-Formate uebersetzt.
+- Bestehende Mapping-Dateien werden nicht als neue Parallelstruktur ersetzt; objektgenerierte Routen werden beim Laden zu `mqtt2lox`, `mqtt2udp`, `mqtt2knx` und `topic_config` gemerged.
+- Nach Objekt-Speichern, Loeschen, Toggle und Adapter-Speichern werden Objektrouten neu berechnet; eine laufende Bridge wird neu geladen, eine gestoppte Bridge bleibt gestoppt.
+- Objektmanager zeigt Route-Status-Badges: `aktiv`, `deaktiviert`, `unvollständig`, `fehler`.
+- Logging fuer Objektrouten ergaenzt: Gesamtzahl, aktive Routen, uebersprungene Objekte und Fehler je Objekt.
+- KNX/Loxone/UDP bleiben als Zieltypen vorbereitet; vollstaendige Nicht-MQTT-Quellen folgen spaeter.
+- Versionsstand auf `33.3.0` gesetzt.
+
+## 33.9.0
+
+- Objektmanager-Core fuer MP-Gateway V33 eingefuehrt.
+- Neues zentrales Objektmodell `GatewayObject` unter `app/models/object_model.py` ergaenzt.
+- Neuer Service `app/services/object_service.py` speichert Objekte in `config/objects.json` und stellt CRUD-, Toggle- und Serialisierungsfunktionen bereit.
+- Neue API-Routen ergaenzt: `GET/POST /api/objects`, `GET/PUT/DELETE /api/objects/<id>` und `POST /api/objects/<id>/toggle`.
+- `/objects_v33` liest und schreibt nun ueber den neuen Object Service.
+- Objektformular speichert Kernfelder wie Quelle, Quelladresse, Ziel, Datentyp, Einheit, Aktiv-Status und Influx-Status.
+- MQTT Topic Manager/Explorer verlinkt `Objekt erstellen` auf den neuen Objektmanager mit MQTT-Quelle und Topic-Vorbefuellung.
+- Bestehendes Layout bleibt erhalten; keine Runtime-Mapping-Erzeugung und keine Adapter-/Runtime-Anbindung.
+- Versionsstand auf `33.9.0` gesetzt.
+
 ## 33.2.8a
 
 - UI-Feinschliff fuer den Objektmanager V33.

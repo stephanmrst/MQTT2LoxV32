@@ -72,6 +72,11 @@ class MQTTAdapter(BaseAdapter):
 class LoxoneAdapter(BaseAdapter):
     protocol: ClassVar[str] = "loxone"
     uuid: str = ""
+    io_address: str = ""
+    control_type: str = ""
+    visu_name: str = ""
+    room: str = ""
+    unit: str = ""
 
 
 @dataclass

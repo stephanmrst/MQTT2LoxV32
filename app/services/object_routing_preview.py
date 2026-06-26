@@ -58,6 +58,15 @@ def _label(protocol: str) -> str:
 
 def build_object_routing_preview(object_def: Any) -> list[dict[str, str]]:
     """Build passive V33 routing preview entries for an object definition."""
+    try:
+        from app.services.object_service import build_generated_route_entries
+    except ModuleNotFoundError:
+        from services.object_service import build_generated_route_entries
+
+    generated = build_generated_route_entries(object_def)
+    if generated:
+        return generated
+
     adapters = {
         protocol: adapter
         for adapter in getattr(object_def, "adapters", [])

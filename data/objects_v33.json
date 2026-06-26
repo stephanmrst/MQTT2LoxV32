@@ -1,4 +1,6 @@
 {
+  "_deprecated": true,
+  "_message": "Deprecated legacy V33 registry snapshot. Production Object Manager V33 uses config/objects.json via app.services.object_service.",
   "objects": [
     {
       "id": "test-v33",

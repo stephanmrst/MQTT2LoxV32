@@ -90,6 +90,15 @@ def create_app():
 
     _register_blueprints(app)
 
+    @app.context_processor
+    def inject_app_identity():
+        return {
+            "app_name": APP_NAME,
+            "app_subtitle": APP_SUBTITLE,
+            "app_legacy_name": APP_LEGACY_NAME,
+            "app_version": port.current_app_version(),
+        }
+
     if "startup_status_route" not in app.view_functions:
         @app.route("/startup_status")
         def startup_status_route():

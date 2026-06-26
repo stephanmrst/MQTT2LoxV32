@@ -23,6 +23,30 @@
 - Sidebar-Button-Restore 33.2.7g pruefen: aktive externe Config-Eintraege erscheinen generisch, neue Eintraege automatisch, deaktivierte verschwinden, `new_tab=false` oeffnet im rechten Content-Bereich.
 - Objektmanager-Hintergrund 33.2.8 pruefen: Dashboard und `/objects_v33` wirken farblich zusammengehoerig, Sidebar unveraendert, Objektkarten und Protokoll-Badges unveraendert.
 - Objektmanager-Arbeitsflaeche 33.2.8a pruefen: Objektliste und Editor wirken wie eine gemeinsame Oberflaeche, Objektkarten heben sich klar vom Hintergrund ab.
+- Objektmanager-Core 33.9.0 pruefen: Objekt anlegen, bearbeiten, loeschen, aktivieren/deaktivieren, API-CRUD, Speicherung in `config/objects.json` und MQTT-Topic-Vorbefuellung.
+- Vor Runtime-Anbindung definieren, wie `source_type/source_address/target_type` in technische MQTT/KNX/Loxone/UDP/Influx-Mappings uebersetzt werden.
+- Objektbasierte Routen 33.3.0 pruefen: Status-Badges, Logging, Reload-Hook, MQTT->Loxone, MQTT->KNX, MQTT->UDP und MQTT->Influx.
+- Unvollstaendige Objekte pruefen: kein Ziel oder ungueltiger UDP-Target erzeugt keine Runtime-Route, bleibt aber im Objektmanager sichtbar.
+- Objektmanager-Architektur 33.3.1 pruefen: Allgemein-Tab enthaelt nur Stammdaten, Quelle/Ziel kommen nur aus Adapter-Tabs, Status haengt an vollstaendigen aktiven Endpunkten.
+- Routing-Tab 33.3.1 pruefen: erzeugte Routen, Status, fehlende Endpunkte und Adapter-Fehler werden korrekt angezeigt.
+- Route-Generator 33.3.1 pruefen: MQTT-, KNX- und UDP-basierte Endpunktpaare werden in bestehende Runtime-Mapping-Loader gemerged, ohne Mapping-Dateien zu schreiben.
+- Explorer-Create 33.3.2 pruefen: Klick im Loxone Explorer erstellt ein Objekt, oeffnet danach den Loxone-Tab und speichert UUID/IO-Adresse nicht im Allgemein-Tab.
+- Loxone-Adapter 33.3.2 pruefen: UUID, IO-Adresse, Control-Typ, Visu-Name, Raum und Einheit werden angezeigt, gespeichert und serialisiert.
+- Loxone-Explorer-Fix 33.3.3 pruefen: Explorer-Create und alte `/objects_v33/new`-Vorbelegung setzen den Loxone-Adapter aktiv und oeffnen den Loxone-Tab.
+- Statusregel 33.3.3 pruefen: Nur Loxone-Endpunkt ergibt `unvollstaendig`, erst ein zweiter vollstaendiger Endpunkt macht das Objekt aktiv/routingfaehig.
+- Loxone-Import 33.3.4 pruefen: Explorer-Create speichert alle Loxone-Felder im `loxone`-Adapter, erzeugt keine UUID als Key und laedt den Loxone-Tab nach Reload wieder vollstaendig.
+- Objektmodell-Konsolidierung 33.3.5 pruefen: keine neuen Legacy-Felder in `objects.json`, ein Protokollblock pro Protokoll, Explorer-Create erscheint links und rechts aus derselben Quelle.
+- Loxone-Protokollblock 33.3.6 pruefen: Explorer-Create speichert UUID und Metadaten in `object.loxone`, Loxone-Tab laedt daraus und bleibt nach Redirect aktiv.
+- Objektmanager-Pipeline 33.3.7 pruefen: Versionsanzeige aus `VERSION`, `/objects_v33/new` ohne Geisterobjekt, Explorer-Import nur ueber `create_from_explorer`, Loxone-Import ohne MQTT-Tab-Befuellung.
+- Sidebar-Version 33.3.8 pruefen: Versionsdatei aendern, Server neu starten, Sidebar unten links zeigt den Dateiinhalt.
+- Embedded-Explorer 33.3.9 pruefen: Loxone Explorer im Shell-IFrame nutzt `postMessage`, laedt den Objektmanager V33 mit Cache-Buster neu, zeigt den neuen Eintrag links und den Loxone-Tab rechts.
+- Loxone-Race-Fix 33.3.10 pruefen: Button deaktiviert nach erstem Klick, gleiche Loxone-UUID ist idempotent, Redirect landet auf `tab=loxone`, Log enthaelt `source`, `uuid`, `name`, `object_id` und `action`.
+- Delete-Fix 33.3.11 pruefen: Loeschen mit `id`, alter `uuid`, fehlendem Objekt, leerer `objects.json` und Doppelklick redirectet sauber auf `/objects_v33` und loggt `found/deleted/error`.
+- IFrame-Loxone-Create 33.3.12 pruefen: `tm2CreateObjectSelected()` nutzt im IFrame und im separaten Fenster denselben direkten Redirect ohne Parent-Frame-Rewrite.
+- Auto-Publish-Gate 33.3.13 pruefen: Loxone-Erfassung bleibt sichtbar, aber MQTT-Publish passiert nur bei aktivem Objekt mit Loxone- und MQTT-Endpunkt.
+- Embedded-Debug 33.3.14 pruefen: Standalone- und IFrame-Klick vergleichen; gesucht werden fehlende `uuid`, `name`, `loxone_io`, `topic` oder abweichende Ziel-URL.
+- Create-Failure-Logging 33.3.15 pruefen: direkt vor der Meldung muessen `CREATE OBJECT FAILED`, Request-Daten, JSON und `reason` im Log stehen.
+- Explorer-State-Fix 33.3.16 pruefen: mehrfache Create-Versuche ohne F5 behalten keine veraltete `tm2Selected`-Referenz und loggen die aktuelle `selectedRow`.
 - `app/services/object_model.py` vorerst passiv lassen; keine Runtime-, UI-, Routen- oder Config-Verdrahtung ohne separate Migrationsphase.
 - Vor aktiver Objektmanager-2.0-Arbeit Smoke-Tests fuer bestehende Mappings, Objektmanager, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Live Log, SSE, Bridge und internen Broker festlegen.
 - Read-only Analyse bestehender Mapping-Dateien als naechsten sicheren V33-Schritt planen.

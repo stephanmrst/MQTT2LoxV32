@@ -29,14 +29,21 @@ from services import influx as influx_service
 from services import runtime as runtime_service
 from services import backup as backup_service
 from services import template as template_service
+from services import object_service as object_core_service
 try:
     from app.branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
+    from app.engine import port as port_service
     from app.runtime.context import create_runtime_context
 except ModuleNotFoundError:
     from branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
+    from engine import port as port_service
     from runtime.context import create_runtime_context
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def current_app_version():
+    return port_service.current_app_version()
 
 # -----------------------------------------------------------------------------
 # Docker-/Standalone-Pfade
@@ -984,13 +991,13 @@ safe_load_json_file = config.safe_load_json_file
 safe_save_json_file = config.safe_save_json_file
 load_config = config.load_config
 save_config = config.save_config
-load_topic_config = config.load_topic_config
+_base_load_topic_config = config.load_topic_config
 save_topic_config = config.save_topic_config
-load_mqtt2lox_config = config.load_mqtt2lox_config
+_base_load_mqtt2lox_config = config.load_mqtt2lox_config
 save_mqtt2lox_config = config.save_mqtt2lox_config
-load_mqtt2udp_config = config.load_mqtt2udp_config
+_base_load_mqtt2udp_config = config.load_mqtt2udp_config
 save_mqtt2udp_config = config.save_mqtt2udp_config
-load_udp2mqtt_config = config.load_udp2mqtt_config
+_base_load_udp2mqtt_config = config.load_udp2mqtt_config
 save_udp2mqtt_config = config.save_udp2mqtt_config
 load_mqtt_brokers = config.load_mqtt_brokers
 save_mqtt_brokers = config.save_mqtt_brokers
@@ -1006,14 +1013,78 @@ load_internal_broker_config = config.load_internal_broker_config
 save_internal_broker_config = config.save_internal_broker_config
 load_knx_config = config.load_knx_config
 save_knx_config = config.save_knx_config
-load_mqtt2knx_config = config.load_mqtt2knx_config
+_base_load_mqtt2knx_config = config.load_mqtt2knx_config
 save_mqtt2knx_config = config.save_mqtt2knx_config
-load_knx2mqtt_config = config.load_knx2mqtt_config
+_base_load_knx2mqtt_config = config.load_knx2mqtt_config
 save_knx2mqtt_config = config.save_knx2mqtt_config
-load_udp2knx_config = config.load_udp2knx_config
+_base_load_udp2knx_config = config.load_udp2knx_config
 save_udp2knx_config = config.save_udp2knx_config
-load_knx2lox_config = config.load_knx2lox_config
+_base_load_knx2lox_config = config.load_knx2lox_config
 save_knx2lox_config = config.save_knx2lox_config
+
+
+def _object_routes(log=False):
+    return object_core_service.build_routes_from_objects(add_log_entry if log else None)
+
+
+def load_topic_config():
+    data = _base_load_topic_config()
+    generated = _object_routes(False).get("topic_config", {})
+    if not generated:
+        return data
+    merged = dict(data if isinstance(data, dict) else {})
+    for topic, settings in generated.items():
+        current = dict(merged.get(topic, {})) if isinstance(merged.get(topic), dict) else {}
+        current.update(settings)
+        merged[topic] = current
+    return merged
+
+
+def load_mqtt2lox_config():
+    data = _base_load_mqtt2lox_config()
+    return list(data or []) + list(_object_routes(False).get("mqtt2lox", []))
+
+
+def load_mqtt2udp_config():
+    data = _base_load_mqtt2udp_config()
+    return list(data or []) + list(_object_routes(False).get("mqtt2udp", []))
+
+
+def load_mqtt2knx_config():
+    data = _base_load_mqtt2knx_config()
+    return list(data or []) + list(_object_routes(False).get("mqtt2knx", []))
+
+
+def load_knx2mqtt_config():
+    data = _base_load_knx2mqtt_config()
+    return list(data or []) + list(_object_routes(False).get("knx2mqtt", []))
+
+
+def load_udp2mqtt_config():
+    data = _base_load_udp2mqtt_config()
+    return list(data or []) + list(_object_routes(False).get("udp2mqtt", []))
+
+
+def load_udp2knx_config():
+    data = _base_load_udp2knx_config()
+    return list(data or []) + list(_object_routes(False).get("udp2knx", []))
+
+
+def load_knx2lox_config():
+    data = _base_load_knx2lox_config()
+    return list(data or []) + list(_object_routes(False).get("knx2lox", []))
+
+
+def reload_object_routes():
+    _object_routes(True)
+    try:
+        thread = runtime_context.bridge.thread
+        if runtime_context.bridge.running or (thread and thread.is_alive()):
+            restart_bridge_async()
+        else:
+            add_log_entry("Objektrouten vorbereitet; Bridge ist gestoppt")
+    except Exception as exc:
+        add_log_entry(f"Objektrouten Reload Fehler: {exc}")
 
 
 # ---------- V19.3 Mapping Templates / Import-Export ----------
@@ -1505,6 +1576,7 @@ control_mapping = {}
 
 # Für Change-Only Publish
 last_values = {}
+loxone_route_skip_log = {}
 
 # Für Anzeige im Topic Manager
 display_values = {}
@@ -1613,7 +1685,16 @@ def build_datalist_html(datalist_id, options):
     return template_service.build_datalist_html(datalist_id, options)
 
 
-def publish_value(config, name, value):
+def _log_loxone_route_skip(name, uuid_str=""):
+    key = str(uuid_str or name or "")
+    now = time.time()
+    if now - float(loxone_route_skip_log.get(key, 0) or 0) < 60:
+        return
+    loxone_route_skip_log[key] = now
+    add_log_entry(f"Loxone->MQTT skipped, no active object route uuid={uuid_str or ''} name={name or ''}")
+
+
+def publish_value(config, name, value, uuid_str=""):
     global last_values, display_values, mqtt_client
 
     topic_settings = load_topic_config()
@@ -1635,9 +1716,17 @@ def publish_value(config, name, value):
     if custom_name:
         display_values[custom_name] = payload
 
-    # MQTT/Influx nur wenn aktiv
-    if settings.get("enabled", True) is False:
+    route = object_core_service.find_loxone_to_mqtt_route(
+        loxone_uuid=uuid_str,
+        loxone_io=name,
+        state_name=name,
+    )
+    if not route:
+        _log_loxone_route_skip(name, uuid_str)
         return
+
+    final_topic = route["mqtt_topic"]
+    retain = bool(route.get("retain", retain))
 
     # Change-only nur für echtes Senden
     if change_only and last_values.get(final_topic) == payload:
@@ -1653,7 +1742,7 @@ def publish_value(config, name, value):
 
     influx_service.write_to_influx(final_topic, payload, load_config, load_topic_config, add_log_entry)
 
-    add_log_entry(f"MQTT -> {final_topic} = {payload}")
+    add_log_entry(f"Loxone->MQTT object_id={route.get('object_id', '')} topic={final_topic} value={payload}")
     
 
 def get_influx_form_config(base_config=None):
@@ -1986,7 +2075,7 @@ async def bridge_async(config):
                 continue
 
             name = state_mapping[uuid_str]
-            publish_value(config, name, value)
+            publish_value(config, name, value, uuid_str)
 
     ws.add_message_callback(message_callback, [2, 3])
 
@@ -2188,7 +2277,7 @@ def render_layout(title, content, active="dashboard", subtitle="", message=""):
         APP_NAME,
         APP_SUBTITLE,
         APP_LEGACY_NAME,
-        APP_VERSION,
+        current_app_version(),
         False,
         build_sidebar_links_html(False),
     )
@@ -3447,6 +3536,43 @@ function setActive(el) {
     el.classList.add("active");
 }
 
+function setActiveByHref(targetHref) {
+    if (!targetHref) return;
+    const links = document.querySelectorAll(".mp-sidebar-nav a");
+    links.forEach(a => a.classList.remove("active"));
+    links.forEach(a => {
+        const href = a.getAttribute("href") || "";
+        if (href === targetHref || href.split("?")[0] === targetHref) {
+            a.classList.add("active");
+        }
+    });
+}
+
+function navigateContentFrame(url, activeHref) {
+    const frame = document.getElementById("contentFrame");
+    if (!frame || !url) return;
+    try {
+        const target = new URL(url, window.location.origin);
+        if (target.origin !== window.location.origin) return;
+        target.searchParams.set("_embed_ts", Date.now().toString());
+        frame.src = target.pathname + target.search + target.hash;
+        setActiveByHref(activeHref || target.pathname);
+    } catch(e) {
+        console.log(e);
+    }
+}
+
+window.addEventListener("message", ev => {
+    if (ev.origin !== window.location.origin) return;
+    const data = ev.data || {};
+    if (data.type === "mqtt2lox:navigateFrame") {
+        navigateContentFrame(data.url, data.activeHref);
+    } else if (data.type === "mqtt2lox:reloadFrame") {
+        const frame = document.getElementById("contentFrame");
+        if (frame) frame.contentWindow.location.reload();
+    }
+});
+
 function activateSearchNav() {
     const links = document.querySelectorAll(".mp-sidebar-nav a");
     links.forEach(a => a.classList.remove("active"));
@@ -3692,7 +3818,7 @@ def index(message=""):
         app_name=APP_NAME,
         app_subtitle=APP_SUBTITLE,
         app_legacy_name=APP_LEGACY_NAME,
-        app_version=APP_VERSION,
+        app_version=current_app_version(),
         status=runtime_context.bridge.status,
         sidebar_links_html=build_sidebar_links_html(True),
         active="dashboard",
@@ -3886,8 +4012,9 @@ def _topic_manager_2_collect_topics():
     """Collect Loxone state topics plus topic settings for Loxone Explorer."""
     config = load_config()
 
+    mapping_data = {}
     try:
-        load_mapping(config)
+        mapping_data = load_mapping(config) or {}
     except Exception as e:
         add_log_entry(f"Loxone Explorer Mapping Fehler: {e}")
 
@@ -3895,14 +4022,52 @@ def _topic_manager_2_collect_topics():
     topics = {}
 
     prefix = config.get("mqtt", {}).get("prefix", "loxone")
+    rooms = {}
+    raw_rooms = mapping_data.get("rooms", {}) if isinstance(mapping_data, dict) else {}
+    if isinstance(raw_rooms, dict):
+        for room_uuid, room in raw_rooms.items():
+            if isinstance(room, dict):
+                rooms[str(room_uuid)] = str(room.get("name", "") or "")
+
+    state_meta = {}
+
+    def collect_state_meta(controls):
+        if not isinstance(controls, dict):
+            return
+        for control_uuid, control in controls.items():
+            if not isinstance(control, dict):
+                continue
+            control_name = str(control.get("name", "") or control_uuid)
+            details = control.get("details", {}) if isinstance(control.get("details"), dict) else {}
+            room_id = str(control.get("room", "") or control.get("roomUuid", "") or "")
+            base_meta = {
+                "control_uuid": str(control_uuid),
+                "control_type": str(control.get("type", "") or control.get("cat", "") or ""),
+                "visu_name": control_name,
+                "room": rooms.get(room_id, room_id),
+                "unit": str(details.get("unit", "") or control.get("unit", "") or ""),
+            }
+            states = control.get("states", {}) if isinstance(control.get("states"), dict) else {}
+            for state_name, state_uuid in states.items():
+                state_meta[str(state_uuid)] = {**base_meta, "state_name": str(state_name)}
+            collect_state_meta(control.get("subControls", {}))
+
+    collect_state_meta(mapping_data.get("controls", {}) if isinstance(mapping_data, dict) else {})
 
     for uuid, name in state_mapping.items():
         topic = build_state_topic(prefix, name)
+        meta = state_meta.get(str(uuid), {})
         topics[topic] = {
             "topic": topic,
             "name": name,
             "uuid": uuid,
-            "source": "loxone_state"
+            "source": "loxone_state",
+            "io_address": name,
+            "control_uuid": meta.get("control_uuid", ""),
+            "control_type": meta.get("control_type", ""),
+            "visu_name": meta.get("visu_name", ""),
+            "room": meta.get("room", ""),
+            "unit": meta.get("unit", ""),
         }
 
     # Auch manuell konfigurierte Topics anzeigen, selbst wenn sie nicht mehr aus Loxone kommen.
@@ -3911,7 +4076,13 @@ def _topic_manager_2_collect_topics():
             "topic": topic,
             "name": topic,
             "uuid": "",
-            "source": "topic_config"
+            "source": "topic_config",
+            "io_address": topic,
+            "control_uuid": "",
+            "control_type": "",
+            "visu_name": "",
+            "room": "",
+            "unit": "",
         })
 
     result = []
@@ -3934,6 +4105,12 @@ def _topic_manager_2_collect_topics():
             "name": item.get("name", ""),
             "uuid": item.get("uuid", ""),
             "source": item.get("source", ""),
+            "io_address": item.get("io_address", ""),
+            "control_uuid": item.get("control_uuid", ""),
+            "control_type": item.get("control_type", ""),
+            "visu_name": item.get("visu_name", ""),
+            "room": item.get("room", ""),
+            "unit": item.get("unit", ""),
             "value": str(value),
             "enabled": bool(settings.get("enabled", True)),
             "writable": bool(settings.get("writable", False)),
@@ -4315,6 +4492,11 @@ function tm2Esc(v) {
     }[s]));
 }
 
+function tm2CssEscape(v) {
+    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(v ?? ""));
+    return String(v ?? "").replace(/["\\]/g, "\\$&");
+}
+
 function tm2BuildTree(list) {
     const root = {children:{}, item:null, key:""};
     for (const item of list) {
@@ -4367,8 +4549,9 @@ function tm2RenderNode(name, node, depth=0) {
     const rowClass = "tm2-node-row" + (selected ? " selected" : "");
     const nodeClass = "tm2-node" + (isLeaf ? " tm2-leaf" : "");
 
+    const rowDataTopic = isLeaf && node.item ? ` data-topic="${tm2Esc(node.item.topic)}"` : "";
     let html = `<div class="${nodeClass}">
-        <div class="${rowClass}" onclick="${isLeaf ? `tm2Select('${encodeURIComponent(node.item.topic)}')` : `tm2Toggle('${tm2Esc(node.key)}')`}">
+        <div class="${rowClass}"${rowDataTopic} onclick="${isLeaf ? `tm2Select('${encodeURIComponent(node.item.topic)}')` : `tm2Toggle('${tm2Esc(node.key)}')`}">
             <span class="tm2-caret">${hasChildren ? (collapsed ? "▸" : "▾") : "•"}</span>
             <span class="tm2-topic-label">${tm2Esc(name)}</span>
             <span class="tm2-badges">${tm2Badges(node.item)}</span>
@@ -4510,7 +4693,7 @@ function tm2RenderDetail(item) {
 
         <div class="tm2-actions">
             <button type="button" class="action-btn tm2-save" onclick="tm2SaveSelected()">Speichern</button>
-            <button type="button" class="action-btn object-main-btn" onclick="tm2CreateObjectSelected()">Objekt erstellen / verknüpfen</button>
+            <button type="button" class="action-btn object-main-btn" onclick="tm2CreateObjectSelected(this)">Objekt erstellen / verknüpfen</button>
             <button type="button" class="action-btn" onclick="tm2CopySelected()">Topic kopieren</button>
         </div>
 
@@ -4597,12 +4780,110 @@ function tm2GoMapping(baseUrl) {
     window.location.href = baseUrl + "?source_topic=" + encodeURIComponent(topic);
 }
 
-function tm2CreateObjectSelected() {
-    const topic = tm2CurrentTopicForAction();
-    if (!topic) return;
-    let name = topic.split('/').filter(Boolean).slice(-2).join(' ');
-    window.location.href = "/objects/edit/new?source=loxone&value=" + encodeURIComponent(topic) + "&name=" + encodeURIComponent(name);
+function tm2NavigateObjectManager(url) {
+    console.info("[LoxoneExplorerCreate] navigate", {
+        embedded: window.parent && window.parent !== window,
+        currentUrl: window.location.href,
+        targetUrl: url
+    });
+    window.location.href = url;
 }
+
+let tm2CreateObjectInProgress = false;
+let tm2CreateObjectLastSnapshot = null;
+
+function tm2ResetCreateObjectButton(btn) {
+    tm2CreateObjectInProgress = false;
+    tm2CreateObjectLastSnapshot = null;
+    if (!btn) return;
+    btn.disabled = false;
+    btn.textContent = "Objekt erstellen / verknüpfen";
+}
+
+function tm2SelectedSnapshot() {
+    if (!tm2Selected || !tm2Selected.topic) return null;
+    const fresh = tm2Find(tm2Selected.topic);
+    return fresh ? Object.assign({}, fresh) : null;
+}
+
+function tm2CreateObjectSelected(btn) {
+    if (tm2CreateObjectInProgress) return;
+    const item = tm2SelectedSnapshot();
+    const selectedRow = tm2Selected && tm2Selected.topic
+        ? document.querySelector(`.tm2-node-row.selected[data-topic="${tm2CssEscape(tm2Selected.topic)}"]`)
+        : null;
+    const input = document.getElementById("tm2Custom");
+    const custom = input ? input.value.trim() : (item && item.custom_name ? String(item.custom_name).trim() : "");
+    const topic = item ? (custom || item.topic || "") : "";
+    if (!topic) {
+        console.warn("[LoxoneExplorerCreate] stale-or-empty-selection", {
+            currentUrl: window.location.href,
+            selectedIsNull: tm2Selected === null,
+            selectedTopic: tm2Selected ? tm2Selected.topic : "",
+            selectedRow: selectedRow ? selectedRow.outerHTML : null,
+            topicsCount: tm2Topics.length
+        });
+        tm2ResetCreateObjectButton(btn || document.querySelector(".object-main-btn"));
+        return;
+    }
+    tm2CreateObjectInProgress = true;
+    const actionButton = btn || document.querySelector(".object-main-btn");
+    if (actionButton) {
+        actionButton.disabled = true;
+        actionButton.textContent = "Erstelle...";
+    }
+    let name = (item.visu_name || item.name || topic.split('/').filter(Boolean).slice(-2).join(' ')).trim();
+    const params = new URLSearchParams({
+        explorer: "loxone",
+        tab: "loxone",
+        name: name,
+        datatype: "auto",
+        value: item.value || "",
+        category: "Loxone",
+        room: item.room || "",
+        unit: item.unit || "",
+        loxone_uuid: item.uuid || item.control_uuid || "",
+        control_uuid: item.control_uuid || "",
+        loxone_io: item.io_address || topic,
+        control_type: item.control_type || "",
+        visu_name: item.visu_name || name
+    });
+    const targetUrl = "/objects_v33/create_from_explorer?" + params.toString();
+    tm2CreateObjectLastSnapshot = {
+        selectedRow: selectedRow ? selectedRow.outerHTML : null,
+        selectedUuid: item.uuid || item.control_uuid || "",
+        selectedObject: item,
+        targetUrl: targetUrl,
+        requestParams: Object.fromEntries(params.entries())
+    };
+    console.info("[LoxoneExplorerCreate] selected", {
+        embedded: window.parent && window.parent !== window,
+        currentUrl: window.location.href,
+        selectedIsNull: tm2Selected === null,
+        selectedRow: selectedRow ? selectedRow.outerHTML : null,
+        selectedTopic: topic,
+        selectedUuid: item.uuid || "",
+        selectedControlUuid: item.control_uuid || "",
+        selectedName: name,
+        selectedIo: item.io_address || topic,
+        selectedObject: item,
+        requestParams: Object.fromEntries(params.entries()),
+        targetUrl: targetUrl
+    });
+    try {
+        tm2NavigateObjectManager(targetUrl);
+    } catch(e) {
+        console.error("[LoxoneExplorerCreate] navigation-error", {
+            currentUrl: window.location.href,
+            targetUrl: targetUrl,
+            error: String(e)
+        });
+        tm2ResetCreateObjectButton(actionButton);
+        throw e;
+    }
+}
+
+window.addEventListener("pageshow", () => tm2ResetCreateObjectButton(document.querySelector(".object-main-btn")));
 
 
 function tm2SaveSelected() {
@@ -4803,6 +5084,7 @@ button, .button-link {
     <th>Schreibbar</th>
     <th>Influx</th>
     <th>Custom Topic</th>
+    <th>Objekt</th>
 </tr>
 </thead>
 <tbody>
@@ -4818,6 +5100,15 @@ button, .button-link {
         custom_name = settings.get("custom_name", "")
 
         safe_key = topic.replace("/", "_")
+        object_name = " ".join([part for part in str(name).split("/") if part]) or topic
+        object_url = (
+            "/objects_v33/create_from_explorer?explorer=loxone&tab=loxone"
+            + "&name=" + quote(object_name)
+            + "&datatype=auto&category=Loxone"
+            + "&loxone_uuid=" + quote(str(uuid))
+            + "&loxone_io=" + quote(str(name))
+            + "&visu_name=" + quote(object_name)
+        )
 
         try:
             last_value = display_values.get(custom_name if custom_name else topic, "")
@@ -4847,6 +5138,10 @@ button, .button-link {
 
     <td class="custom">
         <input type="text" name="custom_{idx}" value="{custom_name}">
+    </td>
+
+    <td class="check">
+        <a class="button-link" href="{object_url}">Objekt erstellen</a>
     </td>
 </tr>
 """
@@ -7747,11 +8042,30 @@ function sendToUdp2Mqtt() {
     window.location.href = "/udp2mqtt?mqtt_topic=" + encodeURIComponent(topic);
 }
 
+function navigateObjectManagerFromExplorer(url) {
+    if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+            type: "mqtt2lox:navigateFrame",
+            url: url,
+            activeHref: "/objects_v33"
+        }, window.location.origin);
+        return;
+    }
+    window.location.href = url;
+}
+
 function createObjectFromSelectedMqtt() {
     const topic = getSelectedTopic();
     if (!topic) return;
     let name = topic.split('/').filter(Boolean).slice(-2).join(' ');
-    window.location.href = "/objects/edit/new?source=mqtt&value=" + encodeURIComponent(topic) + "&name=" + encodeURIComponent(name);
+    const params = new URLSearchParams({
+        explorer: "mqtt",
+        tab: "mqtt",
+        name: name,
+        datatype: "auto",
+        topic: topic
+    });
+    navigateObjectManagerFromExplorer("/objects_v33/create_from_explorer?" + params.toString());
 }
 
 function sendJsonKeyToLox(jsonKey) {
@@ -10617,16 +10931,4 @@ def objects_delete_all():
 
 object_service.bind_context(sys.modules[__name__])
 object_service.normalize_knx_group_address = knx_service.normalize_knx_ga
-
-
-
-
-
-
-
-
-
-
-
-
 
