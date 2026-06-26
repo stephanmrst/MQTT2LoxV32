@@ -1,15 +1,21 @@
 # Migration
 
-## Aktueller Stand: 33.3.16
+## Aktueller Stand: 33.3.17
 
-Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.3.16 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
+Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.3.17 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
 - `app/main.py`
 - `app/__init__.py`
 - `app/engine/port.py`
 - `app/core.py`
 
-Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.3.16 verwendet fuer V33 nur noch eine kanonische Objektstruktur: Stammdaten auf Objektebene und Protokoll-Endpunkte als top-level Protokollbloecke wie `loxone`. Die produktive Objektquelle ist `config/objects.json`; `data/objects_v33.json` ist nur noch als deprecated Legacy-Snapshot markiert. Loxone-Explorer-Create ist anhand der Loxone-UUID idempotent und leitet nach Erfolg oder abgefangenem Fehler zur Objektmanager-Liste zurueck. Im eingebetteten Loxone Explorer nutzt der Create-Button denselben direkten `window.location.href`-Aufruf wie im separaten Fenster; die Shell-`postMessage`-Navigation wird fuer diesen Flow nicht verwendet. 33.3.16 stabilisiert nur den Frontend-State vor dem Create-Aufruf. Loxone-State-Erfassung bleibt aktiv, aber MQTT-Publishing ist an aktive Objektmanager-Routen `Loxone -> MQTT` gebunden. Delete im Objektmanager akzeptiert `id`, `uuid` und `key`, ist bei fehlenden Objekten tolerant und redirectet nach `/objects_v33` ohne geloeschte Auswahl. Die Sidebar-Versionsanzeige wird aus der zentralen `VERSION`-Datei gerendert.
+Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbindungsaufbau, Brokerliste, Monitor-State und Testverbindung liegen in `app/services/mqtt.py`. UDP Listener, UDP-Sendefunktionen, UDP-Presets und MQTT/UDP-Mapping-Hilfen liegen in `app/services/udp.py`. Objektmanager-Hilfsfunktionen liegen in `app/services/object.py`; der alte Objektmanager bleibt technisch auf `/objects` erreichbar und der neue Objektmanager V33 bleibt auf `/objects_v33` erreichbar. 33.3.17 verwendet fuer V33 nur noch eine kanonische Objektstruktur: Stammdaten auf Objektebene und Protokoll-Endpunkte als top-level Protokollbloecke wie `loxone`. Die produktive Objektquelle ist `config/objects.json`; `data/objects_v33.json` ist nur noch als deprecated Legacy-Snapshot markiert. Loxone-Explorer-Create ist anhand der Loxone-UUID idempotent und leitet nach Erfolg oder abgefangenem Fehler zur Objektmanager-Liste zurueck. Im eingebetteten Loxone Explorer nutzt der Create-Button denselben direkten `window.location.href`-Aufruf wie im separaten Fenster; die Shell-`postMessage`-Navigation wird fuer diesen Flow nicht verwendet. Loxone Explorer rendert wieder gueltiges JavaScript. Loxone-State-Erfassung bleibt aktiv, aber MQTT-Publishing ist an aktive Objektmanager-Routen `Loxone -> MQTT` gebunden. Delete im Objektmanager akzeptiert `id`, `uuid` und `key`, ist bei fehlenden Objekten tolerant und redirectet nach `/objects_v33` ohne geloeschte Auswahl. Die Sidebar-Versionsanzeige wird aus der zentralen `VERSION`-Datei gerendert.
+
+## Von 33.3.16 nach 33.3.17
+
+Keine manuelle Migration der bestehenden Mapping-Dateien erforderlich.
+
+Nur das gerenderte JavaScript im Loxone Explorer wurde korrigiert. Die Datenroute `/topics2/data`, Backend-Importlogik und Objektmanager-Speicherung bleiben unveraendert.
 
 ## Von 33.3.15 nach 33.3.16
 

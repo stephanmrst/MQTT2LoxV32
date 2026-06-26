@@ -1,1 +1,52 @@
-[]
+[
+  {
+    "id": "gesamtleistung_w",
+    "name": "Gesamtleistung(W)",
+    "datatype": "number",
+    "unit": "",
+    "enabled": true,
+    "created_at": "2026-06-26T21:15:20+00:00",
+    "updated_at": "2026-06-26T21:15:20+00:00",
+    "room": "Wertr von NodeRed",
+    "category": "Loxone",
+    "notes": "",
+    "loxone": {
+      "protocol": "loxone",
+      "enabled": true,
+      "direction": "both",
+      "datatype": "number",
+      "uuid": "1aa8b10d-03ad-20b2-ffffd50960771113",
+      "io_address": "Gesamtleistung(W)/value",
+      "control_type": "InfoOnlyAnalog",
+      "visu_name": "Gesamtleistung(W)",
+      "room": "Wertr von NodeRed",
+      "unit": ""
+    }
+  },
+  {
+    "id": "abend_zeiten_schlafzimmer",
+    "name": "Abend Zeiten Schlafzimmer1",
+    "datatype": "number",
+    "unit": "",
+    "enabled": true,
+    "created_at": "2026-06-26T21:15:52+00:00",
+    "updated_at": "2026-06-26T21:21:30+00:00",
+    "room": "Zentrale",
+    "category": "Loxone",
+    "notes": "",
+    "loxone": {
+      "protocol": "loxone",
+      "enabled": true,
+      "direction": "both",
+      "datatype": "number",
+      "uuid": "20c28ba2-0137-7ded-ffff3a7ddc35fca3",
+      "io_address": "Abend Zeiten Schlafzimmer/value",
+      "control_type": "Daytimer",
+      "visu_name": "Abend Zeiten Schlafzimmer",
+      "room": "Zentrale",
+      "unit": ""
+    },
+    "icon": "",
+    "scaling": ""
+  }
+]

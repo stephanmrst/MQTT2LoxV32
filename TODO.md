@@ -47,6 +47,7 @@
 - Embedded-Debug 33.3.14 pruefen: Standalone- und IFrame-Klick vergleichen; gesucht werden fehlende `uuid`, `name`, `loxone_io`, `topic` oder abweichende Ziel-URL.
 - Create-Failure-Logging 33.3.15 pruefen: direkt vor der Meldung muessen `CREATE OBJECT FAILED`, Request-Daten, JSON und `reason` im Log stehen.
 - Explorer-State-Fix 33.3.16 pruefen: mehrfache Create-Versuche ohne F5 behalten keine veraltete `tm2Selected`-Referenz und loggen die aktuelle `selectedRow`.
+- Loxone-Explorer-JS-Fix 33.3.17 pruefen: gerendertes `tm2CssEscape()` enthaelt kein kaputtes Regex-Literal und der Explorer zeigt wieder Topics.
 - `app/services/object_model.py` vorerst passiv lassen; keine Runtime-, UI-, Routen- oder Config-Verdrahtung ohne separate Migrationsphase.
 - Vor aktiver Objektmanager-2.0-Arbeit Smoke-Tests fuer bestehende Mappings, Objektmanager, Dashboard, MQTT, UDP, Loxone, KNX, Influx, Live Log, SSE, Bridge und internen Broker festlegen.
 - Read-only Analyse bestehender Mapping-Dateien als naechsten sicheren V33-Schritt planen.

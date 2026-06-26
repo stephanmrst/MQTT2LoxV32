@@ -4494,7 +4494,7 @@ function tm2Esc(v) {
 
 function tm2CssEscape(v) {
     if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(v ?? ""));
-    return String(v ?? "").replace(/["\\]/g, "\\$&");
+    return String(v ?? "").replaceAll(String.fromCharCode(92), String.fromCharCode(92, 92)).replaceAll(String.fromCharCode(34), String.fromCharCode(92, 34));
 }
 
 function tm2BuildTree(list) {

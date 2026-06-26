@@ -1,5 +1,13 @@
 # Changelog
 
+## 33.3.17
+
+- Loxone-Explorer-JavaScript-Escape in `tm2CssEscape()` repariert.
+- Fragiles Regex-Literal im Python-gerenderten Script durch robuste `replaceAll`-Fallback-Variante ersetzt.
+- `/topics2` rendert wieder gueltiges JavaScript, damit `tm2Reload(false)` ausgefuehrt werden kann.
+- Keine Backend- oder Importlogik geaendert.
+- Versionsstand auf `33.3.17` gesetzt.
+
 ## 33.3.16
 
 - Loxone-Explorer-Create nutzt beim Klick einen frischen Snapshot aus `tm2Topics` statt eine moeglicherweise veraltete `tm2Selected`-Objektreferenz.
