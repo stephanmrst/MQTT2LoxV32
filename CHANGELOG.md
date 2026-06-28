@@ -1,5 +1,41 @@
 # Changelog
 
+## 33.3.21
+
+- Objekt-Loeschen nach interner UUID-Umstellung repariert.
+- Delete-Button uebergibt die interne MP-Gateway Objekt-UUID aus `object.uuid`/`object.id`.
+- `delete_object()` entfernt Objekte nur noch anhand der gespeicherten `id` in `config/objects.json`; Name, Key, Slug und Legacy-IDs werden nicht mehr als Delete-Identitaet verwendet.
+- Delete-Route loggt `DELETE REQUEST uuid=... object found=... deleted=...`.
+- Nach Delete wird ohne 500 auf `/objects_v33` redirectet und die Objektliste neu geladen.
+- Versionsstand auf `33.3.21` gesetzt.
+
+## 33.3.20
+
+- Loxone-Explorer-Objektanlage stabilisiert.
+- Fehlermeldung `Objekt konnte nicht erstellt werden...` wird jetzt mit Request-Daten, ausgewaehlter UUID, Name, IO-Adresse, Explorer/Source und konkretem `reason` geloggt.
+- Loxone-Create prueft nur die erforderliche Loxone-UUID als Mindestfeld; Name, IO-Adresse, Control-Type, Raum und Einheit bleiben tolerant optional.
+- Route-Reload-Fehler nach erfolgreichem Speichern erzeugen keinen Create-Abbruch mehr, sondern werden nur geloggt.
+- Erfolgreiche Anlage redirectet weiter auf `/objects_v33?selected=<object_id>&tab=loxone`.
+- Versionsstand auf `33.3.20` gesetzt.
+
+## 33.3.19
+
+- Objektmanager um neuen Tab `Live` erweitert.
+- Live-Werte werden runtime-only im Prozesscache gefuehrt und nicht in `config/objects.json` gespeichert.
+- Objektliste zeigt pro Objekt aktuellen Wert und Quelle, aktualisiert per `/api/objects/live` ohne Seiten-Reload.
+- Neue Live-APIs ergaenzt: `GET /api/objects/live` und `GET /api/objects/<id>/live`.
+- Runtime-Ereignisse aus Loxone, MQTT, KNX und UDP koennen Live-Werte anhand der Objekt-Endpunkte zuordnen.
+- Versionsstand auf `33.3.19` gesetzt.
+
+## 33.3.18
+
+- Interne MP-Gateway Objekt-UUIDs auf echte stabile `obj_<uuid4hex>`-IDs umgestellt.
+- Neue Objekte leiten ihre Objekt-UUID nicht mehr aus Name, Key, Topic, Loxone-UUID oder anderen Adapterdaten ab.
+- Bestehende Slug-IDs in `config/objects.json` werden beim Laden einmalig migriert und als interne `legacy_ids` fuer alte Links/Referenzen erhalten.
+- Objektmanager-Kopf zeigt die Identitaet als `MP-Gateway Objekt-UUID`; Loxone-UUID bleibt ausschliesslich im Loxone-Tab.
+- Objekt-Update und -Delete akzeptieren weiterhin alte Slug-Referenzen, speichern aber nur die stabile interne Objekt-ID.
+- Versionsstand auf `33.3.18` gesetzt.
+
 ## 33.3.17
 
 - Loxone-Explorer-JavaScript-Escape in `tm2CssEscape()` repariert.

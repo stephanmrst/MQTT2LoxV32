@@ -128,6 +128,9 @@
     .card-top { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px; }
     .object-name { font-weight:900; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .object-meta { color:var(--muted); font-size:12px; margin:4px 0 9px; }
+    .object-live { display:flex; justify-content:space-between; gap:10px; color:#dce8f2; font-size:12px; margin:4px 0 9px; min-height:16px; }
+    .object-live-value { font-weight:900; color:#f2f7fb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .object-live-source { color:var(--muted); white-space:nowrap; }
     .badges { display:flex; gap:5px; flex-wrap:wrap; }
     .badge {
       display:inline-flex;
@@ -183,7 +186,8 @@
     #tab-udp:checked ~ .tab-labels label[for=tab-udp],
     #tab-knx:checked ~ .tab-labels label[for=tab-knx],
     #tab-influx:checked ~ .tab-labels label[for=tab-influx],
-    #tab-routing:checked ~ .tab-labels label[for=tab-routing] {
+    #tab-routing:checked ~ .tab-labels label[for=tab-routing],
+    #tab-live:checked ~ .tab-labels label[for=tab-live] {
       background:#223143;
       color:#fff;
       border-color:#4e657c;
@@ -195,8 +199,13 @@
     #tab-udp:checked ~ .panels .udp-panel,
     #tab-knx:checked ~ .panels .knx-panel,
     #tab-influx:checked ~ .panels .influx-panel,
-    #tab-routing:checked ~ .panels .routing-panel { display:block; }
+    #tab-routing:checked ~ .panels .routing-panel,
+    #tab-live:checked ~ .panels .live-panel { display:block; }
     .grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; }
+    .live-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; max-width:760px; }
+    .live-field { border:1px solid var(--border); background:#121920; border-radius:6px; padding:12px; min-height:68px; }
+    .live-label { color:var(--muted); font-size:12px; margin-bottom:7px; }
+    .live-value { font-weight:900; font-size:18px; overflow-wrap:anywhere; }
     .field { min-width:0; }
     .check { display:flex; gap:8px; align-items:center; margin-top:22px; }
     .check input { width:auto; }
@@ -253,7 +262,7 @@
       {% if objects %}
         {% for item in objects %}
           {% set protocols = adapter_protocols(item) %}
-          <a class="object-card {% if selected and item.uuid == selected.uuid %}selected{% endif %}" href="{{ url_for('objects_v33.objects_v33_index', selected=item.uuid, q=query, filter=active_filter) }}">
+          <a class="object-card {% if selected and item.uuid == selected.uuid %}selected{% endif %}" href="{{ url_for('objects_v33.objects_v33_index', selected=item.uuid, q=query, filter=active_filter) }}" data-object-id="{{ item.id }}">
             <div class="object-initial">{{ (item.name or item.key or item.id or '?')[:1]|upper }}</div>
             <div class="object-body">
               <div class="card-top">
@@ -263,6 +272,10 @@
                 <span class="badge {% if status == 'aktiv' %}route-active{% elif status == 'deaktiviert' %}route-disabled{% elif status == 'fehler' %}route-error{% else %}route-incomplete{% endif %}">{{ status }}</span>
               </div>
               <div class="object-name">{{ item.name or item.key or item.id }}</div>
+              <div class="object-live">
+                <span class="object-live-value" data-live-field="value">-</span>
+                <span class="object-live-source">Quelle: <span data-live-field="source">unbekannt</span></span>
+              </div>
               <div class="object-meta">{{ item.type or 'auto' }}{% if item.unit %} &middot; {{ item.unit }}{% endif %}</div>
               <div class="badges">
                 {% for protocol, label in [('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
@@ -297,7 +310,7 @@
         <div class="detail-head">
           <div>
             <h1>{{ object_def.name or 'Neues Objekt' }}</h1>
-            <div class="uuid">UUID: {{ object_def.uuid or 'wird beim Speichern erzeugt' }}</div>
+            <div class="uuid">MP-Gateway Objekt-UUID: {{ object_def.uuid or 'wird beim Speichern erzeugt' }}</div>
           </div>
           <div class="head-actions">
             <span class="badge {% if object_def.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if object_def.enabled else 'Inaktiv' }}</span>
@@ -322,6 +335,7 @@
           <input id="tab-knx" type="radio" name="tabs" {% if active_tab == 'knx' %}checked{% endif %}>
           <input id="tab-influx" type="radio" name="tabs" {% if active_tab == 'influx' %}checked{% endif %}>
           <input id="tab-routing" type="radio" name="tabs" {% if active_tab == 'routing' %}checked{% endif %}>
+          <input id="tab-live" type="radio" name="tabs" {% if active_tab == 'live' %}checked{% endif %}>
 
           <div class="tab-labels">
             <label for="tab-general">Allgemein</label>
@@ -331,6 +345,7 @@
             <label for="tab-knx">KNX</label>
             <label for="tab-influx">Influx</label>
             <label for="tab-routing">Routing</label>
+            <label for="tab-live">Live</label>
           </div>
 
           <div class="panels">
@@ -339,7 +354,6 @@
                 <input type="hidden" name="uuid" value="{{ object_def.uuid }}">
                 <div class="grid">
                   <div class="field"><label for="name">Name</label><input id="name" name="name" value="{{ object_def.name }}" required></div>
-                  <div class="field"><label for="key">Key</label><input id="key" name="key" value="{{ object_def.key or object_def.id }}" {% if object_def.id %}readonly{% endif %}></div>
                   <div class="field"><label for="datatype">Datentyp</label><input id="datatype" name="datatype" value="{{ object_def.datatype }}"></div>
                   <div class="field"><label for="category">Kategorie</label><input id="category" name="category" value="{{ object_def.category }}"></div>
                   <div class="field"><label for="room">Raum</label><input id="room" name="room" value="{{ object_def.room }}"></div>
@@ -399,6 +413,35 @@
                 </div>
               {% endif %}
             </div>
+
+            <div class="tab-panel live-panel">
+              <div class="live-grid" data-selected-live="{{ object_def.id }}">
+                <div class="live-field">
+                  <div class="live-label">Letzter Wert</div>
+                  <div class="live-value" id="objectLiveValue">-</div>
+                </div>
+                <div class="live-field">
+                  <div class="live-label">Einheit</div>
+                  <div class="live-value" id="objectLiveUnit">{{ object_def.unit or '-' }}</div>
+                </div>
+                <div class="live-field">
+                  <div class="live-label">Zeitstempel</div>
+                  <div class="live-value" id="objectLiveTimestamp">-</div>
+                </div>
+                <div class="live-field">
+                  <div class="live-label">Quelle / Adapter</div>
+                  <div class="live-value" id="objectLiveSource">unbekannt</div>
+                </div>
+                <div class="live-field">
+                  <div class="live-label">Letzte Ziel-Adapter</div>
+                  <div class="live-value" id="objectLiveTargets">-</div>
+                </div>
+                <div class="live-field">
+                  <div class="live-label">Status</div>
+                  <div class="live-value" id="objectLiveStatus">unbekannt</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -422,5 +465,59 @@ function submitObjectDelete(form) {
   }
   return true;
 }
+
+function formatObjectLiveValue(item) {
+  if (!item || item.value === null || item.value === undefined || item.value === "") return "-";
+  const unit = item.unit ? " " + item.unit : "";
+  return String(item.value) + unit;
+}
+
+function formatObjectLiveSource(source) {
+  const value = String(source || "unbekannt").toLowerCase();
+  if (value === "loxone") return "Loxone";
+  if (value === "mqtt") return "MQTT";
+  if (value === "knx") return "KNX";
+  if (value === "udp") return "UDP";
+  return "unbekannt";
+}
+
+function setObjectLiveText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+
+function applyObjectLiveData(items) {
+  const byId = new Map((items || []).map(item => [String(item.object_id || ""), item]));
+  document.querySelectorAll("[data-object-id]").forEach(card => {
+    const item = byId.get(String(card.getAttribute("data-object-id") || ""));
+    const valueEl = card.querySelector('[data-live-field="value"]');
+    const sourceEl = card.querySelector('[data-live-field="source"]');
+    if (valueEl) valueEl.textContent = formatObjectLiveValue(item);
+    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && item.source);
+  });
+  const selectedId = "{{ selected.id if selected else '' }}";
+  const selected = byId.get(String(selectedId || ""));
+  if (selected) {
+    setObjectLiveText("objectLiveValue", formatObjectLiveValue(selected));
+    setObjectLiveText("objectLiveUnit", selected.unit || "-");
+    setObjectLiveText("objectLiveTimestamp", selected.timestamp || "-");
+    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.source));
+    setObjectLiveText("objectLiveTargets", (selected.targets || []).length ? selected.targets.join(", ") : "-");
+    setObjectLiveText("objectLiveStatus", selected.status || "unbekannt");
+  }
+}
+
+async function refreshObjectLiveData() {
+  try {
+    const response = await fetch("/api/objects/live", {cache: "no-store"});
+    if (!response.ok) return;
+    const data = await response.json();
+    applyObjectLiveData(data.objects || []);
+  } catch (error) {
+  }
+}
+
+refreshObjectLiveData();
+setInterval(refreshObjectLiveData, 3000);
 </script>
 {% endblock %}

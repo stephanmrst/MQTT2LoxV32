@@ -322,11 +322,8 @@ def _object_payload_from_explorer() -> dict:
     )
     name = display_name or fallback_name or "Neues Objekt"
     datatype = _datatype_from_request()
-    requested_key = _request_first("key")
-    object_key = requested_key if requested_key and not _looks_like_uuid(requested_key) else _new_object_key(name)
-
     payload = {
-        "id": object_key,
+        "id": "",
         "name": name,
         "datatype": datatype,
         "category": _clean_prefill(request.args.get("category", "")),
@@ -353,6 +350,19 @@ def _object_payload_from_explorer() -> dict:
                 payload["category"] = "MQTT"
 
     return payload
+
+
+def _log_create_object_failed(reason: str, selected_uuid: str = "", selected_name: str = "", selected_io: str = "", explorer: str = "", source: str = ""):
+    current_app.logger.error("CREATE OBJECT FAILED")
+    current_app.logger.error(f"request.args={request.args}")
+    current_app.logger.error(f"request.form={request.form}")
+    current_app.logger.error(f"request.json={request.get_json(silent=True)}")
+    current_app.logger.error(f"selected_uuid={selected_uuid or ''}")
+    current_app.logger.error(f"selected_name={selected_name or ''}")
+    current_app.logger.error(f"selected_io_address={selected_io or ''}")
+    current_app.logger.error(f"explorer={explorer or ''}")
+    current_app.logger.error(f"source={source or ''}")
+    current_app.logger.error(f"reason={reason}")
 
 
 def _objects_index_redirect(object_id: str = "", tab: str = "general", notice: str = ""):
@@ -431,6 +441,7 @@ def objects_v33_create_from_explorer():
     tab = "loxone" if source == "loxone" else (_clean_prefill(request.args.get("tab", source or "general")) or "general")
     loxone_uuid = _request_first("loxone_uuid", "state_uuid", "uuid", "control_uuid")
     display_name = _clean_prefill(request.args.get("name", request.args.get("visu_name", ""))) or "Neues Objekt"
+    selected_io = _request_first("loxone_io", "io_address", "source_address", "path", "topic", "name")
     request_args = request.args.to_dict(flat=True)
     _log_explorer_debug(
         "request",
@@ -443,11 +454,29 @@ def objects_v33_create_from_explorer():
         selected_uuid=loxone_uuid,
         selected_name=display_name,
         selected_topic=_clean_prefill(request.args.get("topic", "")),
-        selected_io=_clean_prefill(request.args.get("loxone_io", request.args.get("io_address", ""))),
+        selected_io=selected_io,
     )
 
     try:
         with _EXPLORER_CREATE_LOCK:
+            if source == "loxone" and not loxone_uuid:
+                create_phase = "validate_minimum_loxone_payload"
+                reason = "missing required loxone uuid"
+                _log_create_object_failed(reason, loxone_uuid, display_name, selected_io, explorer, source)
+                notice = "Objekt konnte nicht erstellt werden. Bitte Auswahl pruefen und erneut versuchen."
+                _log_explorer_debug(
+                    "notice",
+                    generator="objects_v33_create_from_explorer",
+                    location=f"{__file__}:{inspect.currentframe().f_lineno if inspect.currentframe() else 'unknown'}",
+                    url=request.url,
+                    args=request_args,
+                    object_id="",
+                    error="",
+                    reason=reason,
+                    notice=notice,
+                )
+                return _objects_index_redirect("", tab, notice)
+
             create_phase = "find_existing_by_loxone_uuid"
             existing = _find_object_by_loxone_uuid(loxone_uuid) if source == "loxone" else None
             if existing is not None:
@@ -461,7 +490,13 @@ def objects_v33_create_from_explorer():
             create_phase = "create_object"
             object_def = object_service.create_object(payload)
             create_phase = "reload_object_routes"
-            _reload_object_routes()
+            if not _safe_reload_object_routes("create_from_explorer"):
+                current_app.logger.error(
+                    "Object Explorer Import route reload failed object_id=%s source=%s uuid=%s",
+                    object_def.id,
+                    source,
+                    loxone_uuid,
+                )
             _log_explorer_debug("created", args=request_args, object_id=object_def.id, payload=payload)
             _log_explorer_import(source, loxone_uuid, object_def.name or display_name, object_def.id, "created")
             return _objects_index_redirect(object_def.id, tab)
@@ -477,11 +512,7 @@ def objects_v33_create_from_explorer():
         frame = inspect.currentframe()
         notice_location = f"{__file__}:{(frame.f_lineno + 1) if frame else 'unknown'}"
         reason = f"exception during {locals().get('create_phase', 'unknown')}: {type(exc).__name__}: {exc}"
-        current_app.logger.error("CREATE OBJECT FAILED")
-        current_app.logger.error(f"request.args={request.args}")
-        current_app.logger.error(f"request.form={request.form}")
-        current_app.logger.error(f"json={request.get_json(silent=True)}")
-        current_app.logger.error(f"reason={reason}")
+        _log_create_object_failed(reason, loxone_uuid, display_name, selected_io, explorer, source)
         notice = "Objekt konnte nicht erstellt werden. Bitte Auswahl pruefen und erneut versuchen."
         _log_explorer_debug(
             "notice",
@@ -509,7 +540,7 @@ def objects_v33_edit(object_uuid):
 def objects_v33_save():
     object_uuid = request.form.get("uuid", "").strip()
     payload = {
-        "id": object_uuid or request.form.get("key", "").strip() or _new_object_key(request.form.get("name", "")),
+        "id": object_uuid,
         "name": request.form.get("name", "").strip(),
         "datatype": request.form.get("datatype", request.form.get("type", "auto")).strip(),
         "unit": request.form.get("unit", "").strip(),
@@ -542,20 +573,20 @@ def objects_v33_save():
 
 @bp.route("/objects_v33/delete/<object_uuid>", methods=["POST"])
 def objects_v33_delete(object_uuid):
-    object_id = _clean_prefill(object_uuid)
+    object_uuid = _clean_prefill(object_uuid)
     redirect_target = url_for("objects_v33.objects_v33_index")
     found = False
     deleted = False
     error = ""
 
     try:
-        found = object_service.get_object(object_id) is not None
+        found = object_service.get_object(object_uuid) is not None
     except Exception as exc:
         error = str(exc)
         current_app.logger.exception("Objektloeschen: Suche fehlgeschlagen")
 
     try:
-        deleted = object_service.delete_object(object_id)
+        deleted = object_service.delete_object(object_uuid)
     except Exception as exc:
         error = f"{error}; {exc}" if error else str(exc)
         current_app.logger.exception("Objektloeschen fehlgeschlagen")
@@ -564,7 +595,13 @@ def objects_v33_delete(object_uuid):
     if not reload_ok and not error:
         error = "route_reload_failed"
 
-    _log_object_delete(object_id, found, deleted, redirect_target, error)
+    current_app.logger.info(
+        "DELETE REQUEST uuid=%s object found=%s deleted=%s",
+        object_uuid,
+        str(bool(found)).lower(),
+        str(bool(deleted)).lower(),
+    )
+    _log_object_delete(object_uuid, found, deleted, redirect_target, error)
     return redirect(redirect_target)
 
 

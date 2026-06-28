@@ -226,6 +226,11 @@ def update_udp_last_seen(kind, key, value):
         if bucket is None:
             return {}
         bucket[key] = dict(value or {})
+        if kind == "udp2mqtt":
+            try:
+                object_core_service.record_live_value("udp", (value or {}).get("value"), (value or {}).get("timestamp", ""), udp_topic=key)
+            except Exception:
+                pass
         return bucket[key]
 
 
@@ -413,6 +418,10 @@ def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
     add_knx_monitor_log_entry(entry)
     if ga:
         set_knx_monitor_value(ga, entry)
+        try:
+            object_core_service.record_live_value("knx", entry.get("value", value), group_address=ga)
+        except Exception:
+            pass
         write_knx_monitor_influx(ga, entry.get("value", value), entry.get("dpt", dpt), entry.get("direction", direction))
     bump_sse("knx")
 
@@ -1715,6 +1724,10 @@ def publish_value(config, name, value, uuid_str=""):
     display_values[default_topic] = payload
     if custom_name:
         display_values[custom_name] = payload
+    try:
+        object_core_service.record_live_value("loxone", payload, loxone_uuid=uuid_str, loxone_io=name, name=name)
+    except Exception:
+        pass
 
     route = object_core_service.find_loxone_to_mqtt_route(
         loxone_uuid=uuid_str,
@@ -1964,6 +1977,10 @@ async def bridge_async(config):
 
             monitor_entry = mqtt_module.record_mqtt_message(broker_name, msg.topic, payload)
             set_mqtt_monitor_value(f"{broker_name}::{msg.topic}", monitor_entry)
+            try:
+                object_core_service.record_live_value("mqtt", payload, topic=msg.topic)
+            except Exception:
+                pass
             bump_sse("mqtt")
 
             # MQTT Explorer -> Influx: direkte Topics und aktivierte JSON-Keys schreiben.
@@ -10931,4 +10948,3 @@ def objects_delete_all():
 
 object_service.bind_context(sys.modules[__name__])
 object_service.normalize_knx_group_address = knx_service.normalize_knx_ga
-

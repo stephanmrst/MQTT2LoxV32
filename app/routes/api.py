@@ -24,6 +24,31 @@ def _reload_object_routes():
         core.reload_object_routes()
 
 
+def _sync_object_live_from_core():
+    try:
+        core = _core()
+    except Exception:
+        return
+    try:
+        for info in getattr(core, "get_mqtt_monitor_values", lambda: {})().values():
+            if isinstance(info, dict):
+                object_service.record_live_value("mqtt", info.get("payload"), topic=info.get("topic", ""), timestamp=info.get("timestamp", info.get("time", "")))
+    except Exception:
+        current_app.logger.exception("Object live MQTT sync failed")
+    try:
+        for ga, info in getattr(core, "get_knx_monitor_values", lambda: {})().items():
+            if isinstance(info, dict):
+                object_service.record_live_value("knx", info.get("value"), group_address=info.get("ga", ga), timestamp=info.get("timestamp", info.get("time", "")))
+    except Exception:
+        current_app.logger.exception("Object live KNX sync failed")
+    try:
+        for topic, info in getattr(core, "get_udp_last_seen", lambda kind: {})("udp2mqtt").items():
+            if isinstance(info, dict):
+                object_service.record_live_value("udp", info.get("value"), udp_topic=topic, timestamp=info.get("timestamp", info.get("time", "")))
+    except Exception:
+        current_app.logger.exception("Object live UDP sync failed")
+
+
 @bp.route("/global_search")
 def global_search():
     return _core().global_search()
@@ -56,6 +81,21 @@ def api_objects_get(object_id):
     if item is None:
         return jsonify({"success": False, "error": "object_not_found"}), 404
     return jsonify(object_service.serialize_object(item))
+
+
+@bp.route("/api/objects/live")
+def api_objects_live():
+    _sync_object_live_from_core()
+    return jsonify({"objects": object_service.list_object_live_status()})
+
+
+@bp.route("/api/objects/<object_id>/live")
+def api_objects_live_get(object_id):
+    _sync_object_live_from_core()
+    live = object_service.get_object_live_status(object_id)
+    if live is None:
+        return jsonify({"success": False, "error": "object_not_found"}), 404
+    return jsonify(live)
 
 
 @bp.route("/api/objects", methods=["POST"])

@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +43,7 @@ CORE_FIELDS = {
     "created_at",
     "updated_at",
 }
-META_FIELDS = {"room", "category", "notes", "icon", "scaling"}
+META_FIELDS = {"room", "category", "notes", "icon", "scaling", "legacy_ids"}
 LEGACY_FIELDS = {
     "source_type",
     "source_address",
@@ -70,6 +72,74 @@ SUPPORTED_ROUTE_PAIRS = {
     ("udp", "knx"),
     ("udp", "influx"),
 }
+INTERNAL_OBJECT_ID_RE = re.compile(r"(?:obj_[0-9a-f]{32}|[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.IGNORECASE)
+OBJECT_LIVE_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def is_internal_object_id(value: Any) -> bool:
+    return bool(INTERNAL_OBJECT_ID_RE.fullmatch(str(value or "").strip()))
+
+
+def _new_unique_object_id(existing_ids: set[str] | None = None) -> str:
+    existing_ids = {str(value or "").strip() for value in (existing_ids or set())}
+    object_id = new_object_id()
+    while object_id in existing_ids:
+        object_id = new_object_id()
+    return object_id
+
+
+def _legacy_ids_from_data(data: dict[str, Any], previous_id: str = "") -> list[str]:
+    values = []
+    raw = data.get("legacy_ids", [])
+    if isinstance(raw, str):
+        values.extend(part.strip() for part in raw.split(","))
+    elif isinstance(raw, list):
+        values.extend(str(part or "").strip() for part in raw)
+    for key in ("key", "uuid"):
+        values.append(str(data.get(key, "") or "").strip())
+    if previous_id:
+        values.append(str(previous_id or "").strip())
+    result = []
+    for value in values:
+        if value and value not in result and not is_internal_object_id(value):
+            result.append(value)
+    return result
+
+
+def _identity_values(item: GatewayObject) -> set[str]:
+    values = {str(item.id or "").strip(), str(item.uuid or "").strip(), str(item.key or "").strip()}
+    raw = item.meta.get("legacy_ids", [])
+    if isinstance(raw, str):
+        values.update(part.strip() for part in raw.split(","))
+    elif isinstance(raw, list):
+        values.update(str(part or "").strip() for part in raw)
+    return {value for value in values if value}
+
+
+def _now_live_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _migrate_raw_object_ids(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    existing_ids = {str(item.get("id", "") or "").strip() for item in items if is_internal_object_id(item.get("id", ""))}
+    changed = False
+    migrated = []
+    for item in items:
+        current = dict(item)
+        current_id = str(current.get("id", "") or "").strip()
+        if not is_internal_object_id(current_id):
+            previous_id = current_id or str(current.get("uuid", "") or current.get("key", "") or "").strip()
+            new_id = _new_unique_object_id(existing_ids)
+            existing_ids.add(new_id)
+            current["id"] = new_id
+            legacy_ids = _legacy_ids_from_data(current, previous_id)
+            if legacy_ids:
+                current["legacy_ids"] = legacy_ids
+            current.pop("key", None)
+            changed = True
+            LOGGER.info("Objekt-ID migriert old_id=%s new_id=%s", previous_id, new_id)
+        migrated.append(current)
+    return migrated, changed
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -100,7 +170,11 @@ def _read_raw() -> list[dict[str, Any]]:
     if not isinstance(items, list):
         LOGGER.warning("objects.json enthaelt keine Liste")
         return []
-    return [item for item in items if isinstance(item, dict)]
+    clean_items = [item for item in items if isinstance(item, dict)]
+    migrated_items, migrated = _migrate_raw_object_ids(clean_items)
+    if migrated:
+        _write_raw(migrated_items)
+    return migrated_items
 
 
 def _write_raw(items: list[dict[str, Any]]) -> None:
@@ -219,7 +293,9 @@ def _legacy_adapter_payload(protocol: str, address: str, datatype: str, directio
 def _object_from_dict(data: dict[str, Any]) -> GatewayObject:
     source_type, source_address = _source_from_legacy(data)
     now = utc_now_iso()
-    object_id = str(data.get("id", "") or data.get("uuid", "") or data.get("key", "") or "").strip() or new_object_id()
+    object_id = str(data.get("id", "") or "").strip()
+    if not is_internal_object_id(object_id):
+        object_id = new_object_id()
     name = str(data.get("name", "") or "").strip() or object_name_from_address(source_address)
     datatype = str(data.get("datatype", data.get("type", "auto")) or "auto").strip() or "auto"
     meta = {key: data.get(key, "") for key in META_FIELDS if key in data}
@@ -246,6 +322,10 @@ def _payload_from_data(data: dict[str, Any], existing: GatewayObject | None = No
     name = str(data.get("name", existing.name if existing else "") or "").strip() or object_name_from_address(source_address)
     datatype = str(data.get("datatype", data.get("type", existing.datatype if existing else "auto")) or "auto").strip() or "auto"
     meta = dict(existing.meta) if existing else {}
+    if not existing:
+        legacy_ids = _legacy_ids_from_data(data, str(data.get("id", "") or "").strip())
+        if legacy_ids:
+            meta["legacy_ids"] = legacy_ids
     protocol_keys = tuple(ADAPTER_TYPES.keys())
     if any(key in data for key in ("adapters", "protocols", "source_type", "source_address", "target_type", "target_address", "mqtt_topic", "knx_ga", "loxone_topic", "udp_topic", "influx_topic", *protocol_keys)):
         meta["adapters"] = _normalize_adapters(data, datatype, existing)
@@ -253,7 +333,7 @@ def _payload_from_data(data: dict[str, Any], existing: GatewayObject | None = No
         if key in data:
             meta[key] = data.get(key, "")
     return GatewayObject(
-        id=str(data.get("id", existing.id if existing else "") or "").strip() or new_object_id(),
+        id=existing.id if existing else (str(data.get("id", "") or "").strip() if is_internal_object_id(data.get("id", "")) else new_object_id()),
         name=name,
         datatype=datatype,
         unit=str(data.get("unit", existing.unit if existing else "") or "").strip(),
@@ -283,7 +363,7 @@ def get_object(object_id: str) -> GatewayObject | None:
     if not needle:
         return None
     for item in list_objects():
-        if needle in {str(item.id or ""), str(item.uuid or ""), str(item.key or "")}:
+        if needle in _identity_values(item):
             return item
     return None
 
@@ -293,7 +373,7 @@ def create_object(data: dict[str, Any]) -> GatewayObject:
     item = _payload_from_data(dict(data or {}))
     existing_ids = {obj.id for obj in objects}
     while item.id in existing_ids:
-        item.id = new_object_id()
+        item.id = _new_unique_object_id(existing_ids)
     objects.append(item)
     _write_raw([_object_to_dict(obj) for obj in objects])
     return item
@@ -302,7 +382,7 @@ def create_object(data: dict[str, Any]) -> GatewayObject:
 def update_object(object_id: str, data: dict[str, Any]) -> GatewayObject | None:
     objects = list_objects()
     for index, current in enumerate(objects):
-        if current.id == str(object_id or "").strip():
+        if str(object_id or "").strip() in _identity_values(current):
             payload = dict(data or {})
             payload["id"] = current.id
             objects[index] = _payload_from_data(payload, current)
@@ -319,12 +399,7 @@ def delete_object(object_id: str) -> bool:
     remaining = []
     deleted = False
     for item in raw_objects:
-        identities = {
-            str(item.get("id", "") or "").strip(),
-            str(item.get("uuid", "") or "").strip(),
-            str(item.get("key", "") or "").strip(),
-        }
-        if needle in identities:
+        if needle == str(item.get("id", "") or "").strip():
             deleted = True
             continue
         remaining.append(item)
@@ -343,6 +418,98 @@ def serialize_object(item: GatewayObject) -> dict[str, Any]:
     payload["route_status"] = get_object_route_status(item)
     payload["route_report"] = get_object_route_report(item)
     return payload
+
+
+def _live_empty(item: GatewayObject | None, object_id: str = "") -> dict[str, Any]:
+    resolved_id = str(getattr(item, "id", "") or object_id or "").strip()
+    return {
+        "object_id": resolved_id,
+        "value": None,
+        "unit": str(getattr(item, "unit", "") or ""),
+        "source": "unbekannt",
+        "timestamp": "",
+        "targets": [],
+        "status": "unbekannt",
+    }
+
+
+def _live_targets(item: GatewayObject, source: str) -> list[str]:
+    source = str(source or "").strip().lower()
+    targets = []
+    for protocol, adapter in _adapter_map(item).items():
+        if protocol == source:
+            continue
+        if _is_enabled_adapter(adapter):
+            targets.append(protocol)
+    return sorted(set(targets))
+
+
+def _live_unit(item: GatewayObject, source: str = "") -> str:
+    unit = str(getattr(item, "unit", "") or "").strip()
+    if unit:
+        return unit
+    adapter = _adapter_map(item).get(str(source or "").strip().lower())
+    return _adapter_value(adapter, "unit") if adapter else ""
+
+
+def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: Any) -> bool:
+    source = str(source or "").strip().lower()
+    adapters = _adapter_map(item)
+    adapter = adapters.get(source)
+    if not adapter:
+        return False
+    if source == "mqtt":
+        topic = _normalize_match_value(endpoint.get("topic"))
+        return bool(topic and _normalize_match_value(_adapter_value(adapter, "topic")) == topic)
+    if source == "loxone":
+        uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid"))
+        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("name"))
+        adapter_uuid = _normalize_uuid_value(_adapter_value(adapter, "uuid"))
+        adapter_io = _normalize_match_value(_adapter_value(adapter, "io_address"))
+        return bool((uuid_value and adapter_uuid and uuid_value == adapter_uuid) or (io_value and adapter_io and io_value == adapter_io))
+    if source == "knx":
+        ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
+        return bool(ga and _normalize_match_value(_adapter_value(adapter, "group_address")) == ga)
+    if source == "udp":
+        topic = _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
+        return bool(topic and _normalize_match_value(_adapter_value(adapter, "format")) == topic)
+    return False
+
+
+def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: Any) -> list[dict[str, Any]]:
+    """Record a runtime-only live value for all objects matching the source endpoint."""
+    source = str(source or "").strip().lower() or "unbekannt"
+    timestamp = str(timestamp or "").strip() or _now_live_iso()
+    updates = []
+    for item in list_objects():
+        if not _object_matches_live_source(item, source, **endpoint):
+            continue
+        payload = {
+            "object_id": item.id,
+            "value": value,
+            "unit": _live_unit(item, source),
+            "source": source,
+            "timestamp": timestamp,
+            "targets": _live_targets(item, source),
+            "status": "online",
+        }
+        OBJECT_LIVE_CACHE[item.id] = payload
+        updates.append(dict(payload))
+    return updates
+
+
+def get_object_live_status(object_id: str) -> dict[str, Any] | None:
+    item = get_object(object_id)
+    if item is None:
+        return None
+    return dict(OBJECT_LIVE_CACHE.get(item.id) or _live_empty(item))
+
+
+def list_object_live_status() -> list[dict[str, Any]]:
+    result = []
+    for item in list_objects():
+        result.append(dict(OBJECT_LIVE_CACHE.get(item.id) or _live_empty(item)))
+    return result
 
 
 def _adapter_map(item: GatewayObject) -> dict[str, Any]:
