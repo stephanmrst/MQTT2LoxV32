@@ -62,6 +62,120 @@ def influx_format_field_value(value, value_type="auto"):
         return f'"{influx_escape_string_field(value)}"'
 
 
+def influx_object_field_value(value, datatype="auto"):
+    mode = str(datatype or "auto").strip().lower()
+    if isinstance(value, bool):
+        return "1" if value else "0", ""
+
+    text = str(value if value is not None else "").strip()
+    low = text.lower()
+    if low in ["true", "false", "on", "off", "yes", "no", "ja", "nein", "ein", "aus", "open", "closed", "auf", "zu", "active", "inactive", "aktiv", "inaktiv"]:
+        try:
+            return str(influx_bool_to_01(text)), ""
+        except Exception:
+            pass
+
+    try:
+        return str(float(value)), ""
+    except Exception:
+        pass
+
+    if mode in {"text", "string", "str"}:
+        return f'"{influx_escape_string_field(value)}"', ""
+    return "", "non_numeric_value"
+
+
+def influx_parse_object_tags(tags, object_id="", source="", unit=""):
+    result = {}
+    for raw in str(tags or "").split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        if "=" in token:
+            key, value = token.split("=", 1)
+            key = key.strip()
+            if key:
+                result[key] = value.strip()
+            continue
+        if token == "object_id" and object_id:
+            result["object_id"] = object_id
+        elif token == "source" and source:
+            result["source"] = source
+        elif token == "unit" and unit:
+            result["unit"] = unit
+    return result
+
+
+def write_object_value(influx_adapter, value, load_config, add_log_entry, object_id="", source="", unit="", requests_module=requests):
+    config = load_config()
+    influx = dict(config.get("influx", {}) or {})
+    if not influx.get("enabled", False):
+        return False, "disabled", "", ""
+
+    bucket = str(getattr(influx_adapter, "bucket", "") or influx.get("bucket", "") or "").strip()
+    measurement = str(getattr(influx_adapter, "measurement", "") or influx.get("measurement", "loxone") or "loxone").strip()
+    field = str(getattr(influx_adapter, "field", "") or "value").strip() or "value"
+    topic = str(getattr(influx_adapter, "topic", "") or measurement or "").strip()
+    datatype = str(getattr(influx_adapter, "datatype", "") or "auto").strip() or "auto"
+    tags = influx_parse_object_tags(getattr(influx_adapter, "tags", ""), object_id=object_id, source=source, unit=unit)
+    if topic:
+        tags["topic"] = topic
+
+    field_value, error = influx_object_field_value(value, datatype)
+    if error:
+        return False, error, bucket, topic
+
+    version = str(influx.get("version", "2") or "2")
+    measurement_key = influx_escape_measurement(measurement)
+    tag_parts = [f"{influx_escape_tag(key)}={influx_escape_tag(val)}" for key, val in sorted(tags.items()) if str(val or "").strip()]
+    tag_suffix = "," + ",".join(tag_parts) if tag_parts else ""
+    line = f"{measurement_key}{tag_suffix} {influx_escape_field_key(field)}={field_value}"
+
+    try:
+        if version == "2":
+            host = str(influx.get("host", "")).strip()
+            port = int(influx.get("port", 8086))
+            org = str(influx.get("org", "")).strip()
+            token = str(influx.get("token", "")).strip()
+            if not host:
+                return False, "Host fehlt", bucket, topic
+            if not bucket:
+                return False, "Bucket fehlt", bucket, topic
+            if not org:
+                return False, "Organisation fehlt", bucket, topic
+            if not token:
+                return False, "Token fehlt", bucket, topic
+            url = (
+                f"http://{host}:{port}/api/v2/write"
+                f"?org={quote(org, safe='')}"
+                f"&bucket={quote(bucket, safe='')}"
+                f"&precision=s"
+            )
+            headers = {"Authorization": f"Token {token}", "Content-Type": "text/plain; charset=utf-8"}
+            response = requests_module.post(url, headers=headers, data=line.encode("utf-8"), timeout=5)
+            if response.status_code == 204:
+                return True, "ok", bucket, topic
+            return False, f"HTTP {response.status_code}: {(response.text or '').strip()}", bucket, topic
+
+        host = str(influx.get("host", "")).strip()
+        port = int(influx.get("port", 8086))
+        database = str(influx.get("database", "") or bucket or "").strip()
+        user = str(influx.get("user", "")).strip()
+        password = str(influx.get("password", ""))
+        if not host:
+            return False, "Host fehlt", database, topic
+        if not database:
+            return False, "Datenbank fehlt", database, topic
+        url = f"http://{host}:{port}/write?db={quote(database, safe='')}&precision=s"
+        auth = (user, password) if user or password else None
+        response = requests_module.post(url, data=line.encode("utf-8"), auth=auth, timeout=5)
+        if response.status_code in (200, 204):
+            return True, "ok", database, topic
+        return False, f"HTTP {response.status_code}: {(response.text or '').strip()}", database, topic
+    except Exception as exc:
+        return False, str(exc), bucket, topic
+
+
 def influx_v2_write(influx, topic, value, test=False, field_key_name="value", value_type="auto", requests_module=requests):
     host = str(influx.get("host", "")).strip()
     port = int(influx.get("port", 8086))

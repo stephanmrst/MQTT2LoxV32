@@ -108,8 +108,10 @@ class KNXAdapter(BaseAdapter):
 @dataclass
 class InfluxAdapter(BaseAdapter):
     protocol: ClassVar[str] = "influx"
+    bucket: str = ""
     measurement: str = ""
     field: str = ""
+    topic: str = ""
     tags: str = ""
 
 

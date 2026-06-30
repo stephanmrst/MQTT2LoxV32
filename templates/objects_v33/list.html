@@ -580,16 +580,17 @@ function applyObjectLiveData(items) {
     const valueEl = card.querySelector('[data-live-field="value"]');
     const sourceEl = card.querySelector('[data-live-field="source"]');
     if (valueEl) valueEl.textContent = formatObjectLiveValue(item);
-    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && item.source);
+    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && (item.original_source || item.source));
   });
   const selected = byId.get(String(selectedObjectId || ""));
   if (selected) {
     setObjectLiveText("objectLiveValue", formatObjectLiveValue(selected));
     setObjectLiveText("objectLiveUnit", selected.unit || "-");
     setObjectLiveText("objectLiveTimestamp", selected.timestamp || "-");
-    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.source));
+    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.original_source || selected.source));
     setObjectLiveText("objectLiveEndpoint", formatObjectLiveEndpoint(selected));
-    setObjectLiveText("objectLiveTargets", (selected.targets || []).length ? selected.targets.join(", ") : "-");
+    const targetAdapters = (selected.last_target_adapters || []).length ? selected.last_target_adapters : (selected.targets || []);
+    setObjectLiveText("objectLiveTargets", targetAdapters.length ? targetAdapters.join(", ") : "-");
     setObjectLiveText("objectLiveStatus", selected.status || "unbekannt");
   }
 }

@@ -245,6 +245,13 @@ def _ensure_known_adapters(object_def):
         adapter = adapters.get(protocol)
         if adapter is None:
             adapter = ADAPTER_TYPES[protocol](enabled=False)
+        if protocol == "influx":
+            if not str(getattr(adapter, "measurement", "") or "").strip():
+                adapter.measurement = object_service._default_influx_measurement(getattr(object_def, "name", "") or "")
+            if not str(getattr(adapter, "field", "") or "").strip():
+                adapter.field = "value"
+            if not str(getattr(adapter, "topic", "") or "").strip():
+                adapter.topic = object_service._default_influx_topic(getattr(object_def, "name", "") or "")
         result.append(adapter)
     return result
 
@@ -264,6 +271,8 @@ def _adapter_for_core_fields(protocol, address, datatype="auto", enabled=True, d
         kwargs["udp_topic"] = address
     elif protocol == "influx":
         kwargs["measurement"] = address
+        kwargs["field"] = "value"
+        kwargs["topic"] = address
     return adapter_cls(**kwargs)
 
 

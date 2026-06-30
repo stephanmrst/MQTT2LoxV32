@@ -82,6 +82,8 @@ SUPPORTED_ROUTE_PAIRS = {
     ("mqtt", "udp"),
     ("mqtt", "influx"),
     ("loxone", "mqtt"),
+    ("loxone", "udp"),
+    ("loxone", "influx"),
     ("knx", "mqtt"),
     ("knx", "loxone"),
     ("knx", "influx"),
@@ -89,6 +91,7 @@ SUPPORTED_ROUTE_PAIRS = {
     ("udp", "knx"),
     ("udp", "influx"),
 }
+ROUTE_SOURCE_PRIORITY = ("loxone", "mqtt", "udp", "knx")
 INTERNAL_OBJECT_ID_RE = re.compile(r"(?:obj_[0-9a-f]{32}|[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.IGNORECASE)
 OBJECT_LIVE_CACHE: dict[str, dict[str, Any]] = {}
 
@@ -333,6 +336,38 @@ def _apply_udp_default_topic(item: GatewayObject, create_missing: bool = False) 
     item.adapters = [adapters[protocol] for protocol in ("mqtt", "udp", "knx", "loxone", "influx") if protocol in adapters]
 
 
+def _default_influx_measurement(name: str) -> str:
+    value = re.sub(r"\s+", "_", str(name or "").strip())
+    value = re.sub(r"[^0-9A-Za-z_().-]+", "_", value).strip("_")
+    return value or "object_value"
+
+
+def _default_influx_topic(name: str) -> str:
+    value = str(name or "").strip()
+    return f"{value}/value" if value else "object/value"
+
+
+def _apply_influx_defaults(item: GatewayObject, create_missing: bool = False) -> None:
+    adapters = {}
+    for adapter in item.adapters:
+        protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
+        if protocol:
+            adapters[protocol] = adapter
+    influx_adapter = adapters.get("influx")
+    if influx_adapter is None:
+        if not create_missing:
+            return
+        influx_adapter = ADAPTER_TYPES["influx"](enabled=False, direction="out", datatype=item.datatype or "auto")
+    if not str(getattr(influx_adapter, "measurement", "") or "").strip():
+        influx_adapter.measurement = _default_influx_measurement(item.name)
+    if not str(getattr(influx_adapter, "field", "") or "").strip():
+        influx_adapter.field = "value"
+    if not str(getattr(influx_adapter, "topic", "") or "").strip():
+        influx_adapter.topic = _default_influx_topic(item.name)
+    adapters["influx"] = influx_adapter
+    item.adapters = [adapters[protocol] for protocol in ("mqtt", "udp", "knx", "loxone", "influx") if protocol in adapters]
+
+
 def _normalize_adapters(data: dict[str, Any], datatype: str, existing: GatewayObject | None = None) -> dict[str, dict[str, Any]]:
     adapters: dict[str, dict[str, Any]] = {}
     if existing:
@@ -563,6 +598,7 @@ def create_object(data: dict[str, Any]) -> GatewayObject:
         objects = [_object_from_dict(item) for item in _read_raw()]
         item = _payload_from_data(dict(data or {}))
         _apply_udp_default_topic(item, create_missing=True)
+        _apply_influx_defaults(item, create_missing=True)
         existing_ids = {obj.id for obj in objects}
         while item.id in existing_ids:
             item.id = _new_unique_object_id(existing_ids)
@@ -582,6 +618,7 @@ def update_object(object_id: str, data: dict[str, Any]) -> GatewayObject | None:
                 payload["id"] = current.id
                 objects[index] = _payload_from_data(payload, current)
                 _apply_udp_default_topic(objects[index], create_missing=False)
+                _apply_influx_defaults(objects[index], create_missing=False)
                 _write_raw([_object_to_dict(obj) for obj in objects])
                 clear_object_runtime_state()
                 updated = objects[index]
@@ -665,10 +702,13 @@ def _live_empty(item: GatewayObject | None, object_id: str = "") -> dict[str, An
         "value": None,
         "unit": str(getattr(item, "unit", "") or ""),
         "source": "unbekannt",
+        "original_source": "unbekannt",
         "source_address": "",
         "recognized_endpoint": "",
         "timestamp": "",
         "targets": [],
+        "last_target_adapter": "",
+        "last_target_adapters": [],
         "status": "unbekannt",
     }
 
@@ -774,11 +814,14 @@ def _live_debug_snapshot(item: GatewayObject) -> dict[str, Any]:
 
 def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: Any) -> list[dict[str, Any]]:
     """Record a runtime-only live value for all objects matching the source endpoint."""
-    source = str(source or "").strip().lower() or "unbekannt"
+    incoming_source = str(source or "").strip().lower() or "unbekannt"
+    original_source = str(endpoint.get("original_source") or incoming_source or "").strip().lower() or "unbekannt"
+    target_adapter = str(endpoint.get("target_adapter") or "").strip().lower()
+    ignored_echo = bool(endpoint.get("ignored_echo", False))
     timestamp = str(timestamp or "").strip() or _now_live_iso()
     updates = []
     index = _get_object_endpoint_index()
-    lookup_candidates = _live_lookup_candidates(source, **endpoint)
+    lookup_candidates = _live_lookup_candidates(incoming_source, **endpoint)
     matched_items: list[tuple[GatewayObject, str, str]] = []
     seen_ids = set()
     for key, raw_value, endpoint_name in lookup_candidates:
@@ -791,24 +834,62 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
             seen_ids.add(item.id)
             matched_items.append((item, raw_value, endpoint_name))
     for item, source_address, recognized_endpoint in matched_items:
+        previous = OBJECT_LIVE_CACHE.get(item.id) or {}
+        stored_source = original_source
+        skip_update = False
+        if (
+            incoming_source == "mqtt"
+            and str(previous.get("original_source") or previous.get("source") or "").lower() == "loxone"
+            and str(previous.get("value")) == str(value)
+            and "mqtt" in (previous.get("targets") or _live_targets(item, "loxone"))
+        ):
+            stored_source = "loxone"
+            ignored_echo = True
+            skip_update = True
+
+        if skip_update:
+            LOGGER.info(
+                "Live source preserved object_id=%s incoming_source=%s stored_source=%s target_adapter=%s value=%s ignored_echo=%s",
+                item.id,
+                incoming_source,
+                stored_source,
+                target_adapter or "mqtt",
+                value,
+                str(bool(ignored_echo)).lower(),
+            )
+            updates.append(dict(previous))
+            continue
+
         payload = {
             "object_id": item.id,
             "value": value,
-            "unit": _live_unit(item, source),
-            "source": source,
+            "unit": _live_unit(item, stored_source),
+            "source": stored_source,
+            "original_source": stored_source,
             "source_address": source_address,
             "recognized_endpoint": recognized_endpoint,
             "timestamp": timestamp,
-            "targets": _live_targets(item, source),
+            "targets": _live_targets(item, stored_source),
+            "last_target_adapter": target_adapter,
+            "last_target_adapters": [target_adapter] if target_adapter else [],
             "status": "online",
         }
         OBJECT_LIVE_CACHE[item.id] = payload
+        LOGGER.info(
+            "Live value stored object_id=%s incoming_source=%s stored_source=%s target_adapter=%s value=%s ignored_echo=%s",
+            item.id,
+            incoming_source,
+            stored_source,
+            target_adapter,
+            value,
+            str(bool(ignored_echo)).lower(),
+        )
         updates.append(dict(payload))
-    if source == "loxone" and not matched_items:
+    if incoming_source == "loxone" and not matched_items:
         all_objects = list(list_objects())
         LOGGER.info(
             "Live value not matched source=%s value=%s loxone_uuid=%s loxone_io=%s name=%s mqtt_topic=%s knx_ga=%s udp_address=%s object_id=%s objects=%s object_fields=%s",
-            source,
+            incoming_source,
             value,
             endpoint.get("loxone_uuid") or endpoint.get("uuid") or "",
             endpoint.get("loxone_io") or endpoint.get("io_address") or "",
@@ -821,6 +902,33 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
             [_live_debug_snapshot(item) for item in all_objects[:10]],
         )
     return updates
+
+
+def record_live_target(object_id: str, target_adapter: str, value: Any = None, original_source: str = "loxone") -> None:
+    object_id = str(object_id or "").strip()
+    target_adapter = str(target_adapter or "").strip().lower()
+    if not object_id or not target_adapter:
+        return
+    current = OBJECT_LIVE_CACHE.get(object_id)
+    if not current:
+        return
+    targets = list(current.get("last_target_adapters") or [])
+    if target_adapter not in targets:
+        targets.append(target_adapter)
+    current["last_target_adapter"] = target_adapter
+    current["last_target_adapters"] = targets
+    current["original_source"] = str(current.get("original_source") or current.get("source") or original_source or "unbekannt").lower()
+    current["source"] = current["original_source"]
+    OBJECT_LIVE_CACHE[object_id] = current
+    LOGGER.info(
+        "Live target recorded object_id=%s incoming_source=%s stored_source=%s target_adapter=%s value=%s ignored_echo=%s",
+        object_id,
+        original_source,
+        current["source"],
+        target_adapter,
+        current.get("value") if value is None else value,
+        "false",
+    )
 
 
 def get_object_live_status(object_id: str) -> dict[str, Any] | None:
@@ -875,7 +983,11 @@ def _endpoint_address(protocol: str, adapter: Any) -> str:
             return f"{topic}@{host}:{port}" if topic else f"{host}:{port}"
         return ""
     if protocol == "influx":
-        return _adapter_value(adapter, "measurement")
+        measurement = _adapter_value(adapter, "measurement")
+        field = _adapter_value(adapter, "field") or "value"
+        topic = _adapter_value(adapter, "topic")
+        parts = [part for part in (measurement, field, topic) if part]
+        return " / ".join(parts)
     return ""
 
 
@@ -948,21 +1060,22 @@ def build_generated_route_entries(item: GatewayObject) -> list[dict[str, str]]:
         if _is_complete_endpoint(protocol, adapter)
     }
     entries = []
-    for source, source_adapter in adapters.items():
-        if not _can_source(source_adapter):
+    for source_protocol in ROUTE_SOURCE_PRIORITY:
+        source_adapter = adapters.get(source_protocol)
+        if source_adapter is None or not _can_source(source_adapter):
             continue
         for target, target_adapter in adapters.items():
-            if source == target or not _can_target(target_adapter):
+            if target == source_protocol or not _can_target(target_adapter):
                 continue
-            if (source, target) not in SUPPORTED_ROUTE_PAIRS:
+            if (source_protocol, target) not in SUPPORTED_ROUTE_PAIRS:
                 continue
             entries.append(
                 {
-                    "source": source.upper(),
+                    "source": source_protocol.upper(),
                     "target": target.upper(),
-                    "source_address": _endpoint_address(source, source_adapter),
+                    "source_address": _endpoint_address(source_protocol, source_adapter),
                     "target_address": _endpoint_address(target, target_adapter),
-                    "direction": f"{source.upper()} -> {target.upper()}",
+                    "direction": f"{source_protocol.upper()} -> {target.upper()}",
                     "status": "aktiv",
                 }
             )
@@ -1112,8 +1225,7 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                 elif source == "mqtt" and target == "udp":
                     continue
                 elif source == "mqtt" and target == "influx":
-                    routes["topic_config"][_adapter_value(source_adapter, "topic")] = {"enabled": True, "influx": True, "influx_topic": _adapter_value(target_adapter, "measurement"), "influx_value_type": getattr(target_adapter, "datatype", item.datatype) or "auto", "__object_route": True, "__object_id": item.id}
-                    active += 1
+                    continue
                 elif source == "knx" and target == "mqtt":
                     routes["knx2mqtt"].append({"enabled": True, "group_address": _adapter_value(source_adapter, "group_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "dpt": _adapter_value(source_adapter, "dpt"), "retain": bool(getattr(target_adapter, "retain", True)), "invert": False, "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
@@ -1121,17 +1233,16 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                     routes["knx2lox"].append({"enabled": True, "group_address": _adapter_value(source_adapter, "group_address"), "loxone_io": _adapter_value(target_adapter, "io_address") or _adapter_value(target_adapter, "uuid"), "dpt": _adapter_value(source_adapter, "dpt"), "invert": False, "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "knx" and target == "influx":
-                    topic = f"knx/{_adapter_value(source_adapter, 'group_address')}"
-                    routes["topic_config"][topic] = {"enabled": True, "influx": True, "influx_topic": _adapter_value(target_adapter, "measurement"), "influx_value_type": getattr(target_adapter, "datatype", item.datatype) or "auto", "__object_route": True, "__object_id": item.id}
-                    active += 1
+                    continue
                 elif source == "udp" and target == "mqtt":
                     continue
                 elif source == "udp" and target == "knx":
                     routes["udp2knx"].append({"enabled": True, "source_topic": _adapter_value(source_adapter, "format"), "group_address": _adapter_value(target_adapter, "group_address"), "dpt": _adapter_value(target_adapter, "dpt"), "invert": False, "test_value": "1", "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "udp" and target == "influx":
-                    routes["topic_config"][_adapter_value(source_adapter, "format")] = {"enabled": True, "influx": True, "influx_topic": _adapter_value(target_adapter, "measurement"), "influx_value_type": getattr(target_adapter, "datatype", item.datatype) or "auto", "__object_route": True, "__object_id": item.id}
-                    active += 1
+                    continue
+                elif source == "loxone" and target == "influx":
+                    continue
         except Exception as exc:
             skipped += 1
             errors.append(f"{name}/{item.id}: {exc}")

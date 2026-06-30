@@ -2,6 +2,14 @@
 
 ## 33.0.x
 
+- Objekt-Routing 33.3.50 pruefen: Routing-Tab zeigt nur objektbasierte Routen mit aktiven Quellen und Zielen, ohne Selbst- oder Legacy-Routen.
+- Objekt-Routing 33.3.50 pruefen: Influx-Ziele im Routing-Tab zeigen `Measurement / Field / Topic` als Zieladresse.
+- Objekt-Live 33.3.49 pruefen: Loxone-Wert mit MQTT/UDP/Influx-Zielrouting muss in Objektkarte, Live-Tab und API weiter `Quelle: Loxone` anzeigen.
+- Objekt-Live 33.3.49 pruefen: Eigene MQTT-Publishes aus Objektmanager-Routing duerfen keinen Live-Cache-Source-Wechsel auf MQTT ausloesen.
+- Objekt-Routing 33.3.48 pruefen: Influx-Tab Measurement, Field und Topic frei setzen, speichern, neu laden und als `_measurement`, `_field` und Tag `topic` in Influx wiederfinden.
+- Objekt-Routing 33.3.48 pruefen: Leere Influx-Felder werden wieder auf Defaults gesetzt: Measurement aus Objektname, Field `value`, Topic `<object.name>/value`.
+- Objekt-Routing 33.3.47 pruefen: Loxone+Influx-Objekt mit aktivem Influx-Ziel schreibt Livewerte direkt nach Influx, ohne `topic_config` oder Legacy-Mapping zu erzeugen.
+- Objekt-Routing 33.3.47 pruefen: Influx-Zieladapter defaults `measurement=<Objektname>`, `field=value`, optionaler Bucket und Tags `object_id,source,unit`.
 - Objekt-Routing 33.3.46 pruefen: Neues Objekt anlegen, UDP-Tab oeffnen und sicherstellen, dass `UDP Topic` als `<Objektname>/value` vorbelegt ist; nach manuellem Leeren und Speichern muss wieder dieser Default erscheinen.
 - Objekt-Routing 33.3.46 pruefen: Payload-Modus `Nur Wert` sendet trotz gespeichertem UDP Topic nur den nackten Wert.
 - Objekt-Routing 33.3.44 pruefen: UDP-Zieladapter speichern `udp_topic`/`payload_mode`, senden mit Custom-Topic als `topic:value` und ohne Topic nur den Wert.

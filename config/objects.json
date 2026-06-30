@@ -6,21 +6,21 @@
     "unit": "",
     "enabled": true,
     "created_at": "2026-06-30T19:59:13+00:00",
-    "updated_at": "2026-06-30T20:06:00+00:00",
-    "room": "Wertr von NodeRed",
-    "category": "Loxone",
+    "updated_at": "2026-06-30T20:43:27+00:00",
     "notes": "",
-    "loxone": {
-      "protocol": "loxone",
+    "category": "Loxone",
+    "scaling": "",
+    "icon": "",
+    "room": "Wertr von NodeRed",
+    "mqtt": {
+      "protocol": "mqtt",
       "enabled": true,
       "direction": "both",
-      "datatype": "number",
-      "uuid": "1aa8b10d-03ad-20b2-ffffd50960771113",
-      "io_address": "Gesamtleistung(W)/value",
-      "control_type": "InfoOnlyAnalog",
-      "visu_name": "Gesamtleistung(W)",
-      "room": "Wertr von NodeRed",
-      "unit": ""
+      "datatype": "auto",
+      "topic": "MPGateway/Test Gedsamtleistung",
+      "qos": 0,
+      "retain": false,
+      "json_key": ""
     },
     "udp": {
       "protocol": "udp",
@@ -33,15 +33,28 @@
       "udp_topic": "Gesamtleistung(W)/value",
       "payload_mode": "topic_value"
     },
-    "mqtt": {
-      "protocol": "mqtt",
+    "loxone": {
+      "protocol": "loxone",
+      "enabled": true,
+      "direction": "both",
+      "datatype": "number",
+      "uuid": "1aa8b10d-03ad-20b2-ffffd50960771113",
+      "io_address": "Gesamtleistung(W)/value",
+      "control_type": "InfoOnlyAnalog",
+      "visu_name": "Gesamtleistung(W)",
+      "room": "Wertr von NodeRed",
+      "unit": ""
+    },
+    "influx": {
+      "protocol": "influx",
       "enabled": true,
       "direction": "both",
       "datatype": "auto",
-      "topic": "MPGateway/Test Gedsamtleistung",
-      "qos": 0,
-      "retain": false,
-      "json_key": ""
+      "bucket": "",
+      "measurement": "Loxone",
+      "field": "Leistung",
+      "topic": "Gesamtleistung(W)/value",
+      "tags": "Watt"
     }
   }
 ]

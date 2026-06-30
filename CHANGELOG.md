@@ -1,5 +1,35 @@
 # Changelog
 
+## 33.3.50
+
+- Der Routing-Tab baut seine Eintraege jetzt aus der Objektkonfiguration mit allen aktivierten Quellen und Zielen auf und zeigt keine Selbst- oder Legacy-Routen mehr an.
+- Influx-Adressen im Routing-Tab zeigen jetzt `Measurement / Field / Topic`.
+- Versionsstand auf `33.3.50` gesetzt.
+
+## 33.3.49
+
+- Die Livewert-Quelle im Objektmanager bleibt jetzt die echte Eingangsquelle, z. B. `loxone`, auch wenn der Wert nach MQTT, UDP oder Influx weitergeleitet wird.
+- Geroutete Zieladapter werden separat als `last_target_adapter(s)` im Runtime-Live-Cache erfasst.
+- MQTT-Echos eigener Objektmanager-Publishes ueberschreiben frische Loxone-Livewerte nicht mehr als Quelle `mqtt`.
+- Livewert-Logging enthaelt `object_id`, `incoming_source`, `stored_source`, `target_adapter`, Wert und `ignored_echo`.
+- Versionsstand auf `33.3.49` gesetzt.
+
+## 33.3.48
+
+- Der Objektmanager-Influx-Adapter speichert jetzt Measurement, Field und Topic pro Objekt.
+- Leere Influx-Felder werden beim Speichern auf Defaults gesetzt: Measurement aus bereinigtem Objektname, Field `value`, Topic `<object.name>/value`.
+- Influx schreibt das konfigurierte Topic als Tag `topic`; optionale Tags `object_id`, `source`, `unit` bleiben erhalten.
+- Influx-Routing loggt jetzt `object_id`, Wert, Measurement, Field, Topic, Bucket und Ergebnis.
+- Versionsstand auf `33.3.48` gesetzt.
+
+## 33.3.47
+
+- Influx kann im Objektmanager als Zieladapter aktiviert werden, ohne Legacy-Topic-Mappings zu erzeugen.
+- Loxone-Livewerte werden bei aktivem Influx-Ziel direkt nach Influx geschrieben; Measurement, Field, Bucket und optionale Tags kommen aus dem Objektadapter.
+- Influx-Werte werden numerisch geschrieben, wenn moeglich; Bool-Werte werden als 0/1 geschrieben, Text nur bei Datentyp `text`/`string`.
+- Influx-Routing loggt `object_id`, Wert, Measurement, Field, Bucket und Ergebnis.
+- Versionsstand auf `33.3.47` gesetzt.
+
 ## 33.3.46
 
 - Neue Objekte erhalten beim Anlegen automatisch ein passives UDP Default Topic nach dem Muster `<Objektname>/value`.

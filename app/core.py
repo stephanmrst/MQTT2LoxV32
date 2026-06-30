@@ -1821,6 +1821,16 @@ def _udp_adapter_complete(adapter):
     return bool(str(getattr(adapter, "target_ip", "") or "").strip() and str(getattr(adapter, "target_port", "") or "").strip())
 
 
+def _influx_adapter_complete(adapter):
+    if not adapter:
+        return False
+    if not bool(getattr(adapter, "enabled", False)):
+        return False
+    if str(getattr(adapter, "direction", "out") or "out").strip().lower() not in {"out", "both"}:
+        return False
+    return bool(str(getattr(adapter, "measurement", "") or "").strip() and str(getattr(adapter, "field", "") or "value").strip())
+
+
 def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=False):
     route_available = False
     any_sent = False
@@ -1855,7 +1865,7 @@ def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=Fal
                     mqtt_client.publish(topic, value, retain=retain)
                     last_values[topic] = value
                     any_sent = True
-                    influx_service.write_to_influx(topic, value, load_config, load_topic_config, add_log_entry)
+                    object_core_service.record_live_target(object_id, "mqtt", value=value, original_source="loxone")
                     add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=no")
                 else:
                     add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=yes")
@@ -1879,6 +1889,7 @@ def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=Fal
                 ok = send_mqtt2udp(udp_ip, udp_port, udp_topic, value, udp_format, object_id=object_id, source="loxone")
                 if ok:
                     any_sent = True
+                    object_core_service.record_live_target(object_id, "udp", value=value, original_source="loxone")
                     add_log_entry(
                         f"Object routing object_id={object_id} original_source=loxone target_adapter=udp value={value} skipped_echo=no"
                     )
@@ -1886,6 +1897,35 @@ def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=Fal
                 add_log_entry(f"Loxone route source=loxone object_id={object_id} value={value} target=udp result=error error={exc}")
         elif "udp" in adapters:
             LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=udp result=skipped reason=target_incomplete", object_id, value)
+
+        influx_adapter = adapters.get("influx")
+        if _influx_adapter_complete(influx_adapter):
+            route_available = True
+            measurement = str(getattr(influx_adapter, "measurement", "") or "").strip()
+            field = str(getattr(influx_adapter, "field", "") or "value").strip() or "value"
+            topic = str(getattr(influx_adapter, "topic", "") or "").strip()
+            try:
+                ok, result, bucket, topic = influx_service.write_object_value(
+                    influx_adapter,
+                    value,
+                    load_config,
+                    add_log_entry,
+                    object_id=object_id,
+                    source="loxone",
+                    unit=str(getattr(item, "unit", "") or "").strip(),
+                )
+                if ok:
+                    any_sent = True
+                    object_core_service.record_live_target(object_id, "influx", value=value, original_source="loxone")
+                add_log_entry(
+                    f"Object routing object_id={object_id} original_source=loxone target_adapter=influx value={value} measurement={measurement} field={field} topic={topic} bucket={bucket} result={result} skipped_echo=no"
+                )
+            except Exception as exc:
+                add_log_entry(
+                    f"Object routing object_id={object_id} original_source=loxone target_adapter=influx value={value} measurement={measurement} field={field} topic={topic} bucket= result=error error={exc} skipped_echo=no"
+                )
+        elif "influx" in adapters:
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=influx result=skipped reason=target_incomplete", object_id, value)
 
         if "knx" in adapters:
             route_available = True
