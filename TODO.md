@@ -2,6 +2,14 @@
 
 ## 33.0.x
 
+- Objekt-Live 33.3.39 pruefen: kein Ein-Objekt-Fallback mehr, nur echte Zuordnung oder Info-Log.
+- Objekt-Live 33.3.38 pruefen: `/api/objects/live` soll Loxone-Werte aus `core.display_values` und `core.last_values` spiegeln.
+- Objekt-Live 33.3.37 pruefen: Fallback fuer Einzelobjekte soll nur im Loxone-Pfad greifen.
+- Objekt-Live 33.3.36 pruefen: Loxone-Treffer ueber UUID, IO-Adresse und Objektname muessen sofort sichtbar werden.
+- Objekt-Live-Werte 33.3.35 pruefen: Karten, Live-Tab und `/api/objects/live` zeigen Wert, Einheit, Quelle und erkannte Endpunkte ohne Page-Reload.
+- Objekt-CRUD 33.3.34 pruefen: Bridge und CRUD duerfen sich nicht mehr ueber Lock-Inversion blockieren; Live-Wert-Callbacks muessen ueber den vorbereiteten Endpoint-Index laufen.
+- Objekt-CRUD 33.3.32 pruefen: Delete bleibt sofort responsiv, Reload laeuft nur noch im Hintergrund und blockiert die Bridge nicht mehr.
+
 - Object Manager V33 Plan pruefen: Leitbild "Ein Objekt. Alle Protokolle.", Objektmodell, Adaptermodell, Migrationsstrategie und Exit-Kriterien.
 - Object Adapter Model 33.0.1 pruefen: MQTT, Loxone, UDP, KNX und Influx gegen bestehende Mapping-Felder abgleichen.
 - Passive Object Registry 33.0.2 pruefen: fehlende `data/objects_v33.json` liefert leere Liste, Speichern/Lesen funktioniert, keine bestehende Config wird veraendert.

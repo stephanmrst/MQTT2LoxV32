@@ -1,12 +1,39 @@
 [
   {
-    "id": "obj_dba5c5e633404c23baf2be2d2619f49e",
+    "id": "obj_bdbecd23727849bd8a709d26ed73f39f",
+    "name": "10",
+    "datatype": "number",
+    "unit": "",
+    "enabled": true,
+    "created_at": "2026-06-30T12:54:21+00:00",
+    "updated_at": "2026-06-30T12:54:21+00:00",
+    "category": "Loxone",
+    "notes": "",
+    "room": "Wohnzimmer",
+    "loxone": {
+      "protocol": "loxone",
+      "enabled": true,
+      "direction": "both",
+      "datatype": "number",
+      "uuid": "20795189-0242-14b5-ffffd50960771113",
+      "io_address": "10/value",
+      "control_type": "InfoOnlyAnalog",
+      "visu_name": "10",
+      "room": "Wohnzimmer",
+      "unit": ""
+    }
+  },
+  {
+    "id": "obj_ba6e66ec3eef4510b355ed51c793bbbb",
     "name": "Gesamtleistung(W)",
     "datatype": "number",
     "unit": "",
     "enabled": true,
-    "created_at": "2026-06-28T11:14:18+00:00",
-    "updated_at": "2026-06-28T11:14:18+00:00",
+    "created_at": "2026-06-30T12:54:47+00:00",
+    "updated_at": "2026-06-30T12:54:47+00:00",
+    "category": "Loxone",
+    "notes": "",
+    "room": "Wertr von NodeRed",
     "loxone": {
       "protocol": "loxone",
       "enabled": true,
@@ -18,9 +45,30 @@
       "visu_name": "Gesamtleistung(W)",
       "room": "Wertr von NodeRed",
       "unit": ""
+    }
+  },
+  {
+    "id": "obj_082db44e61ad47a4a43d6af8791679e6",
+    "name": "AC Consumption L3",
+    "datatype": "number",
+    "unit": "",
+    "enabled": true,
+    "created_at": "2026-06-30T12:55:08+00:00",
+    "updated_at": "2026-06-30T12:55:08+00:00",
+    "loxone": {
+      "protocol": "loxone",
+      "enabled": true,
+      "direction": "both",
+      "datatype": "number",
+      "uuid": "1c86fdf8-02dd-eff6-ffffd50960771113",
+      "io_address": "AC Consumption L3/value",
+      "control_type": "InfoOnlyAnalog",
+      "visu_name": "AC Consumption L3",
+      "room": "Victron",
+      "unit": ""
     },
-    "room": "Wertr von NodeRed",
     "category": "Loxone",
-    "notes": ""
+    "notes": "",
+    "room": "Victron"
   }
 ]

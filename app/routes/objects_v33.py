@@ -94,8 +94,10 @@ def _route_status(object_def):
 
 def _reload_object_routes():
     core = current_app.extensions.get("app_core")
-    if core and hasattr(core, "reload_object_routes"):
-        core.reload_object_routes()
+    if core and hasattr(core, "reload_object_routes_async"):
+        core.reload_object_routes_async("objects_v33")
+    elif core and hasattr(core, "reload_object_routes"):
+        core.reload_object_routes("objects_v33")
 
 
 def _safe_reload_object_routes(context: str = "") -> bool:
@@ -208,18 +210,30 @@ def _normalize_external_uuid(value: str) -> str:
 
 
 def _find_object_by_loxone_uuid(loxone_uuid: str):
-    needle = _normalize_external_uuid(loxone_uuid)
-    if not needle:
+    return _find_object_by_loxone_endpoint(loxone_uuid=loxone_uuid)
+
+
+def _find_object_by_loxone_endpoint(loxone_uuid: str = "", io_address: str = ""):
+    """Find an existing object by the current persisted Loxone adapter endpoint.
+
+    Wichtig: Nur config/objects.json ist Quelle der Wahrheit. Es wird kein
+    Runtime-/Live-/Legacy-Cache verwendet. UUID und IO-Adresse werden getrennt
+    verglichen, damit ein geloeschter Datenpunkt sofort wieder angelegt werden
+    kann und ein bestehender Datenpunkt sauber geoeffnet wird.
+    """
+    uuid_needle = _normalize_external_uuid(loxone_uuid)
+    io_needle = str(io_address or "").strip().lower()
+    if not uuid_needle and not io_needle:
         return None
     for item in object_service.list_objects():
         adapter = _adapter_map(item).get("loxone")
         if adapter is None:
             continue
-        candidates = [
-            getattr(adapter, "uuid", ""),
-            getattr(adapter, "io_address", ""),
-        ]
-        if any(_normalize_external_uuid(candidate) == needle for candidate in candidates):
+        adapter_uuid = _normalize_external_uuid(getattr(adapter, "uuid", ""))
+        adapter_io = str(getattr(adapter, "io_address", "") or "").strip().lower()
+        if uuid_needle and adapter_uuid and adapter_uuid == uuid_needle:
+            return item
+        if io_needle and adapter_io and adapter_io == io_needle:
             return item
     return None
 
@@ -356,7 +370,7 @@ def _log_create_object_failed(reason: str, selected_uuid: str = "", selected_nam
     current_app.logger.error("CREATE OBJECT FAILED")
     current_app.logger.error(f"request.args={request.args}")
     current_app.logger.error(f"request.form={request.form}")
-    current_app.logger.error(f"request.json={request.get_json(silent=True)}")
+    current_app.logger.error(f"json={request.get_json(silent=True)}")
     current_app.logger.error(f"selected_uuid={selected_uuid or ''}")
     current_app.logger.error(f"selected_name={selected_name or ''}")
     current_app.logger.error(f"selected_io_address={selected_io or ''}")
@@ -378,28 +392,39 @@ def _objects_index_redirect(object_id: str = "", tab: str = "general", notice: s
     return redirect(url_for("objects_v33.objects_v33_index", **redirect_args))
 
 
+def _detail_context(selected, selected_tab: str = "general", notice: str = "", errors=None, is_new: bool | None = None):
+    return {
+        "selected": selected,
+        "selected_adapters": _ensure_known_adapters(selected) if selected else [],
+        "selected_preview": build_object_routing_preview(selected) if selected else [],
+        "selected_route_report": object_service.get_object_route_report(selected) if selected else None,
+        "adapter_template_name": adapter_template_name,
+        "selected_tab": selected_tab or "general",
+        "notice": notice or "",
+        "errors": errors or [],
+        "is_new": bool(is_new) if is_new is not None else not bool(selected),
+        "adapter_protocols": _adapter_protocols,
+        "route_status": _route_status,
+    }
+
+
 @bp.route("/objects_v33")
 def objects_v33_index():
     query = request.args.get("q", "")
     active_filter = request.args.get("filter", "all")
     objects = _filtered_objects(query, active_filter)
     selected_id = request.args.get("selected", "").strip()
-    selected = object_service.get_object(selected_id) if selected_id else (objects[0] if objects else None)
+    if selected_id in {"_none", "none", "null"}:
+        selected = None
+    else:
+        selected = object_service.get_object(selected_id) if selected_id else (objects[0] if objects else None)
     return render_template(
         "objects_v33/list.html",
         objects=objects,
         visible_count=len(objects),
-        selected=selected,
-        selected_adapters=_ensure_known_adapters(selected) if selected else [],
-        selected_preview=build_object_routing_preview(selected) if selected else [],
-        selected_route_report=object_service.get_object_route_report(selected) if selected else None,
-        adapter_template_name=adapter_template_name,
         query=query,
         active_filter=active_filter,
-        adapter_protocols=_adapter_protocols,
-        route_status=_route_status,
-        selected_tab=request.args.get("tab", "general"),
-        notice=request.args.get("notice", ""),
+        **_detail_context(selected, request.args.get("tab", "general"), request.args.get("notice", "")),
     )
 
 
@@ -416,32 +441,44 @@ def objects_v33_new():
         "objects_v33/list.html",
         objects=objects,
         visible_count=len(objects),
-        selected=None,
-        object_def=None,
-        selected_adapters=[],
-        adapter_template_name=adapter_template_name,
-        selected_preview=[],
-        selected_route_report=None,
         query="",
         active_filter="all",
-        adapter_protocols=_adapter_protocols,
-        route_status=_route_status,
-        selected_tab="general",
-        notice=request.args.get("notice", ""),
-        errors=[],
-        is_new=True,
+        **_detail_context(None, "general", request.args.get("notice", ""), errors=[], is_new=True),
     )
+
+
+@bp.route("/objects_v33/panel/<object_uuid>")
+def objects_v33_panel(object_uuid):
+    object_uuid = _clean_prefill(object_uuid)
+    selected_tab = request.args.get("tab", "general")
+    notice = request.args.get("notice", "")
+    if object_uuid in {"", "_none", "none", "null"}:
+        selected = None
+    else:
+        selected = object_service.get_object(object_uuid)
+    return render_template("objects_v33/_detail.html", **_detail_context(selected, selected_tab, notice))
 
 
 @bp.route("/objects_v33/create_from_explorer")
 def objects_v33_create_from_explorer():
     explorer = _clean_prefill(request.args.get("explorer", "")).lower()
     source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "").lower()
-    source = explorer or source_type or "mqtt"
-    tab = "loxone" if source == "loxone" else (_clean_prefill(request.args.get("tab", source or "general")) or "general")
     loxone_uuid = _request_first("loxone_uuid", "state_uuid", "uuid", "control_uuid")
+    selected_io = _request_first("loxone_io", "io_address", "source_address", "path")
+    topic = _request_first("topic", "source_topic")
+    objects_before_ids = [item.id for item in object_service.list_objects()]
+    source = explorer or source_type
+    if source not in ADAPTER_TYPES:
+        if loxone_uuid or selected_io:
+            source = "loxone"
+        elif topic:
+            source = "mqtt"
+        else:
+            source = "mqtt"
+    tab = "loxone" if source == "loxone" else (_clean_prefill(request.args.get("tab", source or "general")) or "general")
     display_name = _clean_prefill(request.args.get("name", request.args.get("visu_name", ""))) or "Neues Objekt"
-    selected_io = _request_first("loxone_io", "io_address", "source_address", "path", "topic", "name")
+    if source == "loxone" and not selected_io:
+        selected_io = _request_first("topic", "name")
     request_args = request.args.to_dict(flat=True)
     _log_explorer_debug(
         "request",
@@ -451,17 +488,20 @@ def objects_v33_create_from_explorer():
         referrer=request.referrer or "",
         embedded_hint="_embed_ts" in request.args,
         args=request_args,
+        form=request.form.to_dict(flat=True),
+        json=request.get_json(silent=True),
         selected_uuid=loxone_uuid,
         selected_name=display_name,
         selected_topic=_clean_prefill(request.args.get("topic", "")),
         selected_io=selected_io,
+        objects_before_ids=objects_before_ids,
     )
 
     try:
         with _EXPLORER_CREATE_LOCK:
-            if source == "loxone" and not loxone_uuid:
+            if source == "loxone" and not (loxone_uuid or selected_io):
                 create_phase = "validate_minimum_loxone_payload"
-                reason = "missing required loxone uuid"
+                reason = "missing required loxone uuid/io_address"
                 _log_create_object_failed(reason, loxone_uuid, display_name, selected_io, explorer, source)
                 notice = "Objekt konnte nicht erstellt werden. Bitte Auswahl pruefen und erneut versuchen."
                 _log_explorer_debug(
@@ -478,10 +518,28 @@ def objects_v33_create_from_explorer():
                 return _objects_index_redirect("", tab, notice)
 
             create_phase = "find_existing_by_loxone_uuid"
-            existing = _find_object_by_loxone_uuid(loxone_uuid) if source == "loxone" else None
+            existing = _find_object_by_loxone_endpoint(loxone_uuid, selected_io) if source == "loxone" else None
+            duplicate_found = existing is not None
+            duplicate_object_id = existing.id if existing is not None else ""
+            current_app.logger.info(
+                "CREATE REQUEST source=%s uuid=%s io=%s objects_before_ids=%s duplicate_found=%s duplicate_object_id=%s action=%s",
+                source or "",
+                loxone_uuid or "",
+                selected_io or "",
+                ",".join(objects_before_ids),
+                str(bool(duplicate_found)).lower(),
+                duplicate_object_id or "",
+                "opened" if duplicate_found else "pending",
+            )
             if existing is not None:
                 _log_explorer_debug("existing", args=request_args, object_id=existing.id, payload={})
                 _log_explorer_import(source, loxone_uuid, existing.name or display_name, existing.id, "existing")
+                current_app.logger.info(
+                    "CREATE RESULT source=%s uuid=%s object_id=%s action=opened",
+                    source or "",
+                    loxone_uuid or "",
+                    existing.id or "",
+                )
                 return _objects_index_redirect(existing.id, tab)
 
             create_phase = "build_payload_from_explorer"
@@ -497,14 +555,22 @@ def objects_v33_create_from_explorer():
                     source,
                     loxone_uuid,
                 )
+            objects_after_ids = [item.id for item in object_service.list_objects()]
             _log_explorer_debug("created", args=request_args, object_id=object_def.id, payload=payload)
             _log_explorer_import(source, loxone_uuid, object_def.name or display_name, object_def.id, "created")
+            current_app.logger.info(
+                "CREATE RESULT source=%s uuid=%s object_id=%s action=created objects_after_ids=%s",
+                source or "",
+                loxone_uuid or "",
+                object_def.id or "",
+                ",".join(objects_after_ids),
+            )
             return _objects_index_redirect(object_def.id, tab)
     except Exception as exc:
         current_app.logger.exception("Explorer-Import fehlgeschlagen")
         fallback = None
         try:
-            fallback = _find_object_by_loxone_uuid(loxone_uuid) if source == "loxone" else None
+            fallback = _find_object_by_loxone_endpoint(loxone_uuid, selected_io) if source == "loxone" else None
         except Exception:
             current_app.logger.exception("Explorer-Import Fallback-Suche fehlgeschlagen")
         object_id = fallback.id if fallback is not None else ""
@@ -525,6 +591,12 @@ def objects_v33_create_from_explorer():
             reason=reason,
             notice=notice,
         )
+        current_app.logger.info(
+            "CREATE RESULT source=%s uuid=%s object_id=%s action=error",
+            source or "",
+            loxone_uuid or "",
+            object_id or "",
+        )
         return _objects_index_redirect(object_id, tab, notice)
 
 
@@ -533,7 +605,7 @@ def objects_v33_edit(object_uuid):
     object_def = object_service.get_object(object_uuid)
     if object_def is None:
         return redirect(url_for("objects_v33.objects_v33_index"))
-    return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.uuid))
+    return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))
 
 
 @bp.route("/objects_v33/save", methods=["POST"])
@@ -552,9 +624,15 @@ def objects_v33_save():
         "scaling": request.form.get("scaling", "").strip(),
     }
     try:
-        object_def = object_service.update_object(object_uuid, payload) if object_uuid else object_service.create_object(payload)
+        if object_uuid:
+            object_def = object_service.update_object(object_uuid, payload)
+            if object_def is None:
+                current_app.logger.warning("Object Save skipped: object not found uuid=%s", object_uuid)
+                return _objects_index_redirect("", "general", "Objekt nicht gefunden. Liste wurde neu geladen.")
+        else:
+            object_def = object_service.create_object(payload)
     except ValueError as exc:
-        object_def = object_service.get_object(object_uuid) if object_uuid else object_service.create_object(payload)
+        object_def = object_service.get_object(object_uuid) if object_uuid else object_service.build_object(payload)
         return render_template(
             "objects_v33/edit.html",
             object_def=object_def,
@@ -562,45 +640,54 @@ def objects_v33_save():
             adapter_template_name=adapter_template_name,
             routing_preview=build_object_routing_preview(object_def),
             errors=str(exc).split("; "),
-            is_new=False,
+            is_new=not bool(object_uuid),
         ), 400
+    except Exception as exc:
+        current_app.logger.exception("Objekt speichern fehlgeschlagen")
+        return _objects_index_redirect(object_uuid, "general", f"Objekt konnte nicht gespeichert werden: {exc}")
 
-    if object_def is None:
-        object_def = object_service.create_object(payload)
-    _reload_object_routes()
+    _safe_reload_object_routes("save")
     return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))
 
 
 @bp.route("/objects_v33/delete/<object_uuid>", methods=["POST"])
 def objects_v33_delete(object_uuid):
     object_uuid = _clean_prefill(object_uuid)
-    redirect_target = url_for("objects_v33.objects_v33_index")
+    selected_before = _clean_prefill(request.form.get("selected_before", "") or request.form.get("selected", "") or request.args.get("selected", ""))
+    current_app.logger.info("delete_start object_id=%s selected_before=%s", object_uuid, selected_before or "")
     found = False
     deleted = False
     error = ""
-
+    selected_after = "_none"
     try:
         found = object_service.get_object(object_uuid) is not None
+        deleted = object_service.delete_object(object_uuid)
+        current_app.logger.info("write_objects_done object_id=%s deleted=%s", object_uuid, str(bool(deleted)).lower())
     except Exception as exc:
         error = str(exc)
-        current_app.logger.exception("Objektloeschen: Suche fehlgeschlagen")
-
-    try:
-        deleted = object_service.delete_object(object_uuid)
-    except Exception as exc:
-        error = f"{error}; {exc}" if error else str(exc)
         current_app.logger.exception("Objektloeschen fehlgeschlagen")
 
-    reload_ok = _safe_reload_object_routes("delete")
-    if not reload_ok and not error:
-        error = "route_reload_failed"
+    reload_requested = False
+    try:
+        reload_requested = bool(_safe_reload_object_routes("delete"))
+    except Exception as exc:
+        error = f"{error}; {exc}" if error else str(exc)
+        current_app.logger.exception("Objektloeschen: Reload-Anforderung fehlgeschlagen")
 
+    cache_invalidated = bool(deleted or found is False)
     current_app.logger.info(
-        "DELETE REQUEST uuid=%s object found=%s deleted=%s",
+        "DELETE REQUEST requested_id=%s found=%s deleted=%s selected_before=%s selected_after=%s cache_invalidated=%s reload_requested=%s action=%s",
         object_uuid,
         str(bool(found)).lower(),
         str(bool(deleted)).lower(),
+        selected_before or "",
+        selected_after or "",
+        str(bool(cache_invalidated)).lower(),
+        str(bool(reload_requested)).lower(),
+        "deleted" if deleted else ("not_found" if not found else "error"),
     )
+    redirect_target = url_for("objects_v33.objects_v33_index", selected=selected_after)
+    current_app.logger.info("delete_response_sent object_id=%s redirect=%s", object_uuid, redirect_target)
     _log_object_delete(object_uuid, found, deleted, redirect_target, error)
     return redirect(redirect_target)
 
@@ -645,5 +732,5 @@ def objects_v33_adapter_save(object_uuid, protocol):
     payload = object_service.serialize_object(object_def)
     payload[protocol] = adapter.serialize()
     object_service.update_object(object_def.id, payload)
-    _reload_object_routes()
+    _safe_reload_object_routes("adapter_save")
     return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))

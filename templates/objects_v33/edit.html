@@ -85,7 +85,7 @@
       <h2>Adapter</h2>
       <div class="adapter-grid">
         {% for adapter in adapters %}
-          <form class="adapter-card" method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.uuid, protocol=adapter.protocol) }}">
+          <form class="adapter-card" method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.id, protocol=adapter.protocol) }}">
             <div class="adapter-head">
               <div class="adapter-name">{{ adapter.protocol|upper }}</div>
               <span class="pill {% if adapter.enabled %}on{% endif %}">{{ 'Aktiv' if adapter.enabled else 'Inaktiv' }}</span>
@@ -96,7 +96,7 @@
             {% include adapter_template_name(adapter.protocol) %}
             <div class="actions">
               <button type="submit">Adapter speichern</button>
-              <a class="button secondary" href="{{ url_for('objects_v33.objects_v33_adapter_edit', object_uuid=object_def.uuid, protocol=adapter.protocol) }}">Detail</a>
+              <a class="button secondary" href="{{ url_for('objects_v33.objects_v33_adapter_edit', object_uuid=object_def.id, protocol=adapter.protocol) }}">Detail</a>
             </div>
           </form>
         {% endfor %}

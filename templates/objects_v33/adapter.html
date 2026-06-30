@@ -31,7 +31,7 @@
     </div>
   {% endif %}
 
-  <form method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.uuid, protocol=adapter.protocol) }}">
+  <form method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.id, protocol=adapter.protocol) }}">
     {% include adapter_template_name(adapter.protocol) %}
 
     <div class="placeholder">
@@ -41,7 +41,7 @@
 
     <div class="actions">
       <button type="submit">Speichern</button>
-      <a class="button secondary" href="{{ url_for('objects_v33.objects_v33_edit', object_uuid=object_def.uuid) }}">Zurück</a>
+      <a class="button secondary" href="{{ url_for('objects_v33.objects_v33_edit', object_uuid=object_def.id) }}">Zurück</a>
     </div>
   </form>
 </main>

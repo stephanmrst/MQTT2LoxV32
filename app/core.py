@@ -1,6 +1,7 @@
 ﻿# === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -38,6 +39,10 @@ except ModuleNotFoundError:
     from branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
     from engine import port as port_service
     from runtime.context import create_runtime_context
+
+LOGGER = logging.getLogger(__name__)
+_OBJECT_ROUTE_RELOAD_LOCK = threading.Lock()
+_OBJECT_ROUTE_RELOAD_PENDING = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -1084,16 +1089,44 @@ def load_knx2lox_config():
     return list(data or []) + list(_object_routes(False).get("knx2lox", []))
 
 
-def reload_object_routes():
-    _object_routes(True)
+def reload_object_routes(context=""):
+    start = time.perf_counter()
+    add_log_entry(f"reload_start context={context or ''}")
+    errors = ""
     try:
-        thread = runtime_context.bridge.thread
-        if runtime_context.bridge.running or (thread and thread.is_alive()):
-            restart_bridge_async()
+        _object_routes(True)
+    except Exception as exc:
+        errors = str(exc)
+        add_log_entry(f"Objektrouten Reload Fehler context={context or ''}: {exc}")
+    finally:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        add_log_entry(f"reload_done context={context or ''} duration_ms={duration_ms} errors={errors or ''}")
+    try:
+        if runtime_context.bridge.running or (runtime_context.bridge.thread and runtime_context.bridge.thread.is_alive()):
+            add_log_entry("Objektrouten neu geladen; Bridge bleibt aktiv")
         else:
             add_log_entry("Objektrouten vorbereitet; Bridge ist gestoppt")
     except Exception as exc:
-        add_log_entry(f"Objektrouten Reload Fehler: {exc}")
+        add_log_entry(f"Objektrouten Reload Status Fehler context={context or ''}: {exc}")
+
+
+def reload_object_routes_async(context=""):
+    global _OBJECT_ROUTE_RELOAD_PENDING
+
+    def worker():
+        global _OBJECT_ROUTE_RELOAD_PENDING
+        try:
+            reload_object_routes(context)
+        finally:
+            with _OBJECT_ROUTE_RELOAD_LOCK:
+                _OBJECT_ROUTE_RELOAD_PENDING = False
+
+    with _OBJECT_ROUTE_RELOAD_LOCK:
+        if _OBJECT_ROUTE_RELOAD_PENDING:
+            return False
+        _OBJECT_ROUTE_RELOAD_PENDING = True
+    threading.Thread(target=worker, daemon=True).start()
+    return True
 
 
 # ---------- V19.3 Mapping Templates / Import-Export ----------
@@ -1695,12 +1728,14 @@ def build_datalist_html(datalist_id, options):
 
 
 def _log_loxone_route_skip(name, uuid_str=""):
+    if not LOGGER.isEnabledFor(logging.DEBUG):
+        return
     key = str(uuid_str or name or "")
     now = time.time()
     if now - float(loxone_route_skip_log.get(key, 0) or 0) < 60:
         return
     loxone_route_skip_log[key] = now
-    add_log_entry(f"Loxone->MQTT skipped, no active object route uuid={uuid_str or ''} name={name or ''}")
+    LOGGER.debug("Loxone->MQTT skipped, no active object route uuid=%s name=%s", uuid_str or "", name or "")
 
 
 def publish_value(config, name, value, uuid_str=""):

@@ -4,9 +4,13 @@ import json
 import logging
 import os
 import re
+import threading
+import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 try:
     from app.services.object_adapter_engine import ADAPTER_TYPES, deserialize_adapter
@@ -34,6 +38,19 @@ LOGGER = logging.getLogger(__name__)
 APP_ROOT = Path(os.environ.get("MQTT2LOX_APP_ROOT", Path.cwd()))
 CONFIG_DIR = Path(os.environ.get("MQTT2LOX_CONFIG_DIR", APP_ROOT / "config"))
 OBJECTS_FILE = CONFIG_DIR / "objects.json"
+OBJECTS_FILE_LOCK = threading.RLock()
+OBJECTS_CACHE_LOCK = threading.RLock()
+OBJECTS_CACHE: list["GatewayObject"] = []
+OBJECTS_CACHE_MTIME = 0.0
+OBJECT_ENDPOINT_INDEX_LOCK = threading.RLock()
+OBJECT_ENDPOINT_INDEX: dict[str, list["GatewayObject"]] = {}
+OBJECT_ENDPOINT_INDEX_MTIME = 0.0
+OBJECT_ROUTE_CACHE_LOCK = threading.RLock()
+OBJECT_ROUTE_CACHE: dict[str, list[dict[str, Any]]] = {}
+OBJECT_ROUTE_CACHE_MTIME = 0.0
+OBJECT_ROUTE_EXPORT_CACHE_LOCK = threading.RLock()
+OBJECT_ROUTE_EXPORT_CACHE: dict[str, Any] = {}
+OBJECT_ROUTE_EXPORT_CACHE_MTIME = 0.0
 CORE_FIELDS = {
     "id",
     "name",
@@ -154,12 +171,45 @@ def _as_bool(value: Any, default: bool = False) -> bool:
 
 def _ensure_file() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if not OBJECTS_FILE.exists():
-        _write_raw([])
+
+
+def _objects_file_mtime() -> float:
+    try:
+        return float(OBJECTS_FILE.stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
+def _invalidate_object_caches() -> None:
+    global OBJECTS_CACHE_MTIME, OBJECT_ENDPOINT_INDEX_MTIME, OBJECT_ROUTE_CACHE_MTIME, OBJECT_ROUTE_EXPORT_CACHE_MTIME
+    with OBJECTS_CACHE_LOCK:
+        OBJECTS_CACHE.clear()
+        OBJECTS_CACHE_MTIME = 0.0
+    with OBJECT_ENDPOINT_INDEX_LOCK:
+        OBJECT_ENDPOINT_INDEX.clear()
+        OBJECT_ENDPOINT_INDEX_MTIME = 0.0
+    with OBJECT_ROUTE_CACHE_LOCK:
+        OBJECT_ROUTE_CACHE.clear()
+        OBJECT_ROUTE_CACHE_MTIME = 0.0
+    with OBJECT_ROUTE_EXPORT_CACHE_LOCK:
+        OBJECT_ROUTE_EXPORT_CACHE.clear()
+        OBJECT_ROUTE_EXPORT_CACHE_MTIME = 0.0
+
+
+def _rebuild_object_endpoint_index() -> dict[str, list["GatewayObject"]]:
+    global OBJECT_ENDPOINT_INDEX_MTIME
+    index = _build_object_endpoint_index()
+    with OBJECT_ENDPOINT_INDEX_LOCK:
+        OBJECT_ENDPOINT_INDEX.clear()
+        OBJECT_ENDPOINT_INDEX.update(index)
+        OBJECT_ENDPOINT_INDEX_MTIME = _objects_file_mtime()
+        return OBJECT_ENDPOINT_INDEX
 
 
 def _read_raw() -> list[dict[str, Any]]:
     _ensure_file()
+    if not OBJECTS_FILE.exists():
+        return []
     try:
         with OBJECTS_FILE.open("r", encoding="utf-8") as handle:
             raw = json.load(handle)
@@ -177,17 +227,52 @@ def _read_raw() -> list[dict[str, Any]]:
     return migrated_items
 
 
+def _objects_tmp_path() -> Path:
+    return OBJECTS_FILE.with_name(f"{OBJECTS_FILE.name}.{uuid4().hex}.tmp")
+
+
+def _replace_with_retry(tmp_path: Path) -> None:
+    attempts = 8
+    delay_seconds = 0.12
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(tmp_path, OBJECTS_FILE)
+            return
+        except OSError as exc:
+            last_exc = exc
+            winerror = getattr(exc, "winerror", None)
+            if not isinstance(exc, PermissionError) and winerror not in {5, 32}:
+                raise
+            if attempt >= attempts:
+                break
+            time.sleep(delay_seconds)
+            delay_seconds = min(delay_seconds + 0.08, 0.3)
+    if last_exc is not None:
+        raise last_exc
+
+
 def _write_raw(items: list[dict[str, Any]]) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_path = OBJECTS_FILE.with_suffix(".json.tmp")
-    try:
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            json.dump(items, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-        os.replace(tmp_path, OBJECTS_FILE)
-    except OSError as exc:
-        LOGGER.exception("objects.json konnte nicht geschrieben werden: %s", exc)
-        raise
+    with OBJECTS_FILE_LOCK:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_path = _objects_tmp_path()
+        try:
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                json.dump(items, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            _replace_with_retry(tmp_path)
+            _invalidate_object_caches()
+        except OSError as exc:
+            LOGGER.exception("objects.json konnte nicht geschrieben werden: %s", exc)
+            raise
+        finally:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def _source_from_legacy(data: dict[str, Any]) -> tuple[str, str]:
@@ -345,13 +430,94 @@ def _payload_from_data(data: dict[str, Any], existing: GatewayObject | None = No
 
 
 def list_objects() -> list[GatewayObject]:
+    global OBJECTS_CACHE_MTIME
+    mtime = _objects_file_mtime()
+    with OBJECTS_CACHE_LOCK:
+        if OBJECTS_CACHE and OBJECTS_CACHE_MTIME == mtime:
+            return list(OBJECTS_CACHE)
     objects = []
     for item in _read_raw():
         try:
             objects.append(_object_from_dict(item))
         except Exception as exc:
             LOGGER.exception("Objekt konnte nicht geladen werden: %s", exc)
-    return objects
+    with OBJECTS_CACHE_LOCK:
+        current_mtime = _objects_file_mtime()
+        if OBJECTS_CACHE and OBJECTS_CACHE_MTIME == current_mtime:
+            return list(OBJECTS_CACHE)
+        OBJECTS_CACHE[:] = objects
+        OBJECTS_CACHE_MTIME = current_mtime
+        return list(OBJECTS_CACHE)
+
+
+def _clone_route_export_result(routes: dict[str, list[dict[str, Any]] | dict[str, dict[str, Any]]]) -> dict[str, Any]:
+    cloned: dict[str, Any] = {}
+    for key, value in (routes or {}).items():
+        if isinstance(value, list):
+            cloned[key] = [dict(item) if isinstance(item, dict) else deepcopy(item) for item in value]
+        elif isinstance(value, dict):
+            cloned[key] = {sub_key: dict(sub_value) if isinstance(sub_value, dict) else deepcopy(sub_value) for sub_key, sub_value in value.items()}
+        else:
+            cloned[key] = deepcopy(value)
+    return cloned
+
+
+def _endpoint_index_key(protocol: str, value: Any) -> str:
+    protocol = str(protocol or "").strip().lower()
+    value = _normalize_match_value(value)
+    if not protocol or not value:
+        return ""
+    return f"{protocol}:{value}"
+
+
+def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
+    keys: list[str] = []
+    for protocol, adapter in _adapter_map(item).items():
+        if not _is_enabled_adapter(adapter):
+            continue
+        if protocol == "loxone":
+            uuid_value = _normalize_uuid_value(_adapter_value(adapter, "uuid"))
+            io_value = _normalize_match_value(_adapter_value(adapter, "io_address"))
+            name_value = _normalize_match_value(getattr(item, "name", ""))
+            visu_name_value = _normalize_match_value(_adapter_value(adapter, "visu_name"))
+            if uuid_value:
+                keys.append(_endpoint_index_key("loxone_uuid", uuid_value))
+            if io_value:
+                keys.append(_endpoint_index_key("loxone_io", io_value))
+            if name_value:
+                keys.append(_endpoint_index_key("loxone_name", name_value))
+            if visu_name_value:
+                keys.append(_endpoint_index_key("loxone_name", visu_name_value))
+        elif protocol == "mqtt":
+            topic = _normalize_match_value(_adapter_value(adapter, "topic"))
+            if topic:
+                keys.append(_endpoint_index_key("mqtt_topic", topic))
+        elif protocol == "knx":
+            ga = _normalize_match_value(_adapter_value(adapter, "group_address"))
+            if ga:
+                keys.append(_endpoint_index_key("knx_ga", ga))
+        elif protocol == "udp":
+            udp_topic = _normalize_match_value(_adapter_value(adapter, "format"))
+            if udp_topic:
+                keys.append(_endpoint_index_key("udp_topic", udp_topic))
+    return [key for key in keys if key]
+
+
+def _build_object_endpoint_index() -> dict[str, list[GatewayObject]]:
+    index: dict[str, list[GatewayObject]] = {}
+    for item in list_objects():
+        for key in _collect_object_endpoint_keys(item):
+            index.setdefault(key, []).append(item)
+    return index
+
+
+def _get_object_endpoint_index() -> dict[str, list[GatewayObject]]:
+    global OBJECT_ENDPOINT_INDEX_MTIME
+    with OBJECT_ENDPOINT_INDEX_LOCK:
+        mtime = _objects_file_mtime()
+        if OBJECT_ENDPOINT_INDEX and OBJECT_ENDPOINT_INDEX_MTIME == mtime:
+            return OBJECT_ENDPOINT_INDEX
+    return _rebuild_object_endpoint_index()
 
 
 def build_object(data: dict[str, Any]) -> GatewayObject:
@@ -369,44 +535,90 @@ def get_object(object_id: str) -> GatewayObject | None:
 
 
 def create_object(data: dict[str, Any]) -> GatewayObject:
-    objects = list_objects()
-    item = _payload_from_data(dict(data or {}))
-    existing_ids = {obj.id for obj in objects}
-    while item.id in existing_ids:
-        item.id = _new_unique_object_id(existing_ids)
-    objects.append(item)
-    _write_raw([_object_to_dict(obj) for obj in objects])
+    with OBJECTS_FILE_LOCK:
+        objects = [_object_from_dict(item) for item in _read_raw()]
+        item = _payload_from_data(dict(data or {}))
+        existing_ids = {obj.id for obj in objects}
+        while item.id in existing_ids:
+            item.id = _new_unique_object_id(existing_ids)
+        objects.append(item)
+        _write_raw([_object_to_dict(obj) for obj in objects])
+        clear_object_runtime_state()
+    _rebuild_object_endpoint_index()
     return item
 
 
 def update_object(object_id: str, data: dict[str, Any]) -> GatewayObject | None:
-    objects = list_objects()
-    for index, current in enumerate(objects):
-        if str(object_id or "").strip() in _identity_values(current):
-            payload = dict(data or {})
-            payload["id"] = current.id
-            objects[index] = _payload_from_data(payload, current)
-            _write_raw([_object_to_dict(obj) for obj in objects])
-            return objects[index]
-    return None
+    with OBJECTS_FILE_LOCK:
+        objects = [_object_from_dict(item) for item in _read_raw()]
+        for index, current in enumerate(objects):
+            if str(object_id or "").strip() in _identity_values(current):
+                payload = dict(data or {})
+                payload["id"] = current.id
+                objects[index] = _payload_from_data(payload, current)
+                _write_raw([_object_to_dict(obj) for obj in objects])
+                clear_object_runtime_state()
+                updated = objects[index]
+                break
+        else:
+            return None
+    _rebuild_object_endpoint_index()
+    return updated
 
 
 def delete_object(object_id: str) -> bool:
-    needle = str(object_id or "").strip()
-    if not needle:
-        return False
-    raw_objects = _read_raw()
-    remaining = []
-    deleted = False
-    for item in raw_objects:
-        if needle == str(item.get("id", "") or "").strip():
-            deleted = True
-            continue
-        remaining.append(item)
-    if not deleted:
-        return False
-    _write_raw(remaining)
+    with OBJECTS_FILE_LOCK:
+        needle = str(object_id or "").strip()
+        if not needle:
+            return False
+
+        objects = [_object_from_dict(item) for item in _read_raw()]
+        remaining: list[GatewayObject] = []
+        deleted_cache_ids: list[str] = []
+        deleted = False
+        for item in objects:
+            if needle in _identity_values(item):
+                deleted = True
+                deleted_cache_ids.append(item.id)
+                raw_legacy_ids = item.meta.get("legacy_ids", [])
+                if isinstance(raw_legacy_ids, str):
+                    deleted_cache_ids.extend(part.strip() for part in raw_legacy_ids.split(",") if part.strip())
+                elif isinstance(raw_legacy_ids, list):
+                    deleted_cache_ids.extend(str(value or "").strip() for value in raw_legacy_ids if str(value or "").strip())
+                continue
+            remaining.append(item)
+
+        if not deleted:
+            return False
+
+        _write_raw([_object_to_dict(obj) for obj in remaining])
+        clear_object_live_statuses(*deleted_cache_ids)
+        clear_object_runtime_state()
+    _rebuild_object_endpoint_index()
     return True
+
+
+def clear_object_live_status(object_id: str) -> None:
+    object_id = str(object_id or "").strip()
+    if object_id:
+        OBJECT_LIVE_CACHE.pop(object_id, None)
+
+
+def clear_object_live_statuses(*object_ids: str) -> bool:
+    cleared = False
+    for object_id in object_ids:
+        object_id = str(object_id or "").strip()
+        if not object_id:
+            continue
+        if OBJECT_LIVE_CACHE.pop(object_id, None) is not None:
+            cleared = True
+    return cleared
+
+
+def clear_object_runtime_state() -> bool:
+    cleared = bool(OBJECT_LIVE_CACHE)
+    OBJECT_LIVE_CACHE.clear()
+    return cleared
 
 
 def toggle_object(object_id: str, enabled: bool) -> GatewayObject | None:
@@ -427,6 +639,8 @@ def _live_empty(item: GatewayObject | None, object_id: str = "") -> dict[str, An
         "value": None,
         "unit": str(getattr(item, "unit", "") or ""),
         "source": "unbekannt",
+        "source_address": "",
+        "recognized_endpoint": "",
         "timestamp": "",
         "targets": [],
         "status": "unbekannt",
@@ -476,25 +690,110 @@ def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: An
     return False
 
 
+def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str, str]]:
+    source = str(source or "").strip().lower()
+    if source == "loxone":
+        uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid"))
+        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name"))
+        name_value = _normalize_match_value(endpoint.get("name") or endpoint.get("visu_name"))
+        return [
+            ("loxone_uuid", uuid_value, "loxone.uuid"),
+            ("loxone_io", io_value, "loxone.io_address"),
+            ("loxone_name", name_value, "object.name"),
+        ]
+    if source == "mqtt":
+        topic = _normalize_match_value(endpoint.get("topic"))
+        return [("mqtt_topic", topic, "mqtt.topic")]
+    if source == "knx":
+        ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
+        return [("knx_ga", ga, "knx.group_address")]
+    if source == "udp":
+        udp_topic = _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
+        return [("udp_topic", udp_topic, "udp.topic")]
+    return [
+        ("loxone_uuid", _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid")), "loxone.uuid"),
+        ("loxone_io", _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name")), "loxone.io_address"),
+        ("mqtt_topic", _normalize_match_value(endpoint.get("topic")), "mqtt.topic"),
+        ("knx_ga", _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga")), "knx.group_address"),
+        ("udp_topic", _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format")), "udp.topic"),
+    ]
+
+
+def _live_debug_snapshot(item: GatewayObject) -> dict[str, Any]:
+    adapters = _adapter_map(item)
+    loxone = adapters.get("loxone")
+    mqtt = adapters.get("mqtt")
+    knx = adapters.get("knx")
+    udp = adapters.get("udp")
+    return {
+        "object_id": item.id,
+        "name": item.name,
+        "loxone": {
+            "uuid": _adapter_value(loxone, "uuid") if loxone else "",
+            "io_address": _adapter_value(loxone, "io_address") if loxone else "",
+            "name": _adapter_value(loxone, "visu_name") if loxone else "",
+        },
+        "mqtt": {
+            "topic": _adapter_value(mqtt, "topic") if mqtt else "",
+        },
+        "knx": {
+            "group_address": _adapter_value(knx, "group_address") if knx else "",
+        },
+        "udp": {
+            "address": _endpoint_address("udp", udp) if udp else "",
+            "format": _adapter_value(udp, "format") if udp else "",
+        },
+    }
+
+
 def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: Any) -> list[dict[str, Any]]:
     """Record a runtime-only live value for all objects matching the source endpoint."""
     source = str(source or "").strip().lower() or "unbekannt"
     timestamp = str(timestamp or "").strip() or _now_live_iso()
     updates = []
-    for item in list_objects():
-        if not _object_matches_live_source(item, source, **endpoint):
+    index = _get_object_endpoint_index()
+    lookup_candidates = _live_lookup_candidates(source, **endpoint)
+    matched_items: list[tuple[GatewayObject, str, str]] = []
+    seen_ids = set()
+    for key, raw_value, endpoint_name in lookup_candidates:
+        key = _endpoint_index_key(key, raw_value)
+        if not key:
             continue
+        for item in index.get(key, []):
+            if item.id in seen_ids:
+                continue
+            seen_ids.add(item.id)
+            matched_items.append((item, raw_value, endpoint_name))
+    for item, source_address, recognized_endpoint in matched_items:
         payload = {
             "object_id": item.id,
             "value": value,
             "unit": _live_unit(item, source),
             "source": source,
+            "source_address": source_address,
+            "recognized_endpoint": recognized_endpoint,
             "timestamp": timestamp,
             "targets": _live_targets(item, source),
             "status": "online",
         }
         OBJECT_LIVE_CACHE[item.id] = payload
         updates.append(dict(payload))
+    if source == "loxone" and not matched_items:
+        all_objects = list(list_objects())
+        LOGGER.info(
+            "Live value not matched source=%s value=%s loxone_uuid=%s loxone_io=%s name=%s mqtt_topic=%s knx_ga=%s udp_address=%s object_id=%s objects=%s object_fields=%s",
+            source,
+            value,
+            endpoint.get("loxone_uuid") or endpoint.get("uuid") or "",
+            endpoint.get("loxone_io") or endpoint.get("io_address") or "",
+            endpoint.get("name") or endpoint.get("visu_name") or "",
+            endpoint.get("topic") or "",
+            endpoint.get("group_address") or endpoint.get("ga") or "",
+            endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format") or "",
+            endpoint.get("object_id") or "",
+            len({item.id for bucket in index.values() for item in bucket}),
+            [_live_debug_snapshot(item) for item in all_objects[:10]],
+        )
     return updates
 
 
@@ -670,6 +969,58 @@ def get_object_route_report(item: GatewayObject) -> dict[str, Any]:
     }
 
 
+def _route_lookup_key(kind: str, value: Any) -> str:
+    value = _normalize_match_value(value)
+    if not value:
+        return ""
+    return f"{kind}:{value}"
+
+
+def _build_loxone_to_mqtt_route_index() -> dict[str, list[dict[str, Any]]]:
+    index: dict[str, list[dict[str, Any]]] = {}
+    for item in list_objects():
+        if get_object_route_status(item) != "aktiv":
+            continue
+        adapters = _adapter_map(item)
+        loxone_adapter = adapters.get("loxone")
+        mqtt_adapter = adapters.get("mqtt")
+        if not loxone_adapter or not mqtt_adapter:
+            continue
+        if not _is_complete_endpoint("loxone", loxone_adapter) or not _is_complete_endpoint("mqtt", mqtt_adapter):
+            continue
+        if not _can_source(loxone_adapter) or not _can_target(mqtt_adapter):
+            continue
+        route = {
+            "object_id": item.id,
+            "object_name": item.name,
+            "mqtt_topic": _adapter_value(mqtt_adapter, "topic"),
+            "retain": bool(getattr(mqtt_adapter, "retain", False)),
+            "loxone_uuid": _adapter_value(loxone_adapter, "uuid"),
+            "loxone_io": _adapter_value(loxone_adapter, "io_address"),
+        }
+        for key in (
+            _route_lookup_key("uuid", route["loxone_uuid"]),
+            _route_lookup_key("io", route["loxone_io"]),
+            _route_lookup_key("name", item.name),
+        ):
+            if not key:
+                continue
+            index.setdefault(key, []).append(route)
+    return index
+
+
+def _get_loxone_to_mqtt_route_index() -> dict[str, list[dict[str, Any]]]:
+    global OBJECT_ROUTE_CACHE_MTIME
+    with OBJECT_ROUTE_CACHE_LOCK:
+        mtime = _objects_file_mtime()
+        if OBJECT_ROUTE_CACHE and OBJECT_ROUTE_CACHE_MTIME == mtime:
+            return OBJECT_ROUTE_CACHE
+        OBJECT_ROUTE_CACHE.clear()
+        OBJECT_ROUTE_CACHE.update(_build_loxone_to_mqtt_route_index())
+        OBJECT_ROUTE_CACHE_MTIME = _objects_file_mtime()
+        return OBJECT_ROUTE_CACHE
+
+
 def _route_base(item: GatewayObject, source_topic: str) -> dict[str, Any]:
     return {
         "enabled": True,
@@ -683,6 +1034,12 @@ def _route_base(item: GatewayObject, source_topic: str) -> dict[str, Any]:
 
 
 def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] | dict[str, dict[str, Any]]]:
+    global OBJECT_ROUTE_EXPORT_CACHE_MTIME
+    with OBJECT_ROUTE_EXPORT_CACHE_LOCK:
+        mtime = _objects_file_mtime()
+        if log_func is None and OBJECT_ROUTE_EXPORT_CACHE and OBJECT_ROUTE_EXPORT_CACHE_MTIME == mtime:
+            return _clone_route_export_result(OBJECT_ROUTE_EXPORT_CACHE)
+
     objects = list_objects()
     routes: dict[str, Any] = {
         "mqtt2lox": [],
@@ -763,47 +1120,28 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
         for message in errors:
             log_func(f"Objektroute Fehler {message}")
 
+    with OBJECT_ROUTE_EXPORT_CACHE_LOCK:
+        OBJECT_ROUTE_EXPORT_CACHE.clear()
+        OBJECT_ROUTE_EXPORT_CACHE.update(_clone_route_export_result(routes))
+        OBJECT_ROUTE_EXPORT_CACHE_MTIME = _objects_file_mtime()
+
     return routes
 
 
 def find_loxone_to_mqtt_route(loxone_uuid: str = "", loxone_io: str = "", state_name: str = "") -> dict[str, Any] | None:
     """Return the active object route that permits publishing a Loxone state to MQTT."""
-    uuid_needle = _normalize_uuid_value(loxone_uuid)
-    io_needles = {
-        _normalize_match_value(loxone_io),
-        _normalize_match_value(state_name),
-    }
-    io_needles = {value for value in io_needles if value}
-
-    for item in list_objects():
-        if get_object_route_status(item) != "aktiv":
+    route_index = _get_loxone_to_mqtt_route_index()
+    candidates = [
+        _route_lookup_key("uuid", loxone_uuid),
+        _route_lookup_key("io", loxone_io),
+        _route_lookup_key("name", state_name),
+    ]
+    seen_keys = set()
+    for key in candidates:
+        if not key or key in seen_keys:
             continue
-        adapters = _adapter_map(item)
-        loxone_adapter = adapters.get("loxone")
-        mqtt_adapter = adapters.get("mqtt")
-        if not loxone_adapter or not mqtt_adapter:
-            continue
-        if not _is_complete_endpoint("loxone", loxone_adapter) or not _is_complete_endpoint("mqtt", mqtt_adapter):
-            continue
-        if not _can_source(loxone_adapter) or not _can_target(mqtt_adapter):
-            continue
-
-        loxone_uuid_value = _normalize_uuid_value(_adapter_value(loxone_adapter, "uuid"))
-        loxone_io_value = _normalize_match_value(_adapter_value(loxone_adapter, "io_address"))
-        uuid_matches = bool(uuid_needle and loxone_uuid_value and uuid_needle == loxone_uuid_value)
-        io_matches = bool(loxone_io_value and loxone_io_value in io_needles)
-        if not uuid_matches and not io_matches:
-            continue
-
-        mqtt_topic = _adapter_value(mqtt_adapter, "topic")
-        if not mqtt_topic:
-            continue
-        return {
-            "object_id": item.id,
-            "object_name": item.name,
-            "mqtt_topic": mqtt_topic,
-            "retain": bool(getattr(mqtt_adapter, "retain", False)),
-            "loxone_uuid": _adapter_value(loxone_adapter, "uuid"),
-            "loxone_io": _adapter_value(loxone_adapter, "io_address"),
-        }
+        seen_keys.add(key)
+        routes = route_index.get(key) or []
+        if routes:
+            return dict(routes[0])
     return None

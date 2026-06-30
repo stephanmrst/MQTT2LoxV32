@@ -103,6 +103,11 @@
       border-radius:6px;
       padding:11px 12px;
       line-height:1.25;
+      width:100%;
+      appearance:none;
+      text-align:left;
+      font:inherit;
+      min-height:0;
     }
     .object-card:hover { border-color:#5e7895; background:var(--panel2); }
     .object-card.selected {
@@ -262,7 +267,7 @@
       {% if objects %}
         {% for item in objects %}
           {% set protocols = adapter_protocols(item) %}
-          <a class="object-card {% if selected and item.uuid == selected.uuid %}selected{% endif %}" href="{{ url_for('objects_v33.objects_v33_index', selected=item.uuid, q=query, filter=active_filter) }}" data-object-id="{{ item.id }}">
+          <button type="button" class="object-card {% if selected and item.id == selected.id %}selected{% endif %}" data-object-card="1" data-object-id="{{ item.id }}">
             <div class="object-initial">{{ (item.name or item.key or item.id or '?')[:1]|upper }}</div>
             <div class="object-body">
               <div class="card-top">
@@ -283,7 +288,7 @@
                 {% endfor %}
               </div>
             </div>
-          </a>
+          </button>
         {% endfor %}
       {% else %}
         <div class="empty">Keine Objekte vorhanden.</div>
@@ -291,180 +296,253 @@
     </div>
   </aside>
 
-  <section class="right">
-    {% if notice %}
-      <div class="notice">{{ notice }}</div>
-    {% endif %}
-    {% if selected %}
-      {% set is_new = not selected.uuid %}
-      {% set object_def = selected %}
-      {% if errors %}
-        <div class="errors">
-          {% for error in errors %}
-            <div>{{ error }}</div>
-          {% endfor %}
-        </div>
-      {% endif %}
-
-      <div class="detail-card">
-        <div class="detail-head">
-          <div>
-            <h1>{{ object_def.name or 'Neues Objekt' }}</h1>
-            <div class="uuid">MP-Gateway Objekt-UUID: {{ object_def.uuid or 'wird beim Speichern erzeugt' }}</div>
-          </div>
-          <div class="head-actions">
-            <span class="badge {% if object_def.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if object_def.enabled else 'Inaktiv' }}</span>
-            {% set detail_status = route_status(object_def) %}
-            <span class="badge {% if detail_status == 'aktiv' %}route-active{% elif detail_status == 'deaktiviert' %}route-disabled{% elif detail_status == 'fehler' %}route-error{% else %}route-incomplete{% endif %}">{{ detail_status }}</span>
-            <button form="objectGeneralForm" class="primary" type="submit">Speichern</button>
-            <button type="button" disabled>Duplizieren</button>
-            {% if object_def.id %}
-              <form method="post" action="{{ url_for('objects_v33.objects_v33_delete', object_uuid=object_def.id) }}" onsubmit="return submitObjectDelete(this)">
-                <button class="danger" type="submit">Loeschen</button>
-              </form>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="tabs">
-          {% set active_tab = selected_tab|default('general') %}
-          <input id="tab-general" type="radio" name="tabs" {% if active_tab == 'general' %}checked{% endif %}>
-          <input id="tab-mqtt" type="radio" name="tabs" {% if active_tab == 'mqtt' %}checked{% endif %}>
-          <input id="tab-loxone" type="radio" name="tabs" {% if active_tab == 'loxone' %}checked{% endif %}>
-          <input id="tab-udp" type="radio" name="tabs" {% if active_tab == 'udp' %}checked{% endif %}>
-          <input id="tab-knx" type="radio" name="tabs" {% if active_tab == 'knx' %}checked{% endif %}>
-          <input id="tab-influx" type="radio" name="tabs" {% if active_tab == 'influx' %}checked{% endif %}>
-          <input id="tab-routing" type="radio" name="tabs" {% if active_tab == 'routing' %}checked{% endif %}>
-          <input id="tab-live" type="radio" name="tabs" {% if active_tab == 'live' %}checked{% endif %}>
-
-          <div class="tab-labels">
-            <label for="tab-general">Allgemein</label>
-            <label for="tab-mqtt">MQTT</label>
-            <label for="tab-loxone">Loxone</label>
-            <label for="tab-udp">UDP</label>
-            <label for="tab-knx">KNX</label>
-            <label for="tab-influx">Influx</label>
-            <label for="tab-routing">Routing</label>
-            <label for="tab-live">Live</label>
-          </div>
-
-          <div class="panels">
-            <div class="tab-panel general-panel">
-              <form id="objectGeneralForm" method="post" action="{{ url_for('objects_v33.objects_v33_save') }}">
-                <input type="hidden" name="uuid" value="{{ object_def.uuid }}">
-                <div class="grid">
-                  <div class="field"><label for="name">Name</label><input id="name" name="name" value="{{ object_def.name }}" required></div>
-                  <div class="field"><label for="datatype">Datentyp</label><input id="datatype" name="datatype" value="{{ object_def.datatype }}"></div>
-                  <div class="field"><label for="category">Kategorie</label><input id="category" name="category" value="{{ object_def.category }}"></div>
-                  <div class="field"><label for="room">Raum</label><input id="room" name="room" value="{{ object_def.room }}"></div>
-                  <div class="field"><label for="unit">Einheit</label><input id="unit" name="unit" value="{{ object_def.unit }}"></div>
-                  <div class="field"><label for="icon">Icon</label><input id="icon" name="icon" value="{{ object_def.icon }}"></div>
-                  <div class="field"><label for="scaling">Skalierung</label><input id="scaling" name="scaling" value="{{ object_def.scaling }}"></div>
-                </div>
-                <label for="notes" style="margin-top:12px;">Beschreibung</label>
-                <textarea id="notes" name="notes">{{ object_def.notes }}</textarea>
-                <label class="check">
-                  <input type="checkbox" name="enabled" {% if object_def.enabled %}checked{% endif %}>
-                  Aktiv
-                </label>
-              </form>
-            </div>
-
-            {% for adapter in selected_adapters %}
-              <div class="tab-panel {{ adapter.protocol }}-panel">
-                <form class="adapter-form" method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.uuid, protocol=adapter.protocol) }}">
-                  {% include adapter_template_name(adapter.protocol) %}
-                  <div class="toolbar" style="margin-top:14px;">
-                    <button type="submit" class="primary">Adapter speichern</button>
-                  </div>
-                </form>
-              </div>
-            {% endfor %}
-
-            <div class="tab-panel routing-panel">
-              {% set route_report = selected_route_report or {'routes': selected_preview, 'missing_endpoints': [], 'errors': [], 'status': detail_status} %}
-              {% if route_report.routes %}
-                <table>
-                  <thead>
-                    <tr><th>Quelle</th><th>Ziel</th><th>Richtung</th><th>Status</th></tr>
-                  </thead>
-                  <tbody>
-                    {% for item in route_report.routes %}
-                      <tr>
-                        <td>{{ item.source }}{% if item.source_address %}<br><span class="count">{{ item.source_address }}</span>{% endif %}</td>
-                        <td>{{ item.target }}{% if item.target_address %}<br><span class="count">{{ item.target_address }}</span>{% endif %}</td>
-                        <td>{{ item.direction }}</td>
-                        <td><span class="badge on">{{ item.status }}</span></td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              {% else %}
-                <div class="empty">Keine erzeugten Routen vorhanden.</div>
-              {% endif %}
-              {% if route_report.missing_endpoints %}
-                <div class="empty" style="margin-top:12px;">Fehlende Endpunkte: {{ route_report.missing_endpoints|join(', ') }}</div>
-              {% endif %}
-              {% if route_report.errors %}
-                <div class="errors" style="margin-top:12px;">
-                  {% for error in route_report.errors %}
-                    <div>{{ error }}</div>
-                  {% endfor %}
-                </div>
-              {% endif %}
-            </div>
-
-            <div class="tab-panel live-panel">
-              <div class="live-grid" data-selected-live="{{ object_def.id }}">
-                <div class="live-field">
-                  <div class="live-label">Letzter Wert</div>
-                  <div class="live-value" id="objectLiveValue">-</div>
-                </div>
-                <div class="live-field">
-                  <div class="live-label">Einheit</div>
-                  <div class="live-value" id="objectLiveUnit">{{ object_def.unit or '-' }}</div>
-                </div>
-                <div class="live-field">
-                  <div class="live-label">Zeitstempel</div>
-                  <div class="live-value" id="objectLiveTimestamp">-</div>
-                </div>
-                <div class="live-field">
-                  <div class="live-label">Quelle / Adapter</div>
-                  <div class="live-value" id="objectLiveSource">unbekannt</div>
-                </div>
-                <div class="live-field">
-                  <div class="live-label">Letzte Ziel-Adapter</div>
-                  <div class="live-value" id="objectLiveTargets">-</div>
-                </div>
-                <div class="live-field">
-                  <div class="live-label">Status</div>
-                  <div class="live-value" id="objectLiveStatus">unbekannt</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    {% else %}
-      <div class="detail-card">
-        <div class="empty">Waehle links ein Objekt aus oder lege ein neues Objekt an.</div>
-      </div>
-    {% endif %}
+  <section class="right" id="objectDetailPane">
+    {% include "objects_v33/_detail.html" %}
   </section>
 </main>
 <script>
+const initialSelectedObjectId = {{ (selected.id if selected else "")|tojson }};
+let selectedObjectId = initialSelectedObjectId;
+let selectedTabName = {{ (selected_tab|default("general"))|tojson }};
+let objectListQuery = {{ query|tojson }};
+let objectListFilter = {{ active_filter|tojson }};
+let detailRequestToken = 0;
+let deleteInFlight = false;
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function objectProtocols(item) {
+  return ["mqtt", "loxone", "udp", "knx", "influx"].filter(protocol => item && item[protocol]);
+}
+
+function objectStatusClass(status) {
+  if (status === "aktiv") return "route-active";
+  if (status === "deaktiviert") return "route-disabled";
+  if (status === "fehler") return "route-error";
+  return "route-incomplete";
+}
+
+function buildObjectCard(item) {
+  const protocols = objectProtocols(item);
+  const status = String(item.route_status || "unvollständig");
+  const selected = selectedObjectId && String(item.id || "") === selectedObjectId ? " selected" : "";
+  const enabledClass = item.enabled ? "on" : "off";
+  const enabledLabel = item.enabled ? "Aktiv" : "Inaktiv";
+  const value = item.live && item.live.value !== undefined ? item.live.value : "";
+  return `
+    <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}">
+      <div class="object-initial">${escapeHtml((item.name || item.key || item.id || "?").slice(0, 1).toUpperCase())}</div>
+      <div class="object-body">
+        <div class="card-top">
+          <span class="badge type">${escapeHtml(item.type || "Objekt")}</span>
+          <span class="badge ${enabledClass}">${enabledLabel}</span>
+          <span class="badge ${objectStatusClass(status)}">${escapeHtml(status)}</span>
+        </div>
+        <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
+        <div class="object-live">
+          <span class="object-live-value" data-live-field="value">${escapeHtml(value || "-")}</span>
+          <span class="object-live-source">Quelle: <span data-live-field="source">unbekannt</span></span>
+        </div>
+        <div class="object-meta">${escapeHtml(item.type || "auto")}${item.unit ? " &middot; " + escapeHtml(item.unit) : ""}</div>
+        <div class="badges">
+          ${["mqtt", "loxone", "udp", "knx", "influx"].map(protocol => `
+            <span class="badge proto proto-${protocol} ${protocols.includes(protocol) ? "active" : "inactive"}">${protocol.toUpperCase()}</span>
+          `).join("")}
+        </div>
+      </div>
+    </button>
+  `;
+}
+
+function buildObjectCardHtml(item) {
+  const protocols = objectProtocols(item);
+  const status = String(item.route_status || "unvollständig");
+  const selected = selectedObjectId && String(item.id || "") === selectedObjectId ? " selected" : "";
+  const enabledClass = item.enabled ? "on" : "off";
+  const enabledLabel = item.enabled ? "Aktiv" : "Inaktiv";
+  return `
+    <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}">
+      <div class="object-initial">${escapeHtml((item.name || item.key || item.id || "?").slice(0, 1).toUpperCase())}</div>
+      <div class="object-body">
+        <div class="card-top">
+          <span class="badge type">${escapeHtml(item.type || "Objekt")}</span>
+          <span class="badge ${enabledClass}">${enabledLabel}</span>
+          <span class="badge ${objectStatusClass(status)}">${escapeHtml(status)}</span>
+        </div>
+        <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
+        <div class="object-live">
+          <span class="object-live-value" data-live-field="value">-</span>
+          <span class="object-live-source">Quelle: <span data-live-field="source">unbekannt</span></span>
+        </div>
+        <div class="object-meta">${escapeHtml(item.type || "auto")}${item.unit ? " &middot; " + escapeHtml(item.unit) : ""}</div>
+        <div class="badges">
+          ${["mqtt", "loxone", "udp", "knx", "influx"].map(protocol => `
+            <span class="badge proto proto-${protocol} ${protocols.includes(protocol) ? "active" : "inactive"}">${protocol.toUpperCase()}</span>
+          `).join("")}
+        </div>
+      </div>
+    </button>
+  `;
+}
+
+function updateSelectedCardState(objectId) {
+  document.querySelectorAll("[data-object-card]").forEach(card => {
+    card.classList.toggle("selected", String(card.getAttribute("data-object-id") || "") === String(objectId || ""));
+  });
+}
+
+function currentTabName() {
+  const checked = document.querySelector(".tabs input[name='tabs']:checked");
+  if (!checked) return selectedTabName || "general";
+  return checked.id.replace(/^tab-/, "");
+}
+
+function updateBrowserState(objectId, tabName) {
+  const url = new URL(window.location.href);
+  if (objectId) {
+    url.searchParams.set("selected", objectId);
+  } else {
+    url.searchParams.delete("selected");
+  }
+  url.searchParams.set("tab", tabName || "general");
+  window.history.replaceState({}, "", url.toString());
+}
+
+function setObjectDetailPane(html) {
+  const pane = document.getElementById("objectDetailPane");
+  if (pane) {
+    pane.innerHTML = html;
+  }
+}
+
+function setObjectListHtml(html) {
+  const list = document.getElementById("objectList");
+  if (list) {
+    list.innerHTML = html;
+    list.setAttribute("data-selected", selectedObjectId || "");
+  }
+}
+
+function renderObjectList(objects) {
+  const query = String(objectListQuery || "").toLowerCase().trim();
+  const activeFilter = String(objectListFilter || "all").toLowerCase();
+  const filtered = (objects || []).filter(item => {
+    const name = String(item.name || item.id || "").toLowerCase();
+    const type = String(item.type || "").toLowerCase();
+    const id = String(item.id || "").toLowerCase();
+    if (query && !(`${name} ${type} ${id}`).includes(query)) return false;
+    if (activeFilter === "all") return true;
+    if (activeFilter === "active") return !!item.enabled;
+    return !!item[activeFilter];
+  });
+  if (!filtered.length) {
+    setObjectListHtml('<div class="empty">Keine Objekte vorhanden.</div>');
+    return;
+  }
+  setObjectListHtml(filtered.map(buildObjectCardHtml).join(""));
+}
+
+async function refreshObjectList() {
+  try {
+    const response = await fetch("/api/objects", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    renderObjectList(data.objects || []);
+    refreshObjectLiveData();
+  } catch (error) {
+  }
+}
+
+async function loadObjectPanel(objectId, options = {}) {
+  const requestId = ++detailRequestToken;
+  const tabName = options.tab || currentTabName();
+  const targetId = objectId || "_none";
+  try {
+    const response = await fetch(`/objects_v33/panel/${encodeURIComponent(targetId)}?tab=${encodeURIComponent(tabName)}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const html = await response.text();
+    if (requestId !== detailRequestToken) return;
+    setObjectDetailPane(html);
+    selectedTabName = tabName;
+    updateBrowserState(objectId || "", tabName);
+    refreshObjectLiveData();
+  } catch (error) {
+  }
+}
+
+async function selectObject(objectId) {
+  if (!objectId || String(objectId) === String(selectedObjectId || "")) return;
+  selectedObjectId = String(objectId);
+  updateSelectedCardState(selectedObjectId);
+  await loadObjectPanel(selectedObjectId, {tab: currentTabName()});
+}
+
+async function deleteSelectedObject(idOverride) {
+  const idToDelete = String(idOverride || selectedObjectId || "");
+  if (!idToDelete || deleteInFlight) return;
+  deleteInFlight = true;
+  const button = document.querySelector("form[data-delete-form='1'] button[type=submit]");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Loesche...";
+  }
+  try {
+    const response = await fetch(`/api/objects/${encodeURIComponent(idToDelete)}`, { method: "DELETE", cache: "no-store" });
+    if (response.status !== 200 && response.status !== 404) {
+      return;
+    }
+    selectedObjectId = "";
+    updateSelectedCardState("");
+    updateBrowserState("", "general");
+    await refreshObjectList();
+    await loadObjectPanel("", {tab: "general"});
+  } catch (error) {
+  } finally {
+    deleteInFlight = false;
+    if (button && button.isConnected && selectedObjectId) {
+      button.disabled = false;
+      button.textContent = "Loeschen";
+    }
+  }
+}
+
+document.addEventListener("click", event => {
+  const card = event.target.closest("[data-object-card='1']");
+  if (!card) return;
+  event.preventDefault();
+  selectObject(card.getAttribute("data-object-id") || "");
+});
+
 function submitObjectDelete(form) {
-  if (!form || form.dataset.submitted === "1") return false;
-  const action = form.getAttribute("action") || "";
-  if (!action || /\/delete\/?$/.test(action)) return false;
-  form.dataset.submitted = "1";
+  if (!form || deleteInFlight) return false;
+  const formData = new FormData(form);
+  const idToDelete = String(formData.get("selected_before") || selectedObjectId || "");
+  if (!idToDelete) return false;
+  selectedObjectId = idToDelete;
   const button = form.querySelector("button[type=submit]");
   if (button) {
     button.disabled = true;
     button.textContent = "Loesche...";
   }
-  return true;
+  deleteSelectedObject(idToDelete);
+  return false;
 }
+
+window.addEventListener("pageshow", () => {
+  deleteInFlight = false;
+  const button = document.querySelector("form[data-delete-form='1'] button[type=submit]");
+  if (button && button.textContent === "Loesche...") {
+    button.disabled = false;
+    button.textContent = "Loeschen";
+  }
+});
 
 function formatObjectLiveValue(item) {
   if (!item || item.value === null || item.value === undefined || item.value === "") return "-";
@@ -481,6 +559,15 @@ function formatObjectLiveSource(source) {
   return "unbekannt";
 }
 
+function formatObjectLiveEndpoint(item) {
+  const address = String(item && item.source_address || "").trim();
+  const label = String(item && item.recognized_endpoint || "").trim();
+  if (address && label) return `${address} (${label})`;
+  if (address) return address;
+  if (label) return label;
+  return "-";
+}
+
 function setObjectLiveText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -495,13 +582,13 @@ function applyObjectLiveData(items) {
     if (valueEl) valueEl.textContent = formatObjectLiveValue(item);
     if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && item.source);
   });
-  const selectedId = "{{ selected.id if selected else '' }}";
-  const selected = byId.get(String(selectedId || ""));
+  const selected = byId.get(String(selectedObjectId || ""));
   if (selected) {
     setObjectLiveText("objectLiveValue", formatObjectLiveValue(selected));
     setObjectLiveText("objectLiveUnit", selected.unit || "-");
     setObjectLiveText("objectLiveTimestamp", selected.timestamp || "-");
     setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.source));
+    setObjectLiveText("objectLiveEndpoint", formatObjectLiveEndpoint(selected));
     setObjectLiveText("objectLiveTargets", (selected.targets || []).length ? selected.targets.join(", ") : "-");
     setObjectLiveText("objectLiveStatus", selected.status || "unbekannt");
   }

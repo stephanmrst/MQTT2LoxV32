@@ -1,5 +1,100 @@
 # Changelog
 
+## 33.3.39
+
+- Der temporäre Single-Object-Fallback fuer Loxone-Livewerte wurde entfernt.
+- `record_live_value()` loggt fehlende Loxone-Zuordnungen nun auf INFO/WARNING statt stiller Fallback-Zuordnung.
+- Versionsstand auf `33.3.39` gesetzt.
+
+## 33.3.38
+
+- `/api/objects/live` zieht nun Loxone-Livewerte aus `core.display_values` und `core.last_values` nach und synchronisiert sie wieder in den Objekt-Live-Cache.
+- Der Sync berücksichtigt bei Loxone zusätzlich `custom_name` aus der Topic-Config, damit echte Livewerte nicht mehr als `value:null` im Objektmanager landen.
+- Versionsstand auf `33.3.38` gesetzt.
+
+## 33.3.37
+
+- Loxone-Livewerte matchen jetzt auch auf `object.name`, `loxone.name` und die Alias-Felder `io`, `io_address`, `loxone_io`, `uuid` und `loxone_uuid`.
+- Wenn kein Treffer gefunden wird, loggt `record_live_value()` nun eine Debug-Sicht mit den relevanten Objektfeldern.
+- Bei genau einem Objekt kann ein Loxone-Livewert als temporärer Fallback auf dieses Objekt gelegt werden.
+- Versionsstand auf `33.3.37` gesetzt.
+
+## 33.3.36
+
+- Loxone-Livewerte matchen jetzt robuster ueber UUID, IO-Adresse und Objektname und loggen Debug-Hinweise, wenn kein Treffer gefunden wird.
+- Der Live-Endpoint-Index wird nach Objekt-CRUD direkt neu aufgebaut, damit frische Objekte sofort fuer Live-Zuordnungen verfuegbar sind.
+- Versionsstand auf `33.3.36` gesetzt.
+
+## 33.3.35
+
+- Objektmanager zeigt Live-Werte jetzt mit erkannter Quelle und erkanntem Endpunkt in Karten und Live-Tab an.
+- Live-Wert-Zuordnung nutzt den vorbereiteten In-Memory-Index fuer Loxone UUID/IO-Adresse und MQTT Topic, ohne `objects.json` pro Wert zu scannen.
+- `GET /api/objects/live` und `GET /api/objects/<id>/live` liefern jetzt auch `source_address` und `recognized_endpoint`.
+- Versionsstand auf `33.3.35` gesetzt.
+
+## 33.3.34
+
+- object_service nutzt jetzt keine Lock-Inversion mehr: Datei- und Cache-Zugriffe sind entkoppelt, CRUD ruft nicht mehr unter `OBJECTS_FILE_LOCK` wieder `list_objects()` auf.
+- Live-Wert-Erfassung arbeitet jetzt mit einem vorbereiteten In-Memory-Endpoint-Index statt pro Wert die komplette Objektliste zu scannen.
+- Objekt-Cache, Endpoint-Index und Route-Cache werden gemeinsam invalidiert, damit Bridge-Callbacks und CRUD sich nicht gegenseitig blockieren.
+- Versionsstand auf `33.3.34` gesetzt.
+
+## 33.3.32
+
+- Delete entkoppelt jetzt den Reload noch deutlicher: `objects.json` wird geschrieben, Cache invalidiert und der Route-Reload nur asynchron angestossen.
+- Delete-Requests loggen `delete_start`, `write_objects_done`, `cache_invalidated`, `reload_requested` und `delete_response_sent`.
+- `reload_object_routes()` loggt nun Start, Dauer und Fehler separat, damit Reload-Blockaden schneller sichtbar werden.
+- Versionsstand auf `33.3.32` gesetzt.
+
+## 33.3.31
+
+- Objekt-Routen werden jetzt ueber einen In-Memory-Cache erzeugt und nicht bei jedem Zugriff neu aus `config/objects.json` berechnet.
+- CRUD-Reloads laufen asynchron, damit der Flask-Thread nicht auf Route-Neuberechnung warten muss.
+- Loxone->MQTT-Routencheck bleibt cachebasiert, Skip-Logs bleiben debug-only und das UI-Log wird nicht mehr mit Skip-Meldungen geflutet.
+- Versionsstand auf `33.3.31` gesetzt.
+
+## 33.3.30
+
+- Loxone->MQTT Skip-Meldungen laufen nicht mehr ueber das normale Live-Log; im Debug-Fall werden sie pro UUID nur noch rate-limited geloggt.
+- Die Loxone->MQTT-Routensuche nutzt jetzt einen In-Memory-Index statt pro Wert die komplette Objektliste zu durchsuchen.
+- `config/objects.json`-Lesen fuer den Routing-Check wird damit aus dem Loxone-Hot-Path entfernt; Live-Werte werden weiter aktualisiert.
+- Versionsstand auf `33.3.30` gesetzt.
+
+## 33.3.29
+
+- `config/objects.json` wird beim Objekt-CRUD jetzt ueber einen zentralen Schreiblock und eindeutige Temp-Dateien geschrieben.
+- Atomisches Schreiben versucht `os.replace()` mehrfach erneut, damit Windows-Dateisperren nicht sofort zu einem 500 fuehren.
+- API-Routen geben bei gesperrter Objektdatei einen sauberen `423`-Hinweis statt eines generischen Serverfehlers zurueck.
+- Versionsstand auf `33.3.29` gesetzt.
+
+## 33.3.27
+
+- CRUD-State im Objektmanager weiter abgesichert: Objekt-Runtime-State wird nach Create/Update/Delete komplett verworfen, damit geladene Live-/Cache-Reste keinen Folge-CRUD blockieren.
+- Loxone-Create loggt jetzt vor dem Fehlerpfad zusaetzlich `request.args`, `request.form`, JSON-Payload und die konkrete Ursache im exakten Debug-Format.
+- Create/Import-Logging erfasst den Request-Snapshot mit Form- und JSON-Daten sowie den aktuellen Objektbestand vor dem Duplicate-Check.
+- Versionsstand auf `33.3.27` gesetzt.
+
+## 33.3.26
+
+- Jinja2-kompatible JavaScript-Strings im Objektmanager auf `tojson` umgestellt.
+- `e('js')` im Objektmanager-Template entfernt, damit der Seite kein Template-500 mehr erzeugt.
+- Versionsstand auf `33.3.26` gesetzt.
+
+## 33.3.24
+
+- Objekt-CRUD loest keinen Bridge-Neustart mehr aus.
+- `reload_object_routes()` berechnet die Objekt-Routen neu, laesst die laufende Bridge aber aktiv.
+- Flask wird beim Direktstart explizit ohne Reloader gestartet, damit `objects.json` keine Dev-Restarts triggert.
+- Delete setzt die Objektansicht nach dem Loeschen auf keine Auswahl mehr und loggt IDs vor/nach dem Vorgang.
+- Versionsstand auf `33.3.24` gesetzt.
+
+## 33.3.25
+
+- Objektwahl im Objektmanager laedt den rechten Bereich jetzt per API/Fragment statt per Full-Page-Navigation.
+- Delete verwendet die vorher gemerkte `selectedObjectId`, loescht idempotent und setzt danach die Auswahl sauber auf leer.
+- Objektliste wird nach Delete per API neu aufgebaut, ohne den kompletten Content-Bereich neu zu laden.
+- Versionsstand auf `33.3.25` gesetzt.
+
 ## 33.3.21
 
 - Objekt-Loeschen nach interner UUID-Umstellung repariert.
