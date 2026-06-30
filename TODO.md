@@ -2,6 +2,13 @@
 
 ## 33.0.x
 
+- Objekt-Routing 33.3.46 pruefen: Neues Objekt anlegen, UDP-Tab oeffnen und sicherstellen, dass `UDP Topic` als `<Objektname>/value` vorbelegt ist; nach manuellem Leeren und Speichern muss wieder dieser Default erscheinen.
+- Objekt-Routing 33.3.46 pruefen: Payload-Modus `Nur Wert` sendet trotz gespeichertem UDP Topic nur den nackten Wert.
+- Objekt-Routing 33.3.44 pruefen: UDP-Zieladapter speichern `udp_topic`/`payload_mode`, senden mit Custom-Topic als `topic:value` und ohne Topic nur den Wert.
+- Objekt-Routing 33.3.43 pruefen: Legacy-Seiten duerfen keine Objektmanager-Routen mehr zaehlen/anzeigen und eigene MQTT-Ausgaben muessen als Echo uebersprungen werden.
+- Objekt-Routing 33.3.42 pruefen: Loxone->UDP sendet pro Zielpaket nur einmal, ohne leeres Topic-Praefix und ohne MQTT-Loopback-Duplikat.
+- Objekt-Routing 33.3.41 pruefen: Loxone->UDP darf pro Zielroute nur einmal senden und MQTT-Loopbacks muessen unterdrueckt bleiben.
+- Objekt-Routing 33.3.40 pruefen: Loxone muss auf aktive MQTT- und UDP-Zieladapter weiterreichen, KNX bleibt vorerst vorbereitet.
 - Objekt-Live 33.3.39 pruefen: kein Ein-Objekt-Fallback mehr, nur echte Zuordnung oder Info-Log.
 - Objekt-Live 33.3.38 pruefen: `/api/objects/live` soll Loxone-Werte aus `core.display_values` und `core.last_values` spiegeln.
 - Objekt-Live 33.3.37 pruefen: Fallback fuer Einzelobjekte soll nur im Loxone-Pfad greifen.

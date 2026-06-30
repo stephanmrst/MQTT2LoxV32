@@ -305,8 +305,32 @@ def _add_adapter(adapters: dict[str, dict[str, Any]], protocol: str, payload: di
     if protocol not in ADAPTER_TYPES:
         return
     current = dict(adapters.get(protocol, {}))
-    current.update({key: value for key, value in dict(payload or {}).items() if value not in (None, "")})
+    current.update({key: value for key, value in dict(payload or {}).items() if value is not None})
     adapters[protocol] = _serialize_adapter_payload(protocol, current, datatype)
+
+
+def _apply_udp_default_topic(item: GatewayObject, create_missing: bool = False) -> None:
+    adapters = {}
+    for adapter in item.adapters:
+        protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
+        if protocol:
+            adapters[protocol] = adapter
+    udp_adapter = adapters.get("udp")
+    if udp_adapter is not None and str(getattr(udp_adapter, "udp_topic", "") or "").strip():
+        return
+    default_topic = f"{str(item.name or '').strip()}/value" if str(item.name or "").strip() else ""
+    if not default_topic:
+        return
+    if udp_adapter is None:
+        if not create_missing:
+            return
+        udp_adapter = ADAPTER_TYPES["udp"](enabled=False, direction="out", datatype=item.datatype or "auto")
+    udp_adapter.udp_topic = default_topic
+    udp_adapter.payload_mode = str(getattr(udp_adapter, "payload_mode", "") or "topic_value") or "topic_value"
+    if str(getattr(udp_adapter, "format", "") or "").strip() not in {"text", "topic_value", "value_only", "json", "json_number"}:
+        udp_adapter.format = ""
+    adapters["udp"] = udp_adapter
+    item.adapters = [adapters[protocol] for protocol in ("mqtt", "udp", "knx", "loxone", "influx") if protocol in adapters]
 
 
 def _normalize_adapters(data: dict[str, Any], datatype: str, existing: GatewayObject | None = None) -> dict[str, dict[str, Any]]:
@@ -497,7 +521,7 @@ def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
             if ga:
                 keys.append(_endpoint_index_key("knx_ga", ga))
         elif protocol == "udp":
-            udp_topic = _normalize_match_value(_adapter_value(adapter, "format"))
+            udp_topic = _normalize_match_value(_adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format"))
             if udp_topic:
                 keys.append(_endpoint_index_key("udp_topic", udp_topic))
     return [key for key in keys if key]
@@ -538,6 +562,7 @@ def create_object(data: dict[str, Any]) -> GatewayObject:
     with OBJECTS_FILE_LOCK:
         objects = [_object_from_dict(item) for item in _read_raw()]
         item = _payload_from_data(dict(data or {}))
+        _apply_udp_default_topic(item, create_missing=True)
         existing_ids = {obj.id for obj in objects}
         while item.id in existing_ids:
             item.id = _new_unique_object_id(existing_ids)
@@ -556,6 +581,7 @@ def update_object(object_id: str, data: dict[str, Any]) -> GatewayObject | None:
                 payload = dict(data or {})
                 payload["id"] = current.id
                 objects[index] = _payload_from_data(payload, current)
+                _apply_udp_default_topic(objects[index], create_missing=False)
                 _write_raw([_object_to_dict(obj) for obj in objects])
                 clear_object_runtime_state()
                 updated = objects[index]
@@ -842,10 +868,12 @@ def _endpoint_address(protocol: str, adapter: Any) -> str:
     if protocol == "knx":
         return _adapter_value(adapter, "group_address")
     if protocol == "udp":
-        topic = _adapter_value(adapter, "format")
+        topic = _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format")
         host = _adapter_value(adapter, "target_ip")
         port = _adapter_value(adapter, "target_port")
-        return f"{topic}@{host}:{port}" if topic and host and port else ""
+        if host and port:
+            return f"{topic}@{host}:{port}" if topic else f"{host}:{port}"
+        return ""
     if protocol == "influx":
         return _adapter_value(adapter, "measurement")
     return ""
@@ -856,7 +884,7 @@ def _endpoint_missing_fields(protocol: str, adapter: Any) -> list[str]:
         "mqtt": (("topic", "Topic"),),
         "loxone": (),
         "knx": (("group_address", "Gruppenadresse"),),
-        "udp": (("format", "Topic/Format"), ("target_ip", "Ziel-IP"), ("target_port", "Ziel-Port")),
+        "udp": (("target_ip", "Ziel-IP"), ("target_port", "Ziel-Port")),
         "influx": (("measurement", "Measurement"),),
     }.get(protocol, ())
     if protocol == "loxone":
@@ -1071,10 +1099,7 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                 target_adapter = adapters[target]
                 base = _route_base(item, entry["source_address"])
                 if source == "mqtt" and target == "loxone":
-                    route = dict(base)
-                    route.update({"loxone_io": _adapter_value(target_adapter, "io_address") or _adapter_value(target_adapter, "uuid"), "payload_mode": "raw", "json_key": "", "output_mode": "single", "test_value": "1"})
-                    routes["mqtt2lox"].append(route)
-                    active += 1
+                    continue
                 elif source == "loxone" and target == "mqtt":
                     routes["loxone2mqtt"] = routes.get("loxone2mqtt", [])
                     routes["loxone2mqtt"].append({"enabled": True, "loxone_uuid": _adapter_value(source_adapter, "uuid"), "loxone_io": _adapter_value(source_adapter, "io_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "retain": bool(getattr(target_adapter, "retain", False)), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
@@ -1085,10 +1110,7 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                     routes["mqtt2knx"].append(route)
                     active += 1
                 elif source == "mqtt" and target == "udp":
-                    route = dict(base)
-                    route.update({"udp_topic": _adapter_value(target_adapter, "format"), "udp_ip": _adapter_value(target_adapter, "target_ip"), "udp_port": _adapter_value(target_adapter, "target_port"), "udp_format": "topic_value", "payload_mode": "raw", "json_key": "", "test_value": "1"})
-                    routes["mqtt2udp"].append(route)
-                    active += 1
+                    continue
                 elif source == "mqtt" and target == "influx":
                     routes["topic_config"][_adapter_value(source_adapter, "topic")] = {"enabled": True, "influx": True, "influx_topic": _adapter_value(target_adapter, "measurement"), "influx_value_type": getattr(target_adapter, "datatype", item.datatype) or "auto", "__object_route": True, "__object_id": item.id}
                     active += 1
@@ -1103,8 +1125,7 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                     routes["topic_config"][topic] = {"enabled": True, "influx": True, "influx_topic": _adapter_value(target_adapter, "measurement"), "influx_value_type": getattr(target_adapter, "datatype", item.datatype) or "auto", "__object_route": True, "__object_id": item.id}
                     active += 1
                 elif source == "udp" and target == "mqtt":
-                    routes["udp2mqtt"].append({"enabled": True, "source_topic": _adapter_value(source_adapter, "format"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "retain": bool(getattr(target_adapter, "retain", False)), "test_value": "123", "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
-                    active += 1
+                    continue
                 elif source == "udp" and target == "knx":
                     routes["udp2knx"].append({"enabled": True, "source_topic": _adapter_value(source_adapter, "format"), "group_address": _adapter_value(target_adapter, "group_address"), "dpt": _adapter_value(target_adapter, "dpt"), "invert": False, "test_value": "1", "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1

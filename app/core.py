@@ -43,6 +43,8 @@ except ModuleNotFoundError:
 LOGGER = logging.getLogger(__name__)
 _OBJECT_ROUTE_RELOAD_LOCK = threading.Lock()
 _OBJECT_ROUTE_RELOAD_PENDING = False
+_RECENT_OBJECT_ROUTER_PUBLISHES = {}
+_RECENT_OBJECT_ROUTER_PUBLISH_LOCK = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -1055,13 +1057,11 @@ def load_topic_config():
 
 
 def load_mqtt2lox_config():
-    data = _base_load_mqtt2lox_config()
-    return list(data or []) + list(_object_routes(False).get("mqtt2lox", []))
+    return list(_base_load_mqtt2lox_config() or [])
 
 
 def load_mqtt2udp_config():
-    data = _base_load_mqtt2udp_config()
-    return list(data or []) + list(_object_routes(False).get("mqtt2udp", []))
+    return list(_base_load_mqtt2udp_config() or [])
 
 
 def load_mqtt2knx_config():
@@ -1075,8 +1075,7 @@ def load_knx2mqtt_config():
 
 
 def load_udp2mqtt_config():
-    data = _base_load_udp2mqtt_config()
-    return list(data or []) + list(_object_routes(False).get("udp2mqtt", []))
+    return list(_base_load_udp2mqtt_config() or [])
 
 
 def load_udp2knx_config():
@@ -1349,6 +1348,36 @@ def handle_udp_to_mqtt(raw_topic, value, default_prefix="", default_retain=False
     )
 
 
+def _object_router_publish_key(topic, payload):
+    return f"{str(topic or '').strip()}::{str(payload or '').strip()}"
+
+
+def _mark_object_router_publish(topic, payload, object_id="", source="loxone", target_adapter="mqtt"):
+    key = _object_router_publish_key(topic, payload)
+    if not key:
+        return
+    with _RECENT_OBJECT_ROUTER_PUBLISH_LOCK:
+        _RECENT_OBJECT_ROUTER_PUBLISHES[key] = {
+            "time": time.time(),
+            "object_id": str(object_id or "").strip(),
+            "source": str(source or "").strip() or "loxone",
+            "target_adapter": str(target_adapter or "").strip() or "mqtt",
+        }
+
+
+def _consume_object_router_publish(topic, payload):
+    key = _object_router_publish_key(topic, payload)
+    if not key:
+        return None
+    now = time.time()
+    with _RECENT_OBJECT_ROUTER_PUBLISH_LOCK:
+        recent = _RECENT_OBJECT_ROUTER_PUBLISHES.get(key)
+        if recent and now - float(recent.get("time", 0) or 0) <= 1.5:
+            _RECENT_OBJECT_ROUTER_PUBLISHES.pop(key, None)
+            return dict(recent)
+    return None
+
+
 
 async def _knx_listener_async(knx_cfg):
     try:
@@ -1463,8 +1492,17 @@ def ensure_knx_listener_started(reason=""):
 def build_udp_message(udp_topic, value, udp_format):
     return udp.build_udp_message(udp_topic, value, udp_format)
 
-def send_mqtt2udp(ip_list, port, udp_topic, value, udp_format="topic_value"):
-    return udp.send_mqtt2udp(ip_list, port, udp_topic, value, udp_format, add_log_entry)
+def send_mqtt2udp(ip_list, port, udp_topic, value, udp_format="topic_value", object_id="", source="mqtt"):
+    return udp.send_mqtt2udp(
+        ip_list,
+        port,
+        udp_topic,
+        value,
+        udp_format,
+        add_log_entry,
+        object_id=object_id,
+        source=source,
+    )
     
 
 def load_udp_presets():
@@ -1579,6 +1617,12 @@ DEFAULT_CONFIG = {
 }
 
 def handle_mqtt_to_udp(topic, payload):
+    recent_object_router = _consume_object_router_publish(topic, payload)
+    if recent_object_router:
+        add_log_entry(
+            f"Object routing object_id={recent_object_router.get('object_id', '')} original_source={recent_object_router.get('source', 'loxone')} target_adapter={recent_object_router.get('target_adapter', 'mqtt')} value={payload} skipped_echo=yes"
+        )
+        return False
     return udp.handle_mqtt_to_udp(
         topic,
         payload,
@@ -1738,6 +1782,117 @@ def _log_loxone_route_skip(name, uuid_str=""):
     LOGGER.debug("Loxone->MQTT skipped, no active object route uuid=%s name=%s", uuid_str or "", name or "")
 
 
+def _object_adapter_map(item):
+    adapters = {}
+    for adapter in getattr(item, "adapters", []) or []:
+        protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
+        if protocol:
+            adapters[protocol] = adapter
+    return adapters
+
+
+def _loxone_adapter_complete(adapter):
+    if not adapter:
+        return False
+    if not bool(getattr(adapter, "enabled", False)):
+        return False
+    uuid_value = str(getattr(adapter, "uuid", "") or "").strip()
+    io_value = str(getattr(adapter, "io_address", "") or "").strip()
+    return bool(uuid_value or io_value)
+
+
+def _mqtt_adapter_complete(adapter):
+    if not adapter:
+        return False
+    if not bool(getattr(adapter, "enabled", False)):
+        return False
+    if str(getattr(adapter, "direction", "both") or "both").strip().lower() not in {"out", "both"}:
+        return False
+    return bool(str(getattr(adapter, "topic", "") or "").strip())
+
+
+def _udp_adapter_complete(adapter):
+    if not adapter:
+        return False
+    if not bool(getattr(adapter, "enabled", False)):
+        return False
+    if str(getattr(adapter, "direction", "both") or "both").strip().lower() not in {"out", "both"}:
+        return False
+    return bool(str(getattr(adapter, "target_ip", "") or "").strip() and str(getattr(adapter, "target_port", "") or "").strip())
+
+
+def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=False):
+    route_available = False
+    any_sent = False
+    for live_item in live_items or []:
+        object_id = str((live_item or {}).get("object_id", "") or "").strip()
+        if not object_id:
+            continue
+        item = object_core_service.get_object(object_id)
+        if item is None:
+            LOGGER.info("Loxone route source=loxone object_id=%s value=%s target=none result=skipped reason=object_missing", object_id, value)
+            continue
+        if object_core_service.get_object_route_status(item) != "aktiv":
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=none result=skipped reason=route_inactive", object_id, value)
+            continue
+
+        adapters = _object_adapter_map(item)
+        source_adapter = adapters.get("loxone")
+        if not _loxone_adapter_complete(source_adapter):
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=none result=skipped reason=loxone_incomplete", object_id, value)
+            continue
+
+        mqtt_adapter = adapters.get("mqtt")
+        if _mqtt_adapter_complete(mqtt_adapter):
+            route_available = True
+            topic = str(getattr(mqtt_adapter, "topic", "") or "").strip()
+            retain = bool(getattr(mqtt_adapter, "retain", False))
+            try:
+                if change_only and last_values.get(topic) == value:
+                    LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=mqtt result=skipped reason=change_only topic=%s", object_id, value, topic)
+                elif mqtt_client:
+                    _mark_object_router_publish(topic, value, object_id=object_id, source="loxone", target_adapter="mqtt")
+                    mqtt_client.publish(topic, value, retain=retain)
+                    last_values[topic] = value
+                    any_sent = True
+                    influx_service.write_to_influx(topic, value, load_config, load_topic_config, add_log_entry)
+                    add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=no")
+                else:
+                    add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=yes")
+            except Exception as exc:
+                add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=yes error={exc}")
+        else:
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=mqtt result=skipped reason=target_incomplete", object_id, value)
+
+        udp_adapter = adapters.get("udp")
+        if _udp_adapter_complete(udp_adapter):
+            route_available = True
+            udp_ip = str(getattr(udp_adapter, "target_ip", "") or "").strip()
+            udp_port = str(getattr(udp_adapter, "target_port", "") or "").strip()
+            udp_format = str(getattr(udp_adapter, "payload_mode", "") or "topic_value").strip() or "topic_value"
+            udp_topic = str(getattr(udp_adapter, "udp_topic", "") or "").strip()
+            if not udp_topic:
+                legacy_format = str(getattr(udp_adapter, "format", "") or "").strip()
+                if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number"}:
+                    udp_topic = legacy_format
+            try:
+                ok = send_mqtt2udp(udp_ip, udp_port, udp_topic, value, udp_format, object_id=object_id, source="loxone")
+                if ok:
+                    any_sent = True
+                    add_log_entry(
+                        f"Object routing object_id={object_id} original_source=loxone target_adapter=udp value={value} skipped_echo=no"
+                    )
+            except Exception as exc:
+                add_log_entry(f"Loxone route source=loxone object_id={object_id} value={value} target=udp result=error error={exc}")
+        elif "udp" in adapters:
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=udp result=skipped reason=target_incomplete", object_id, value)
+
+        if "knx" in adapters:
+            route_available = True
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=knx result=skipped reason=not_implemented", object_id, value)
+    return route_available
+
+
 def publish_value(config, name, value, uuid_str=""):
     global last_values, display_values, mqtt_client
 
@@ -1747,9 +1902,7 @@ def publish_value(config, name, value, uuid_str=""):
     settings = topic_settings.get(default_topic, {})
 
     custom_name = settings.get("custom_name", "").strip()
-    final_topic = custom_name if custom_name else default_topic
 
-    retain = config["bridge"]["retain"]
     change_only = config["bridge"]["change_only"]
     digits = config["bridge"]["round_digits"]
 
@@ -1760,38 +1913,13 @@ def publish_value(config, name, value, uuid_str=""):
     if custom_name:
         display_values[custom_name] = payload
     try:
-        object_core_service.record_live_value("loxone", payload, loxone_uuid=uuid_str, loxone_io=name, name=name)
+        live_items = object_core_service.record_live_value("loxone", payload, loxone_uuid=uuid_str, loxone_io=name, name=name)
+        if not _dispatch_loxone_live_targets(live_items, payload, name, change_only=change_only):
+            _log_loxone_route_skip(name, uuid_str)
+            return
     except Exception:
         pass
 
-    route = object_core_service.find_loxone_to_mqtt_route(
-        loxone_uuid=uuid_str,
-        loxone_io=name,
-        state_name=name,
-    )
-    if not route:
-        _log_loxone_route_skip(name, uuid_str)
-        return
-
-    final_topic = route["mqtt_topic"]
-    retain = bool(route.get("retain", retain))
-
-    # Change-only nur für echtes Senden
-    if change_only and last_values.get(final_topic) == payload:
-        return
-
-    last_values[final_topic] = payload
-
-    mqtt_client.publish(
-        final_topic,
-        payload,
-        retain=retain
-    )
-
-    influx_service.write_to_influx(final_topic, payload, load_config, load_topic_config, add_log_entry)
-
-    add_log_entry(f"Loxone->MQTT object_id={route.get('object_id', '')} topic={final_topic} value={payload}")
-    
 
 def get_influx_form_config(base_config=None):
     """Influx Config aus Formular übernehmen, ohne gespeicherte Tokens versehentlich zu löschen."""
@@ -2007,6 +2135,13 @@ async def bridge_async(config):
                 if isinstance(userdata, dict)
                 else "unbekannt"
             )
+
+            recent_object_router = _consume_object_router_publish(msg.topic, payload)
+            if recent_object_router:
+                add_log_entry(
+                    f"Object routing object_id={recent_object_router.get('object_id', '')} original_source={recent_object_router.get('source', 'loxone')} target_adapter={recent_object_router.get('target_adapter', 'mqtt')} value={payload} skipped_echo=yes"
+                )
+                return
 
             add_log_entry(f"MQTT RX [{broker_name}] -> {msg.topic} = {payload}")
 
@@ -2353,7 +2488,7 @@ def collect_global_search_items():
     results = []
 
     try:
-        for idx, item in enumerate(load_mqtt2lox_config()):
+        for idx, item in enumerate(_base_load_mqtt2lox_config()):
             if not isinstance(item, dict):
                 continue
             _global_search_add(
@@ -2372,7 +2507,7 @@ def collect_global_search_items():
         add_log_entry(f"Globale Suche MQTT2Lox Fehler: {e}")
 
     try:
-        for idx, item in enumerate(load_mqtt2udp_config()):
+        for idx, item in enumerate(_base_load_mqtt2udp_config()):
             if not isinstance(item, dict):
                 continue
             _global_search_add(
@@ -2684,7 +2819,7 @@ def collect_config_conflicts():
 
     # MQTT -> Loxone
     try:
-        for idx, item in enumerate(load_mqtt2lox_config()):
+        for idx, item in enumerate(_base_load_mqtt2lox_config()):
             if not isinstance(item, dict):
                 continue
             ref = f"Zeile {idx + 1}"
@@ -2705,7 +2840,7 @@ def collect_config_conflicts():
 
     # MQTT -> UDP
     try:
-        for idx, item in enumerate(load_mqtt2udp_config()):
+        for idx, item in enumerate(_base_load_mqtt2udp_config()):
             if not isinstance(item, dict):
                 continue
             ref = f"Zeile {idx + 1}"
@@ -2961,9 +3096,9 @@ def knx_monitor_payload():
 def dashboard_content():
     config = load_config()
     loxone_explorer_count = loxone_service.get_loxone_explorer_count(load_config, load_mapping, add_log_entry, load_topic_config, lambda: state_mapping, build_state_topic)
-    mqtt2lox_count = len(load_mqtt2lox_config())
-    mqtt2udp_count = len(load_mqtt2udp_config())
-    udp2mqtt_count = len(load_udp2mqtt_config())
+    mqtt2lox_count = len(_base_load_mqtt2lox_config())
+    mqtt2udp_count = len(_base_load_mqtt2udp_config())
+    udp2mqtt_count = len(_base_load_udp2mqtt_config())
     mqtt2knx_count = len(load_mqtt2knx_config())
     knx2mqtt_count = len(load_knx2mqtt_config())
     udp2knx_count = len(load_udp2knx_config())
@@ -5624,7 +5759,7 @@ function restorePortIfEmpty(input) {
 
 def mqtt2lox():
     config = load_config()
-    mappings = load_mqtt2lox_config()
+    mappings = _base_load_mqtt2lox_config()
 
     prefill_source_topic = request.args.get("source_topic", "")
     prefill_json_key = request.args.get("json_key", "")
@@ -6539,7 +6674,7 @@ def mqtt2lox_save():
 
 
 def mqtt2lox_test(index):
-    mappings = load_mqtt2lox_config()
+    mappings = _base_load_mqtt2lox_config()
     config = load_config()
 
     if index < 0 or index >= len(mappings):
@@ -6583,7 +6718,7 @@ def mqtt2lox_test(index):
 
 
 def mqtt2lox_data():
-    mappings = load_mqtt2lox_config()
+    mappings = _base_load_mqtt2lox_config()
     data = {}
 
     for i, item in enumerate(mappings):
@@ -6599,7 +6734,7 @@ def mqtt2lox_data():
 
 
 def mqtt2udp():
-    mappings = load_mqtt2udp_config()
+    mappings = _base_load_mqtt2udp_config()
 
     prefill_source_topic = request.args.get("source_topic", "").strip()
     prefill_payload_mode = request.args.get("payload_mode", "raw").strip() or "raw"
@@ -6870,7 +7005,7 @@ def mqtt2udp():
                                 <input type="text" name="udp_port_{i}" value="{escape(str(udp_port))}" placeholder="7000" list="udpPortPresets" onmousedown="openPortPresets(this)" onblur="restorePortIfEmpty(this)">
                             </div>
                             <div>
-                                <label>Format</label>
+                                <label>UDP-Topic</label>
                                 <select name="udp_format_{i}">
                                     {format_options(udp_format)}
                                 </select>
@@ -6950,7 +7085,7 @@ def mqtt2udp():
             html += """
                     </div>
                 </div>
-                <div class="info-box small">UDP Format: <b>topic:value</b> für Loxone, JSON Text/Zahl oder nur Wert. Mehrere Ziel-IPs kommasepariert eintragen.</div>
+                <div class="info-box small">UDP-Topic: <b>topic:value</b> für Loxone, JSON Text/Zahl oder nur Wert. Ohne Topic wird nur der Wert gesendet. Mehrere Ziel-IPs kommasepariert eintragen.</div>
             </div>
         </section>
 """
@@ -7082,7 +7217,7 @@ def mqtt2udp_save():
 
 
 def mqtt2udp_test(index):
-    mappings = load_mqtt2udp_config()
+    mappings = _base_load_mqtt2udp_config()
 
     if index < 0 or index >= len(mappings):
         return redirect("/mqtt2udp")
@@ -7107,7 +7242,7 @@ def mqtt2udp_test(index):
 
 
 def mqtt2udp_data():
-    mappings = load_mqtt2udp_config()
+    mappings = _base_load_mqtt2udp_config()
     data = {}
 
     for i, item in enumerate(mappings):
@@ -7216,7 +7351,7 @@ def udp_presets_save():
 
 
 def mqtt2udp_copy(index):
-    mappings = load_mqtt2udp_config()
+    mappings = _base_load_mqtt2udp_config()
 
     if index < 0 or index >= len(mappings):
         return redirect("/mqtt2udp")
@@ -8675,9 +8810,9 @@ def mqtt_hub_content():
     cards = [
         ("Loxone Explorer", "/topics2", len(_topic_manager_2_collect_topics()), "Explorer-Ansicht für Loxone Topics: suchen, auswählen, Alias setzen, Influx/Writable schalten und direkt weiter mappen."),
         ("MQTT Monitor", "/monitor", len(mqtt_monitor_snapshot), "Live MQTT Topics ansehen, filtern und kopieren. Discovery kannst du direkt dort ein- und ausschalten."),
-        ("MQTT → Loxone", "/mqtt2lox", len(load_mqtt2lox_config()), "MQTT Topics an Loxone Eingänge/Controls schicken."),
-        ("MQTT → UDP", "/mqtt2udp", len(load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
-        ("UDP → MQTT", "/udp2mqtt", len(load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics veröffentlichen und gezielt mappen."),
+        ("MQTT → Loxone", "/mqtt2lox", len(_base_load_mqtt2lox_config()), "MQTT Topics an Loxone Eingänge/Controls schicken."),
+        ("MQTT → UDP", "/mqtt2udp", len(_base_load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
+        ("UDP → MQTT", "/udp2mqtt", len(_base_load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics veröffentlichen und gezielt mappen."),
         ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
         ("Influx Explorer", "/influx_explorer", "DB", "InfluxDB direkt aus MQTT2Lox verwalten: Topics finden, prüfen und gezielt löschen."),
         ("Objektmanager", "/objects", len(load_objects_config()), "Datenpunkte aus MQTT, Loxone, KNX, UDP und Influx zu einer Smart-Home-Objektansicht bündeln."),
@@ -9951,7 +10086,7 @@ def restore_config():
 
 
 def udp2mqtt():
-    mappings = load_udp2mqtt_config()
+    mappings = _base_load_udp2mqtt_config()
     config = load_config()
     prefill_mqtt = request.args.get("mqtt_topic", "").strip()
     prefill_udp = request.args.get("udp_topic", "").strip()
@@ -10058,7 +10193,7 @@ def udp2mqtt_test(index):
     udp.run_udp2mqtt_test(
         index,
         request.form,
-        load_udp2mqtt_config,
+        _base_load_udp2mqtt_config,
         save_udp2mqtt_config,
         publish_func,
         add_log_entry,
@@ -10069,7 +10204,7 @@ def udp2mqtt_test(index):
 
 def udp2mqtt_data():
     data = {}
-    for i, item in enumerate(load_udp2mqtt_config()):
+    for i, item in enumerate(_base_load_udp2mqtt_config()):
         udp_topic = str(item.get("udp_topic", "")).strip()
         info = get_udp_last_seen("udp2mqtt", udp_topic)
         data[str(i)] = {"value": str(info.get("value", "-")), "time": str(info.get("time", "-"))}

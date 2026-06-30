@@ -261,6 +261,7 @@ def _adapter_for_core_fields(protocol, address, datatype="auto", enabled=True, d
         kwargs["io_address"] = address
     elif protocol == "udp":
         kwargs["format"] = address
+        kwargs["udp_topic"] = address
     elif protocol == "influx":
         kwargs["measurement"] = address
     return adapter_cls(**kwargs)

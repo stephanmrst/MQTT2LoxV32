@@ -1,5 +1,57 @@
 # Changelog
 
+## 33.3.46
+
+- Neue Objekte erhalten beim Anlegen automatisch ein passives UDP Default Topic nach dem Muster `<Objektname>/value`.
+- Leere UDP-Topic-Felder werden beim Speichern wieder auf `<Objektname>/value` gesetzt, statt dauerhaft leer gespeichert zu werden.
+- Der UDP Payload-Modus steuert den Versand: `topic_value` sendet `<udp_topic>:<value>`, `value_only` sendet nur `<value>` und `json` sendet Topic plus Wert als JSON.
+- Versionsstand auf `33.3.46` gesetzt.
+
+## 33.3.45
+
+- UDP Custom Topics im Objektmanager koennen vom alten Legacy-`format`-Fallback getrennt gespeichert werden.
+- Das UDP-Adapterformular schreibt keinen alten `format`-Wert mehr als Hidden-Fallback zurueck.
+- Legacy-`format`-Werte werden nur noch beim Laden alter Objekte einmalig als `udp_topic` interpretiert, nicht beim Speichern leerer Felder wiederhergestellt.
+- Der Adapter-Merge im `object_service` verwirft leere Strings nicht mehr, damit der UDP-Speicherpfad leere Formularwerte erkennen und ab 33.3.46 wieder auf den Default setzen kann.
+- Versionsstand auf `33.3.45` gesetzt.
+
+## 33.3.44
+
+- Der Objektmanager-UDP-Adapter speichert jetzt ein eigenes `udp_topic` und einen `payload_mode` direkt am Objekt.
+- Loxone->UDP nutzt beim Senden das konfigurierte Objektmanager-UDP-Topic; ohne Topic wird nur der Wert gesendet.
+- UDP-Zielrouten benoetigen nur noch Ziel-IP und Ziel-Port; der Textpraefix ist optional.
+- Das UDP-Adapterformular zeigt das Feld `UDP Topic` mit Hilfetext und Payload-Modus.
+- Versionsstand auf `33.3.44` gesetzt.
+
+## 33.3.43
+
+- Objektmanager-Routen werden nicht mehr in die Legacy-Loader fuer `MQTT -> Loxone`, `MQTT -> UDP` und `UDP -> MQTT` gemischt.
+- Legacy-Seiten, Dashboard-Kacheln, globale Suche und Konfliktpruefung zaehlen/zeigen fuer diese Bereiche nur noch echte Legacy-Mapping-Dateien.
+- MQTT-Publishes aus dem Objektmanager-Routing werden mit Runtime-Origin (`object_id`, `original_source`, `target_adapter`) markiert und im MQTT-Eingang als Echo uebersprungen.
+- Loxone-Livewerte behalten dadurch im Objektmanager ihre Quelle `loxone`, auch wenn daraus MQTT- oder UDP-Zielsendungen entstehen.
+- Versionsstand auf `33.3.43` gesetzt.
+
+## 33.3.42
+
+- Loxone->UDP sendet den Wert jetzt nur noch einmal pro Zielpaket; die MQTT-Loopback-Sperre greift jetzt auch fuer MQTT->UDP-Weiterleitungen aus dem Loxone-Publishpfad.
+- UDP-Payloads senden ohne Topic jetzt nur noch den nackten Wert statt ein leeres Prefix.
+- Das UDP-Logging schreibt pro Paket eine detaillierte INFO-Zeile mit `object_id`, `source`, `value`, `udp_target`, `payload`, `target_host` und `target_port`.
+- Im MQTT->UDP-Mapping wurde das UI-Label von `Format` auf `UDP-Topic` umbenannt.
+- Versionsstand auf `33.3.42` gesetzt.
+
+## 33.3.41
+
+- Loxone->UDP sendet pro Wert nur noch einmal pro Zielroute; MQTT-Loopbacks aus dem Loxone-Publishpfad werden kurzzeitig erkannt und als Duplikat uebersprungen.
+- UDP-Logging erfasst jetzt `object_id`, `value`, `udp_target`, `used_format` und `skipped_duplicate`.
+- Versionsstand auf `33.3.41` gesetzt.
+
+## 33.3.40
+
+- Loxone-Livewerte werden jetzt nach der Objektzuordnung auch an aktive Zieladapter weitergereicht.
+- Prioritaet ist dabei MQTT vor UDP; KNX wird nur als vorbereitete Route erkannt und noch nicht gesendet.
+- Der Loxone-Publishpfad loggt jetzt `object_id`, `value`, `target` und `result` fuer erfolgreiche oder uebersprungene Zielsendungen.
+- Versionsstand auf `33.3.40` gesetzt.
+
 ## 33.3.39
 
 - Der temporäre Single-Object-Fallback fuer Loxone-Livewerte wurde entfernt.

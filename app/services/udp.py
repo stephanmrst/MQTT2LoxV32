@@ -43,6 +43,7 @@ def parse_udp_input_message(text):
 
 def build_udp_message(udp_topic, value, udp_format):
     udp_format = str(udp_format or "topic_value").strip()
+    udp_topic = str(udp_topic or "").strip()
 
     if udp_format == "json":
         return json.dumps({"topic": udp_topic, "value": value}, ensure_ascii=False)
@@ -57,14 +58,33 @@ def build_udp_message(udp_topic, value, udp_format):
     if udp_format == "value_only":
         return str(value)
 
+    if not udp_topic:
+        return str(value)
+
     return f"{udp_topic}:{value}"
 
 
-def send_mqtt2udp(ip_list, port, udp_topic, value, udp_format="topic_value", add_log_entry=None):
+def send_mqtt2udp(
+    ip_list,
+    port,
+    udp_topic,
+    value,
+    udp_format="topic_value",
+    add_log_entry=None,
+    object_id="",
+    source="mqtt",
+):
     try:
         port = int(port)
         message = build_udp_message(udp_topic, value, udp_format)
-        targets = [ip.strip() for ip in str(ip_list).split(",") if ip.strip()]
+        targets = []
+        seen_targets = set()
+        for raw_ip in str(ip_list).split(","):
+            ip = raw_ip.strip()
+            if not ip or ip in seen_targets:
+                continue
+            seen_targets.add(ip)
+            targets.append(ip)
 
         if not targets:
             _log(add_log_entry, "MQTT2UDP Fehler: keine Ziel-IP angegeben")
@@ -74,7 +94,10 @@ def send_mqtt2udp(ip_list, port, udp_topic, value, udp_format="topic_value", add
         try:
             for ip in targets:
                 sock.sendto(message.encode("utf-8"), (ip, port))
-                _log(add_log_entry, f"MQTT2UDP -> {ip}:{port} | {message}")
+                _log(
+                    add_log_entry,
+                    f"UDP send object_id={str(object_id or '').strip()} source={str(source or '').strip()} value={value} udp_target={str(udp_topic or '').strip()} payload={message} target_host={ip} target_port={port}",
+                )
         finally:
             sock.close()
         return True

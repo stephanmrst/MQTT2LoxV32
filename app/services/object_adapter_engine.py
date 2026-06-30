@@ -85,6 +85,17 @@ class UDPAdapter(BaseAdapter):
     target_ip: str = ""
     target_port: str = ""
     format: str = "text"
+    udp_topic: str = ""
+    payload_mode: str = "topic_value"
+
+    @classmethod
+    def deserialize(cls, data: dict[str, Any]) -> "UDPAdapter":
+        payload = dict(data or {})
+        if "udp_topic" not in payload:
+            legacy_format = str(payload.get("format", "") or "").strip()
+            if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number"}:
+                payload["udp_topic"] = legacy_format
+        return super().deserialize(payload)
 
 
 @dataclass

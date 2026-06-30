@@ -23,5 +23,16 @@
 <label for="{{ adapter.protocol }}_target_port">Ziel-Port</label>
 <input id="{{ adapter.protocol }}_target_port" name="target_port" value="{{ adapter.target_port }}">
 
-<label for="{{ adapter.protocol }}_format">Format</label>
-<input id="{{ adapter.protocol }}_format" name="format" value="{{ adapter.format }}">
+<label for="{{ adapter.protocol }}_udp_topic">UDP Topic</label>
+<input id="{{ adapter.protocol }}_udp_topic" name="udp_topic" value="{{ adapter.udp_topic }}">
+<div class="count">Default: Objektname/value. Fuer Versand ohne Topic den Payload-Modus „Nur Wert“ verwenden.</div>
+
+<label for="{{ adapter.protocol }}_payload_mode">Payload-Modus</label>
+<select id="{{ adapter.protocol }}_payload_mode" name="payload_mode">
+  {% set mode = adapter.payload_mode or 'topic_value' %}
+  <option value="topic_value" {% if mode == 'topic_value' %}selected{% endif %}>Topic:Wert / Wert</option>
+  <option value="value_only" {% if mode == 'value_only' %}selected{% endif %}>Nur Wert</option>
+  <option value="json" {% if mode == 'json' %}selected{% endif %}>JSON</option>
+</select>
+
+<input type="hidden" name="format" value="">
