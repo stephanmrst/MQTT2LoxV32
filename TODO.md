@@ -2,6 +2,26 @@
 
 ## 33.0.x
 
+- Loxone-Zielauswahl 33.3.83 pruefen: Quelle und Ziel muessen im Loxone-Tab getrennt speicherbar sein, und MQTT/UDP/KNX -> Loxone muss `target_uuid` nutzen.
+- Object-Routing 33.3.82 pruefen: UDP-Ausgabe muss den bestehenden Sender wieder mit korrekter Signatur erreichen.
+- Object-Routing 33.3.81 pruefen: Legacy-Fallbacks duerfen erst blockiert werden, wenn ein Objektziel wirklich erfolgreich gesendet hat.
+- Object-Routing 33.3.80 pruefen: LOXONE/MQTT/UDP/KNX sollen dieselbe Objekt-Routenschleife nutzen und die Quelle darf nicht in den Zieladapter kippen.
+- KNX 33.3.79 pruefen: ausgehende KNX-Telegramme duerfen die Live-Quelle nicht mehr auf KNX ziehen.
+- UDP 33.3.78 pruefen: ein geloeschtes UDP Topic soll beim Speichern wieder `<Objektname>/value` bekommen.
+- UDP 33.3.77 pruefen: neue UDP-Adapter muessen beim ersten Speichern wieder `<Objektname>/value` vorbelegt bekommen, vorhandene Adapter duerfen ihr geloeschtes Topic aber behalten.
+- UDP 33.3.76 pruefen: Deaktivieren im Objektmanager muss persistieren und ein geloeschtes UDP Topic darf beim Speichern nicht mehr wieder eingesetzt werden.
+- MQTT->UDP 33.3.75 pruefen: normale MQTT-Topics muessen den frischen Payload senden, JSON-Key-Objekte den extrahierten Live-Wert.
+- MQTT->UDP 33.3.74 pruefen: der Wrapper muss ohne doppelt gesetztes `object_id` durchlaufen.
+- MQTT->UDP 33.3.73 pruefen: der Router darf nicht mehr vor dem Sender an einem Helper-Fehler im object_service abbrechen.
+- Objekt-UDP 33.3.72 pruefen: gespeicherte UDP-Zielwerte muessen den Adapter beim Save automatisch aktivieren.
+- Objektstatus 33.3.71 pruefen: ein Objekt soll erst dann aktiv werden, wenn mindestens ein echtes Quelle-Ziel-Paar vorhanden ist.
+- MQTT->UDP 33.3.70 pruefen: der Routenloader muss mit lokaler UDP-Pruefung arbeiten und den Grund fuer verworfene Routen sichtbar machen.
+- MQTT->UDP 33.3.69 pruefen: der Router muss den Eintritt, die verfuegbaren Routen und den konkreten Abbruchgrund loggen, wenn der UDP-Sender nicht erreicht wird.
+- MQTT->UDP 33.3.68 pruefen: MQTT-Quellen mit `in`/`both` muessen den Objektmanager-UDP-Dispatch ausloesen und die Herkunft darf in der Objektkachel nicht mehr auf alte Monitorwerte kippen.
+- MQTT->UDP 33.3.67 pruefen: direkte Sendung ueber den bestehenden UDP-Ausgang muss mit JSON-Key-Werten ankommen.
+- MQTT->UDP 33.3.66 pruefen: MQTT-JSON-Key-Werte muessen denselben UDP-Ausgang wie Loxone->UDP verwenden.
+- MQTT→UDP 33.3.65 pruefen: MQTT-Eingang, objektbasierter UDP-Dispatch und UDP-Start/OK-Logs muessen bei JSON-Key-Objekten sichtbar sein.
+- MQTT JSON-Key "+ Objekt" 33.3.64 pruefen: Split-Key-Buttons muessen Topic, JSON-Key, Typ und Name an den Objektmanager uebergeben und den Live-Match auf `topic / json_key` aufloesen.
 - KNX-Testcenter 33.3.63 pruefen: Zeitstempel-Fallback, JSON-Fehlerantwort und getrennte Buttons fuer Senden/Wiederholen/Monitor leeren muessen stabil bleiben.
 - KNX-Testcenter 33.3.62 pruefen: Backend liefert bei Fehlern JSON statt HTML-500 und `Auto` wird vor dem Senden auf einen konkreten DPT aufgeloest.
 - KNX-Testcenter 33.3.61 pruefen: Submit laeuft per JSON-Fetch, Fehler erscheinen in der Diagnose und das Testcenter steht unter den Uebersichtskacheln.

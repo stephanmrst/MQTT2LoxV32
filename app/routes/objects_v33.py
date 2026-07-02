@@ -205,6 +205,88 @@ def _adapter_map(object_def):
     return adapters
 
 
+def _loxone_target_options():
+    core = current_app.extensions.get("app_core")
+    if core is None:
+        return []
+    try:
+        config = core.load_config()
+        mapping = core.load_mapping(config) or {}
+    except Exception as exc:
+        current_app.logger.exception("Loxone Zieloptionen konnten nicht geladen werden: %s", exc)
+        return []
+
+    rooms = {}
+    raw_rooms = mapping.get("rooms", {}) if isinstance(mapping, dict) else {}
+    if isinstance(raw_rooms, dict):
+        for room_uuid, room in raw_rooms.items():
+            if isinstance(room, dict):
+                rooms[str(room_uuid)] = str(room.get("name", "") or "").strip()
+
+    options_by_uuid = {}
+
+    def walk_controls(controls):
+        if not isinstance(controls, dict):
+            return
+        for control_uuid, control in controls.items():
+            if not isinstance(control, dict):
+                continue
+            control_name = str(control.get("name", "") or control_uuid).strip()
+            control_type = str(control.get("type", "") or control.get("cat", "") or "").strip()
+            room_id = str(control.get("room", "") or control.get("roomUuid", "") or "").strip()
+            room_name = rooms.get(room_id, room_id)
+            details = control.get("details", {}) if isinstance(control.get("details"), dict) else {}
+            unit = str(details.get("unit", "") or control.get("unit", "") or "").strip()
+            states = control.get("states", {}) if isinstance(control.get("states"), dict) else {}
+            if states:
+                for state_name, state_uuid in states.items():
+                    uuid_value = str(state_uuid or "").strip()
+                    if not uuid_value:
+                        continue
+                    options_by_uuid.setdefault(
+                        uuid_value,
+                        {
+                            "uuid": uuid_value,
+                            "name": f"{control_name}/{state_name}" if state_name else control_name,
+                            "room": room_name,
+                            "category": control_type,
+                            "type": control_type,
+                            "control_uuid": str(control_uuid),
+                            "control_name": control_name,
+                            "state_name": str(state_name),
+                            "unit": unit,
+                        },
+                    )
+            else:
+                uuid_value = str(control_uuid or "").strip()
+                if uuid_value:
+                    options_by_uuid.setdefault(
+                        uuid_value,
+                        {
+                            "uuid": uuid_value,
+                            "name": control_name,
+                            "room": room_name,
+                            "category": control_type,
+                            "type": control_type,
+                            "control_uuid": uuid_value,
+                            "control_name": control_name,
+                            "state_name": "",
+                            "unit": unit,
+                        },
+                    )
+            walk_controls(control.get("subControls", {}))
+
+    walk_controls(mapping.get("controls", {}) if isinstance(mapping, dict) else {})
+    return sorted(
+        options_by_uuid.values(),
+        key=lambda item: (
+            str(item.get("name", "")).casefold(),
+            str(item.get("room", "")).casefold(),
+            str(item.get("category", "")).casefold(),
+        ),
+    )
+
+
 def _normalize_external_uuid(value: str) -> str:
     return str(value or "").strip().lower().replace("-", "")
 
@@ -258,11 +340,12 @@ def _ensure_known_adapters(object_def):
     return result
 
 
-def _adapter_for_core_fields(protocol, address, datatype="auto", enabled=True, direction="both"):
+def _adapter_for_core_fields(protocol, address, datatype="auto", enabled=True, direction="both", json_key=""):
     adapter_cls = ADAPTER_TYPES[protocol]
     kwargs = {"enabled": enabled, "direction": direction, "datatype": datatype}
     if protocol == "mqtt":
         kwargs["topic"] = address
+        kwargs["json_key"] = json_key
     elif protocol == "knx":
         kwargs["group_address"] = address
     elif protocol == "loxone":
@@ -282,6 +365,7 @@ def _object_from_prefill():
     explorer = _clean_prefill(request.args.get("explorer", "")).lower()
     source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "mqtt").lower()
     source_address = _request_first("source_address", "source_topic", "topic", "loxone_io", "io_address", "name", "value")
+    json_key = _request_first("mqtt_json_key", "json_key")
     name = request.args.get("name", "").strip()
     if not name:
         try:
@@ -310,7 +394,7 @@ def _object_from_prefill():
     elif explorer == "mqtt" or source_type == "mqtt":
         topic = _request_first("topic", "source_address", "source_topic")
         if topic:
-            payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, _datatype_from_request(), True, "both").serialize()
+            payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, _datatype_from_request(), True, "both", json_key=json_key).serialize()
     elif source_type in ADAPTER_TYPES and source_address:
         payload[source_type] = _adapter_for_core_fields(source_type, source_address, _datatype_from_request(), True, "both").serialize()
     return payload
@@ -321,16 +405,25 @@ def _clean_prefill(value: str) -> str:
 
 
 def _loxone_adapter_from_request(datatype: str):
+    source_uuid = _request_first("source_uuid", "loxone_uuid", "state_uuid", "uuid", "control_uuid")
+    target_uuid = _request_first("target_uuid")
     return ADAPTER_TYPES["loxone"](
         enabled=True,
         direction="both",
         datatype=datatype or "auto",
-        uuid=_request_first("loxone_uuid", "state_uuid", "uuid", "control_uuid"),
+        uuid=source_uuid,
         io_address=_request_first("loxone_io", "io_address", "source_address", "path", "topic", "name"),
         control_type=_request_first("control_type", "cat"),
         visu_name=_request_first("visu_name", "display_name", "label"),
         room=_request_first("room"),
         unit=_request_first("unit"),
+        source_uuid=source_uuid,
+        source_name=_request_first("source_name", "visu_name", "display_name", "label"),
+        target_uuid=target_uuid,
+        target_name=_request_first("target_name"),
+        target_room=_request_first("target_room"),
+        target_category=_request_first("target_category"),
+        target_type=_request_first("target_type"),
     )
 
 
@@ -345,9 +438,11 @@ def _object_payload_from_explorer() -> dict:
         _clean_prefill(request.args.get("visu_name", ""))
         or _clean_prefill(request.args.get("loxone_io", ""))
         or _clean_prefill(request.args.get("topic", request.args.get("source_address", "")))
+        or _clean_prefill(request.args.get("mqtt_json_key", request.args.get("json_key", "")))
     )
     name = display_name or fallback_name or "Neues Objekt"
     datatype = _datatype_from_request()
+    json_key = _request_first("mqtt_json_key", "json_key")
     payload = {
         "id": "",
         "name": name,
@@ -371,7 +466,7 @@ def _object_payload_from_explorer() -> dict:
     elif explorer == "mqtt" or source_type == "mqtt":
         topic = _request_first("topic", "source_address", "source_topic")
         if topic:
-            payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, datatype, True, "both").serialize()
+            payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, datatype, True, "both", json_key=json_key).serialize()
             if not payload["category"]:
                 payload["category"] = "MQTT"
 
@@ -410,6 +505,7 @@ def _detail_context(selected, selected_tab: str = "general", notice: str = "", e
         "selected_adapters": _ensure_known_adapters(selected) if selected else [],
         "selected_preview": build_object_routing_preview(selected) if selected else [],
         "selected_route_report": object_service.get_object_route_report(selected) if selected else None,
+        "loxone_target_options": _loxone_target_options(),
         "adapter_template_name": adapter_template_name,
         "selected_tab": selected_tab or "general",
         "notice": notice or "",
@@ -716,6 +812,7 @@ def objects_v33_adapter_edit(object_uuid, protocol):
         object_def=object_def,
         adapter=adapter,
         adapter_template_name=adapter_template_name,
+        loxone_target_options=_loxone_target_options(),
         errors=[],
     )
 
@@ -735,6 +832,7 @@ def objects_v33_adapter_save(object_uuid, protocol):
             object_def=object_def,
             adapter=adapter,
             adapter_template_name=adapter_template_name,
+            loxone_target_options=_loxone_target_options(),
             errors=errors,
         ), 400
 

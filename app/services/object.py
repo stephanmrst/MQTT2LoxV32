@@ -164,6 +164,23 @@ def _object_datalist_html(source, list_id):
 
 
 def _object_value_from_sources(item):
+    object_id = str(item.get("id", "") or "").strip()
+    live_cache = globals().get("OBJECT_LIVE_CACHE", {})
+    source_labels = {
+        "mqtt": "MQTT",
+        "loxone": "Loxone",
+        "udp": "UDP",
+        "knx": "KNX",
+        "influx": "Influx",
+    }
+    if object_id and isinstance(live_cache, dict):
+        live = live_cache.get(object_id)
+        if isinstance(live, dict):
+            live_value = live.get("value", "")
+            if live_value not in ("", None):
+                live_source = str(live.get("source") or live.get("original_source") or "").strip()
+                if live_source:
+                    return source_labels.get(live_source.lower(), live_source.title()), live_value, str(live.get("timestamp", "") or "")
     candidates = []
     mqtt_topic = str(item.get("mqtt_topic", "") or "").strip()
     loxone_topic = str(item.get("loxone_topic", "") or "").strip()

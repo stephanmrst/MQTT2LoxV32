@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 33.3.63
+## Aktueller Stand: 33.3.83
 
 Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.3.49 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
@@ -16,6 +16,8 @@ Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbin
 Keine manuelle Migration erforderlich.
 
 Livewerte erhalten zusaetzlich `original_source`, `last_target_adapter` und `last_target_adapters`. Bestehende Objektkonfigurationen bleiben unveraendert. Ab 33.3.50 baut der Routing-Tab seine Anzeige nur noch aus der Objektkonfiguration auf und zeigt keine Selbst- oder Legacy-Routen mehr an. Ab 33.3.51 trennt der Routing-Tab Haupt-Routen und direkte Rueck-Routen; Rueck-Routen werden nur fuer direkt konfigurierbare Rueckwege zur aktuellen Quelle angezeigt. Ab 33.3.52 wurde die Objektansicht optisch beruhigt: pro Objekt ist nur noch ein Status-Badge sichtbar. Ab 33.3.53 ist KNX als Objektmanager-Ausgang im Runtime-Dispatch und in der Route-Vorschau enthalten. Ab 33.3.54 sendet der KNX-Ausgang echte Telegramme fuer aktiv konfigurierte Ziele, und der KNX-Tab speichert und validiert den gewaehlten DPT pro Objekt. Ab 33.3.55 nutzt der KNX-Sendepfad die laufende Runtime-Verbindung statt einer neuen Tunnel-Instanz pro Wert.
+
+Ab 33.3.83 kann der Loxone-Tab im Objektmanager Quelle und Ziel getrennt speichern; die Zielauswahl uebernimmt UUID, Name, Raum, Kategorie und Typ aus der Explorer-Struktur, und MQTT/UDP/KNX -> Loxone verwendet `target_uuid` mit Fallback auf die alte Quelle.
 
 ## Von 33.3.47 nach 33.3.48
 
@@ -958,3 +960,16 @@ Ab 33.3.60 gibt es im KNX-Hub einen separaten Testbereich mit letzter Diagnose u
 
 
 
+
+Ab 33.3.64 speichern MQTT-Objekte aus JSON-Key-Zeilen den Key im MQTT-Adapter selbst; beim Laden und Live-Match wird `topic / json_key` als gemeinsame Quelle verwendet.
+Ab 33.3.65 werden MQTT->UDP-Routen nur noch dann als aktiv behandelt, wenn Zielhost und Port im Objekt gesetzt sind; die UDP-Sendeprotokolle sind jetzt deutlicher.
+Ab 33.3.66 geht MQTT->UDP durch denselben vorhandenen UDP-Sendepfad wie Loxone->UDP; nur der MQTT-Quellwert wird vorher aus dem JSON-Key extrahiert.
+Ab 33.3.67 wird MQTT->UDP direkt ueber den vorhandenen UDP-Sender ausgefuehrt, damit der Objektmanager die UDP-Nachricht nicht mehr ueber einen zusaetzlichen Legacy-Mapper verliert.
+Ab 33.3.68 wird MQTT als Eingangsquelle im Objektmanager nicht mehr wie ein reiner Ausgang behandelt; die Herkunftsanzeige liest zuerst den Runtime-Cache und MQTT->UDP loggt die vorbereiteten Zielparameter.
+Ab 33.3.69 loggt der MQTT->UDP-Objektrouter den Eintritt, die verfuegbaren Routen und die Abbruchgruende vor dem UDP-Sender.
+Ab 33.3.70 nutzt der MQTT-Routenloader die lokale UDP-Pruefung und meldet, warum eine Route vor dem Versand verworfen wird.
+Ab 33.3.71 basiert der Objekt-Status auf echten Quelle-Ziel-Paaren statt auf der reinen Zahl vollstaendiger Endpunkte.
+Ab 33.3.72 wird ein gespeicherter UDP-Tab beim Objektmanager-Save automatisch aktiviert, wenn Ziel-IP, Ziel-Port oder UDP-Topic gesetzt sind.
+Ab 33.3.73 nutzt der MQTT-Objektrouter wieder die lokalen Core-Pruefungen statt nicht vorhandener Helper im object_service; dadurch kann MQTT->UDP den Sender erreichen.
+Ab 33.3.74 wird der MQTT->UDP-Aufruf wieder mit der korrekten Wrapper-Signatur ausgefuehrt, damit kein `object_id`-Argument doppelt gesetzt wird.
+Ab 33.3.75 sendet MQTT->UDP fuer normale MQTT-Topics den frischen Payload; JSON-Key-Objekte verwenden weiterhin den extrahierten Wert aus dem Live-Match.

@@ -548,16 +548,33 @@ def _endpoint_index_key(protocol: str, value: Any) -> str:
     return f"{protocol}:{value}"
 
 
+def _json_path_lookup(data: Any, key_path: str) -> Any:
+    current = data
+    for part in [segment for segment in str(key_path or "").strip().split(".") if segment]:
+        if isinstance(current, dict):
+            if part not in current:
+                return None
+            current = current[part]
+            continue
+        if isinstance(current, list) and part.isdigit():
+            index = int(part)
+            if 0 <= index < len(current):
+                current = current[index]
+                continue
+        return None
+    return current
+
+
 def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
     keys: list[str] = []
     for protocol, adapter in _adapter_map(item).items():
         if not _is_enabled_adapter(adapter):
             continue
         if protocol == "loxone":
-            uuid_value = _normalize_uuid_value(_adapter_value(adapter, "uuid"))
+            uuid_value = _normalize_uuid_value(_loxone_source_uuid(adapter))
             io_value = _normalize_match_value(_adapter_value(adapter, "io_address"))
             name_value = _normalize_match_value(getattr(item, "name", ""))
-            visu_name_value = _normalize_match_value(_adapter_value(adapter, "visu_name"))
+            visu_name_value = _normalize_match_value(_loxone_source_name(adapter))
             if uuid_value:
                 keys.append(_endpoint_index_key("loxone_uuid", uuid_value))
             if io_value:
@@ -570,6 +587,9 @@ def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
             topic = _normalize_match_value(_adapter_value(adapter, "topic"))
             if topic:
                 keys.append(_endpoint_index_key("mqtt_topic", topic))
+            json_key = _normalize_match_value(_adapter_value(adapter, "json_key"))
+            if topic and json_key:
+                keys.append(_endpoint_index_key("mqtt_json_key", f"{topic}/{json_key}"))
         elif protocol == "knx":
             ga = _normalize_match_value(_adapter_value(adapter, "group_address"))
             if ga:
@@ -759,13 +779,27 @@ def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: An
         return False
     if source == "mqtt":
         topic = _normalize_match_value(endpoint.get("topic"))
-        return bool(topic and _normalize_match_value(_adapter_value(adapter, "topic")) == topic)
+        json_key = _normalize_match_value(endpoint.get("json_key") or endpoint.get("mqtt_json_key"))
+        adapter_topic = _normalize_match_value(_adapter_value(adapter, "topic"))
+        adapter_json_key = _normalize_match_value(_adapter_value(adapter, "json_key"))
+        if topic and adapter_topic == topic:
+            if json_key:
+                return bool(adapter_json_key and adapter_json_key == json_key)
+            return True
+        return False
     if source == "loxone":
-        uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid"))
-        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("name"))
+        uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid") or endpoint.get("source_uuid"))
+        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("name") or endpoint.get("source_name"))
         adapter_uuid = _normalize_uuid_value(_adapter_value(adapter, "uuid"))
         adapter_io = _normalize_match_value(_adapter_value(adapter, "io_address"))
-        return bool((uuid_value and adapter_uuid and uuid_value == adapter_uuid) or (io_value and adapter_io and io_value == adapter_io))
+        adapter_source_uuid = _normalize_uuid_value(_adapter_value(adapter, "source_uuid"))
+        adapter_source_name = _normalize_match_value(_adapter_value(adapter, "source_name"))
+        return bool(
+            (uuid_value and adapter_uuid and uuid_value == adapter_uuid)
+            or (uuid_value and adapter_source_uuid and uuid_value == adapter_source_uuid)
+            or (io_value and adapter_io and io_value == adapter_io)
+            or (io_value and adapter_source_name and io_value == adapter_source_name)
+        )
     if source == "knx":
         ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
         return bool(ga and _normalize_match_value(_adapter_value(adapter, "group_address")) == ga)
@@ -778,9 +812,9 @@ def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: An
 def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str, str]]:
     source = str(source or "").strip().lower()
     if source == "loxone":
-        uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid"))
-        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name"))
-        name_value = _normalize_match_value(endpoint.get("name") or endpoint.get("visu_name"))
+        uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid") or endpoint.get("source_uuid"))
+        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name") or endpoint.get("source_name"))
+        name_value = _normalize_match_value(endpoint.get("name") or endpoint.get("visu_name") or endpoint.get("source_name"))
         return [
             ("loxone_uuid", uuid_value, "loxone.uuid"),
             ("loxone_io", io_value, "loxone.io_address"),
@@ -788,7 +822,11 @@ def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str
         ]
     if source == "mqtt":
         topic = _normalize_match_value(endpoint.get("topic"))
-        return [("mqtt_topic", topic, "mqtt.topic")]
+        json_key = _normalize_match_value(endpoint.get("json_key") or endpoint.get("mqtt_json_key"))
+        candidates = [("mqtt_topic", topic, "mqtt.topic")]
+        if topic and json_key:
+            candidates.append(("mqtt_json_key", f"{topic}/{json_key}", "mqtt.topic/json_key"))
+        return candidates
     if source == "knx":
         ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
         return [("knx_ga", ga, "knx.group_address")]
@@ -796,9 +834,10 @@ def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str
         udp_topic = _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
         return [("udp_topic", udp_topic, "udp.topic")]
     return [
-        ("loxone_uuid", _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid")), "loxone.uuid"),
-        ("loxone_io", _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name")), "loxone.io_address"),
+        ("loxone_uuid", _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid") or endpoint.get("source_uuid")), "loxone.uuid"),
+        ("loxone_io", _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name") or endpoint.get("source_name")), "loxone.io_address"),
         ("mqtt_topic", _normalize_match_value(endpoint.get("topic")), "mqtt.topic"),
+        ("mqtt_json_key", _normalize_match_value(endpoint.get("topic") and endpoint.get("json_key") and f"{endpoint.get('topic')}/{endpoint.get('json_key')}"), "mqtt.topic/json_key"),
         ("knx_ga", _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga")), "knx.group_address"),
         ("udp_topic", _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format")), "udp.topic"),
     ]
@@ -816,10 +855,17 @@ def _live_debug_snapshot(item: GatewayObject) -> dict[str, Any]:
         "loxone": {
             "uuid": _adapter_value(loxone, "uuid") if loxone else "",
             "io_address": _adapter_value(loxone, "io_address") if loxone else "",
-            "name": _adapter_value(loxone, "visu_name") if loxone else "",
+            "name": _loxone_source_name(loxone) if loxone else "",
+            "source_uuid": _loxone_source_uuid(loxone) if loxone else "",
+            "target_uuid": _loxone_target_uuid(loxone) if loxone else "",
+            "target_name": _loxone_target_name(loxone) if loxone else "",
+            "target_room": _loxone_target_room(loxone) if loxone else "",
+            "target_category": _loxone_target_category(loxone) if loxone else "",
+            "target_type": _loxone_target_type(loxone) if loxone else "",
         },
         "mqtt": {
             "topic": _adapter_value(mqtt, "topic") if mqtt else "",
+            "json_key": _adapter_value(mqtt, "json_key") if mqtt else "",
         },
         "knx": {
             "group_address": _adapter_value(knx, "group_address") if knx else "",
@@ -856,10 +902,36 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
         previous = OBJECT_LIVE_CACHE.get(item.id) or {}
         stored_source = original_source
         skip_update = False
+        item_value = value
+        item_source_address = source_address
+        item_recognized_endpoint = recognized_endpoint
+        adapters = _adapter_map(item)
+        mqtt_adapter = adapters.get("mqtt")
+        mqtt_json_key = _normalize_match_value(_adapter_value(mqtt_adapter, "json_key")) if mqtt_adapter else ""
+        if incoming_source == "mqtt" and mqtt_json_key:
+            mqtt_payload = value
+            if isinstance(mqtt_payload, str):
+                try:
+                    mqtt_payload = json.loads(mqtt_payload)
+                except Exception:
+                    pass
+            extracted = _json_path_lookup(mqtt_payload, mqtt_json_key)
+            if extracted is None:
+                LOGGER.info(
+                    "MQTT json key not matched object_id=%s topic=%s json_key=%s value=%s",
+                    item.id,
+                    source_address,
+                    mqtt_json_key,
+                    value,
+                )
+                continue
+            item_value = extracted
+            item_source_address = f"{source_address}/{mqtt_json_key}" if source_address else mqtt_json_key
+            item_recognized_endpoint = f"{recognized_endpoint} / {mqtt_json_key}"
         if (
             incoming_source == "mqtt"
             and str(previous.get("original_source") or previous.get("source") or "").lower() == "loxone"
-            and str(previous.get("value")) == str(value)
+            and str(previous.get("value")) == str(item_value)
             and "mqtt" in (previous.get("targets") or _live_targets(item, "loxone"))
         ):
             stored_source = "loxone"
@@ -873,7 +945,7 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
                 incoming_source,
                 stored_source,
                 target_adapter or "mqtt",
-                value,
+                item_value,
                 str(bool(ignored_echo)).lower(),
             )
             updates.append(dict(previous))
@@ -881,12 +953,12 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
 
         payload = {
             "object_id": item.id,
-            "value": value,
+            "value": item_value,
             "unit": _live_unit(item, stored_source),
             "source": stored_source,
             "original_source": stored_source,
-            "source_address": source_address,
-            "recognized_endpoint": recognized_endpoint,
+            "source_address": item_source_address,
+            "recognized_endpoint": item_recognized_endpoint,
             "timestamp": timestamp,
             "targets": _live_targets(item, stored_source),
             "last_target_adapter": target_adapter,
@@ -900,7 +972,7 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
             incoming_source,
             stored_source,
             target_adapter,
-            value,
+            item_value,
             str(bool(ignored_echo)).lower(),
         )
         updates.append(dict(payload))
@@ -979,6 +1051,54 @@ def _adapter_value(adapter: Any, name: str) -> str:
     return str(getattr(adapter, name, "") or "").strip()
 
 
+def _loxone_source_uuid(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_uuid") or _adapter_value(adapter, "uuid")
+
+
+def _loxone_source_name(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_name") or _adapter_value(adapter, "visu_name")
+
+
+def _loxone_target_uuid(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_uuid") or _loxone_source_uuid(adapter)
+
+
+def _loxone_target_name(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_name") or _loxone_source_name(adapter) or _adapter_value(adapter, "name")
+
+
+def _loxone_target_room(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_room") or _adapter_value(adapter, "room")
+
+
+def _loxone_target_category(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_category") or _adapter_value(adapter, "control_type") or _adapter_value(adapter, "type")
+
+
+def _loxone_target_type(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_type") or _loxone_target_category(adapter)
+
+
+def _loxone_display_label(adapter: Any, role: str = "source") -> str:
+    role = str(role or "").strip().lower()
+    if role == "target":
+        parts = [
+            _loxone_target_name(adapter),
+            _loxone_target_room(adapter),
+            _loxone_target_category(adapter),
+        ]
+        fallback = _loxone_target_uuid(adapter) or _adapter_value(adapter, "io_address")
+    else:
+        parts = [
+            _loxone_source_name(adapter) or _adapter_value(adapter, "io_address"),
+            _adapter_value(adapter, "room"),
+            _adapter_value(adapter, "control_type") or _adapter_value(adapter, "type"),
+        ]
+        fallback = _loxone_source_uuid(adapter) or _adapter_value(adapter, "io_address")
+    parts = [part for part in parts if part]
+    return " · ".join(parts) if parts else fallback
+
+
 def _normalize_match_value(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -1043,9 +1163,13 @@ def _knx_dpt_label(dpt: Any) -> str:
 
 def _endpoint_address(protocol: str, adapter: Any) -> str:
     if protocol == "mqtt":
-        return _adapter_value(adapter, "topic")
+        topic = _adapter_value(adapter, "topic")
+        json_key = _adapter_value(adapter, "json_key")
+        if topic and json_key:
+            return f"{topic} / {json_key}"
+        return topic
     if protocol == "loxone":
-        return _adapter_value(adapter, "io_address") or _adapter_value(adapter, "uuid")
+        return _loxone_display_label(adapter, "source")
     if protocol == "knx":
         group_address = _adapter_value(adapter, "group_address")
         dpt = _normalize_knx_dpt(_adapter_value(adapter, "dpt"))
@@ -1059,7 +1183,7 @@ def _endpoint_address(protocol: str, adapter: Any) -> str:
         return group_address
     if protocol == "udp":
         topic = _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format")
-        host = _adapter_value(adapter, "target_ip")
+        host = _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")
         port = _adapter_value(adapter, "target_port")
         if host and port:
             return f"{topic}@{host}:{port}" if topic else f"{host}:{port}"
@@ -1082,7 +1206,10 @@ def _endpoint_missing_fields(protocol: str, adapter: Any) -> list[str]:
         "influx": (("measurement", "Measurement"),),
     }.get(protocol, ())
     if protocol == "loxone":
-        return [] if (_adapter_value(adapter, "uuid") or _adapter_value(adapter, "io_address")) else ["UUID oder IO-Adresse"]
+        return [] if (_loxone_source_uuid(adapter) or _adapter_value(adapter, "io_address") or _loxone_target_uuid(adapter)) else ["UUID oder IO-Adresse"]
+    if protocol == "udp":
+        host = _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")
+        return [label for field, label in required if not (host if field == "target_ip" else _adapter_value(adapter, field))]
     return [label for field, label in required if not _adapter_value(adapter, field)]
 
 
@@ -1093,6 +1220,8 @@ def _is_enabled_adapter(adapter: Any) -> bool:
 def _is_complete_endpoint(protocol: str, adapter: Any) -> bool:
     if protocol == "knx" and not _knx_gateway_enabled():
         return False
+    if protocol == "loxone":
+        return _is_enabled_adapter(adapter) and bool(_loxone_source_uuid(adapter) or _adapter_value(adapter, "io_address") or _loxone_target_uuid(adapter))
     return _is_enabled_adapter(adapter) and not _endpoint_missing_fields(protocol, adapter)
 
 
@@ -1146,34 +1275,112 @@ def get_object_route_status(item: GatewayObject) -> str:
         return "deaktiviert"
     adapters = _adapter_map(item)
     errors = []
-    complete_count = 0
+    source_protocols = set()
+    target_protocols = set()
     for protocol, adapter in adapters.items():
         if not _is_enabled_adapter(adapter):
             continue
         errors.extend(_adapter_config_errors(protocol, adapter))
         if _is_complete_endpoint(protocol, adapter):
-            complete_count += 1
+            if _can_source(adapter):
+                source_protocols.add(protocol)
+            if _can_target(adapter):
+                target_protocols.add(protocol)
     if errors:
         return "fehler"
-    return "aktiv" if complete_count >= 2 else "unvollständig"
+    for source_protocol in source_protocols:
+        for target_protocol in target_protocols:
+            if source_protocol == target_protocol:
+                continue
+            if (source_protocol, target_protocol) in SUPPORTED_ROUTE_PAIRS:
+                return "aktiv"
+    return "unvollständig"
 
 
-def build_generated_route_entries(item: GatewayObject) -> list[dict[str, str]]:
-    source_protocol, source_adapter, adapters = _primary_route_source(item)
+def _route_source_for_report(item: GatewayObject) -> tuple[str | None, Any | None, dict[str, Any]]:
+    adapters = _adapter_map(item)
+    live = OBJECT_LIVE_CACHE.get(item.id) or {}
+    live_source = str(live.get("source") or live.get("original_source") or "").strip().lower()
+    live_adapter = adapters.get(live_source)
+    if live_adapter is not None and _can_source(live_adapter):
+        return live_source, live_adapter, adapters
+    return _primary_route_source(item)
+
+
+def route_object_value(object_id: str, original_source: str, source_ref: str, value: Any, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    item = get_object(object_id)
+    metadata = dict(metadata or {})
+    if item is None:
+        return {
+            "object_id": str(object_id or "").strip(),
+            "item": None,
+            "original_source": str(original_source or "").strip().lower(),
+            "source_ref": str(source_ref or "").strip(),
+            "value": value,
+            "metadata": metadata,
+            "route_report": None,
+            "routes": [],
+        }
+    source = str(original_source or "").strip().lower()
+    source_kwargs: dict[str, Any] = {}
+    if source == "mqtt":
+        source_kwargs["topic"] = metadata.get("topic") or source_ref
+        if metadata.get("json_key"):
+            source_kwargs["json_key"] = metadata.get("json_key")
+    elif source == "loxone":
+        source_kwargs["loxone_uuid"] = metadata.get("loxone_uuid", "")
+        source_kwargs["loxone_io"] = metadata.get("loxone_io") or source_ref
+        source_kwargs["name"] = metadata.get("name") or source_ref
+    elif source == "udp":
+        source_kwargs["udp_topic"] = metadata.get("udp_topic") or source_ref
+    elif source == "knx":
+        source_kwargs["group_address"] = metadata.get("group_address") or source_ref
+    else:
+        source_kwargs["topic"] = metadata.get("topic") or source_ref
+        source_kwargs["udp_topic"] = metadata.get("udp_topic") or source_ref
+        source_kwargs["group_address"] = metadata.get("group_address") or source_ref
+        source_kwargs["loxone_uuid"] = metadata.get("loxone_uuid", "")
+        source_kwargs["loxone_io"] = metadata.get("loxone_io", "")
+        source_kwargs["name"] = metadata.get("name", "")
+    return {
+        "object_id": item.id,
+        "item": item,
+        "original_source": source,
+        "source_ref": str(source_ref or "").strip(),
+        "value": value,
+        "metadata": metadata,
+        "source_kwargs": source_kwargs,
+        "route_report": get_object_route_report(item),
+        "routes": build_generated_route_entries(item, source),
+    }
+
+
+def build_generated_route_entries(item: GatewayObject, source_protocol: str | None = None) -> list[dict[str, str]]:
+    if source_protocol:
+        source_protocol = str(source_protocol or "").strip().lower() or None
+    source_protocol, source_adapter, adapters = _route_source_for_report(item) if source_protocol is None else (
+        source_protocol,
+        _adapter_map(item).get(source_protocol),
+        _adapter_map(item),
+    )
     if source_protocol is None or source_adapter is None:
         return []
     entries = []
     for target, target_adapter in adapters.items():
         if target == source_protocol or not _can_target(target_adapter):
             continue
+        if not _is_complete_endpoint(target, target_adapter):
+            continue
         if (source_protocol, target) not in SUPPORTED_ROUTE_PAIRS:
             continue
+        source_address = _loxone_display_label(source_adapter, "source") if source_protocol == "loxone" else _endpoint_address(source_protocol, source_adapter)
+        target_address = _loxone_display_label(target_adapter, "target") if target == "loxone" else _endpoint_address(target, target_adapter)
         entries.append(
             {
                 "source": source_protocol.upper(),
                 "target": target.upper(),
-                "source_address": _endpoint_address(source_protocol, source_adapter),
-                "target_address": _endpoint_address(target, target_adapter),
+                "source_address": source_address,
+                "target_address": target_address,
                 "direction": f"{source_protocol.upper()} -> {target.upper()}",
                 "status": "aktiv",
             }
@@ -1181,16 +1388,24 @@ def build_generated_route_entries(item: GatewayObject) -> list[dict[str, str]]:
     return entries
 
 
-def build_return_route_entries(item: GatewayObject) -> list[dict[str, str]]:
-    source_protocol, source_adapter, adapters = _primary_route_source(item)
+def build_return_route_entries(item: GatewayObject, source_protocol: str | None = None) -> list[dict[str, str]]:
+    if source_protocol:
+        source_protocol = str(source_protocol or "").strip().lower() or None
+    source_protocol, source_adapter, adapters = _route_source_for_report(item) if source_protocol is None else (
+        source_protocol,
+        _adapter_map(item).get(source_protocol),
+        _adapter_map(item),
+    )
     if source_protocol is None or source_adapter is None or not _can_target(source_adapter):
         return []
     entries = []
-    for candidate_protocol in ("mqtt", "udp"):
+    for candidate_protocol in ("mqtt", "loxone", "udp", "knx"):
         if candidate_protocol == source_protocol:
             continue
         candidate_adapter = adapters.get(candidate_protocol)
         if candidate_adapter is None or not _can_source(candidate_adapter):
+            continue
+        if not _is_complete_endpoint(candidate_protocol, candidate_adapter):
             continue
         if (candidate_protocol, source_protocol) not in SUPPORTED_ROUTE_PAIRS:
             continue
@@ -1230,9 +1445,9 @@ def get_object_route_report(item: GatewayObject) -> dict[str, Any]:
     )
     if complete_count >= 2:
         missing = [entry for entry in missing if not entry.endswith("inaktiv")]
-    main_routes = build_generated_route_entries(item)
-    return_routes = build_return_route_entries(item)
-    source_protocol, source_adapter, _ = _primary_route_source(item)
+    source_protocol, source_adapter, _ = _route_source_for_report(item)
+    main_routes = build_generated_route_entries(item, source_protocol)
+    return_routes = build_return_route_entries(item, source_protocol)
     return {
         "status": get_object_route_status(item),
         "current_source": source_protocol.upper() if source_protocol else "",
@@ -1271,12 +1486,13 @@ def _build_loxone_to_mqtt_route_index() -> dict[str, list[dict[str, Any]]]:
             "object_name": item.name,
             "mqtt_topic": _adapter_value(mqtt_adapter, "topic"),
             "retain": bool(getattr(mqtt_adapter, "retain", False)),
-            "loxone_uuid": _adapter_value(loxone_adapter, "uuid"),
+            "loxone_uuid": _loxone_source_uuid(loxone_adapter),
             "loxone_io": _adapter_value(loxone_adapter, "io_address"),
         }
         for key in (
             _route_lookup_key("uuid", route["loxone_uuid"]),
             _route_lookup_key("io", route["loxone_io"]),
+            _route_lookup_key("name", _loxone_source_name(loxone_adapter) or item.name),
             _route_lookup_key("name", item.name),
         ):
             if not key:
@@ -1351,10 +1567,10 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                     continue
                 elif source == "loxone" and target == "mqtt":
                     routes["loxone2mqtt"] = routes.get("loxone2mqtt", [])
-                    routes["loxone2mqtt"].append({"enabled": True, "loxone_uuid": _adapter_value(source_adapter, "uuid"), "loxone_io": _adapter_value(source_adapter, "io_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "retain": bool(getattr(target_adapter, "retain", False)), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
+                    routes["loxone2mqtt"].append({"enabled": True, "loxone_uuid": _loxone_source_uuid(source_adapter), "loxone_io": _adapter_value(source_adapter, "io_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "retain": bool(getattr(target_adapter, "retain", False)), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "loxone" and target == "knx":
-                    routes["loxone2knx"].append({"enabled": True, "loxone_uuid": _adapter_value(source_adapter, "uuid"), "loxone_io": _adapter_value(source_adapter, "io_address"), "group_address": _adapter_value(target_adapter, "group_address"), "dpt": _adapter_value(target_adapter, "dpt"), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
+                    routes["loxone2knx"].append({"enabled": True, "loxone_uuid": _loxone_source_uuid(source_adapter), "loxone_io": _adapter_value(source_adapter, "io_address"), "group_address": _adapter_value(target_adapter, "group_address"), "dpt": _adapter_value(target_adapter, "dpt"), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "mqtt" and target == "knx":
                     route = dict(base)
@@ -1369,7 +1585,7 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                     routes["knx2mqtt"].append({"enabled": True, "group_address": _adapter_value(source_adapter, "group_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "dpt": _adapter_value(source_adapter, "dpt"), "retain": bool(getattr(target_adapter, "retain", True)), "invert": False, "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "knx" and target == "loxone":
-                    routes["knx2lox"].append({"enabled": True, "group_address": _adapter_value(source_adapter, "group_address"), "loxone_io": _adapter_value(target_adapter, "io_address") or _adapter_value(target_adapter, "uuid"), "dpt": _adapter_value(source_adapter, "dpt"), "invert": False, "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
+                    routes["knx2lox"].append({"enabled": True, "group_address": _adapter_value(source_adapter, "group_address"), "loxone_io": _loxone_target_uuid(target_adapter) or _adapter_value(target_adapter, "io_address"), "dpt": _adapter_value(source_adapter, "dpt"), "invert": False, "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "knx" and target == "influx":
                     continue

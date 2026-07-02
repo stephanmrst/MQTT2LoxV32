@@ -2,6 +2,7 @@ import json
 import os
 import socket
 from datetime import datetime
+import json
 
 from services import config
 
@@ -77,6 +78,10 @@ def send_mqtt2udp(
     try:
         port = int(port)
         message = build_udp_message(udp_topic, value, udp_format)
+        _log(
+            add_log_entry,
+            f"UDP Senden Start host={str(ip_list or '').strip()} port={port} udp_topic={str(udp_topic or '').strip()} payload={message}",
+        )
         targets = []
         seen_targets = set()
         for raw_ip in str(ip_list).split(","):
@@ -98,12 +103,13 @@ def send_mqtt2udp(
                     add_log_entry,
                     f"UDP send object_id={str(object_id or '').strip()} source={str(source or '').strip()} value={value} udp_target={str(udp_topic or '').strip()} payload={message} target_host={ip} target_port={port}",
                 )
+            _log(add_log_entry, f"UDP Senden OK bytes={len(message.encode('utf-8'))}")
         finally:
             sock.close()
         return True
 
     except Exception as exc:
-        _log(add_log_entry, f"MQTT2UDP Fehler: {exc}")
+        _log(add_log_entry, f"UDP Senden Fehler: {type(exc).__name__}: {exc}")
         return False
 
 
@@ -274,8 +280,9 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
             except Exception as exc:
                 _log(add_log_entry, f"UDP Input Live-Config Fehler: {exc}")
 
-            handle_udp_to_knx(topic, value)
-            handle_udp_to_mqtt_func(topic, value, prefix, retain, legacy_fallback)
+            handled_object_routes = bool(handle_udp_to_knx(topic, value))
+            if not handled_object_routes:
+                handle_udp_to_mqtt_func(topic, value, prefix, retain, legacy_fallback)
 
     except Exception as exc:
         _log(add_log_entry, f"UDP Input Start/Runtime Fehler: {repr(exc)}")

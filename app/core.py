@@ -503,7 +503,7 @@ def add_knx_monitor_entry(group_address, value, direction="RX", dpt="", status="
     add_knx_monitor_log_entry(entry)
     if ga:
         set_knx_monitor_value(ga, entry)
-        if update_live:
+        if update_live and direction_text not in {"OUT", "WRITE"} and not status_text.startswith("OUT_"):
             try:
                 object_core_service.record_live_value("knx", entry.get("value", value), group_address=ga)
             except Exception:
@@ -1519,10 +1519,12 @@ async def _knx_listener_async(knx_cfg):
 
                 add_log_entry(f"KNX RX vor add_knx_monitor_entry GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
                 add_knx_monitor_entry(ga, value_text, "RX", monitor_dpt)
-                add_log_entry(f"KNX RX vor publish_knx_to_mqtt GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
-                knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, runtime_context.knx.knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
-                add_log_entry(f"KNX RX vor publish_knx_to_loxone GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
-                knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
+                live_items = object_core_service.record_live_value("knx", value_text, group_address=ga)
+                if not _dispatch_object_routes(live_items, "knx", ga, value_text, metadata={"group_address": ga}):
+                    add_log_entry(f"KNX RX vor publish_knx_to_mqtt GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
+                    knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, runtime_context.knx.knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
+                    add_log_entry(f"KNX RX vor publish_knx_to_loxone GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
+                    knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
         except Exception as e:
             add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
     try:
@@ -1691,10 +1693,16 @@ def restart_bridge_async():
 
 def udp_input_listener(config):
     global mqtt_client, udp_input_last_seen
+    def _handle_udp_to_knx_with_object_routes(topic, value):
+        live_items = object_core_service.record_live_value("udp", value, udp_topic=topic)
+        if _dispatch_object_routes(live_items, "udp", topic, value, metadata={"udp_topic": topic}):
+            return True
+        return _handle_udp_to_knx_service(topic, value)
+
     return udp.udp_input_listener(
         config,
         load_config,
-        _handle_udp_to_knx_service,
+        _handle_udp_to_knx_with_object_routes,
         handle_udp_to_mqtt,
         add_log_entry,
         update_udp_last_seen,
@@ -1913,12 +1921,16 @@ def _loxone_adapter_complete(adapter):
     return bool(uuid_value or io_value)
 
 
-def _mqtt_adapter_complete(adapter):
+def _mqtt_adapter_complete(adapter, for_source=False):
     if not adapter:
         return False
     if not bool(getattr(adapter, "enabled", False)):
         return False
-    if str(getattr(adapter, "direction", "both") or "both").strip().lower() not in {"out", "both"}:
+    direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
+    if for_source:
+        if direction not in {"in", "both"}:
+            return False
+    elif direction not in {"out", "both"}:
         return False
     return bool(str(getattr(adapter, "topic", "") or "").strip())
 
@@ -1930,7 +1942,9 @@ def _udp_adapter_complete(adapter):
         return False
     if str(getattr(adapter, "direction", "both") or "both").strip().lower() not in {"out", "both"}:
         return False
-    return bool(str(getattr(adapter, "target_ip", "") or "").strip() and str(getattr(adapter, "target_port", "") or "").strip())
+    target_host = str(getattr(adapter, "target_host", "") or getattr(adapter, "target_ip", "") or "").strip()
+    target_port = str(getattr(adapter, "target_port", "") or "").strip()
+    return bool(target_host and target_port)
 
 
 def _influx_adapter_complete(adapter):
@@ -1953,7 +1967,95 @@ def _knx_adapter_complete(adapter):
     return bool(str(getattr(adapter, "group_address", "") or "").strip() and str(getattr(adapter, "dpt", "") or "").strip())
 
 
-def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=False):
+def _route_source_kwargs(original_source, source_ref, metadata=None):
+    metadata = metadata or {}
+    original_source = str(original_source or "").strip().lower()
+    source_ref = str(source_ref or "").strip()
+    if original_source == "mqtt":
+        result = {"topic": metadata.get("topic") or source_ref}
+        if metadata.get("json_key"):
+            result["json_key"] = metadata.get("json_key")
+        return result
+    if original_source == "loxone":
+        return {
+            "loxone_uuid": metadata.get("loxone_uuid", ""),
+            "loxone_io": metadata.get("loxone_io") or source_ref,
+            "name": metadata.get("name") or source_ref,
+        }
+    if original_source == "udp":
+        return {"udp_topic": metadata.get("udp_topic") or source_ref}
+    if original_source == "knx":
+        return {"group_address": metadata.get("group_address") or source_ref}
+    return {"topic": metadata.get("topic") or source_ref}
+
+
+def _route_object_target(item, target, value, original_source, source_ref, route_entry, metadata=None):
+    adapters = _object_adapter_map(item)
+    target = str(target or "").strip().lower()
+    target_adapter = adapters.get(target)
+    if target_adapter is None:
+        return False
+
+    if target == "mqtt":
+        topic = str(getattr(target_adapter, "topic", "") or "").strip()
+        retain = bool(getattr(target_adapter, "retain", False))
+        if not topic or not mqtt_client:
+            return False
+        _mark_object_router_publish(topic, value, object_id=item.id, source=original_source, target_adapter="mqtt")
+        mqtt_client.publish(topic, value, retain=retain)
+        last_values[topic] = value
+        return True
+
+    if target == "loxone":
+        loxone_io = str(
+            getattr(target_adapter, "target_uuid", "")
+            or getattr(target_adapter, "io_address", "")
+            or getattr(target_adapter, "uuid", "")
+            or ""
+        ).strip()
+        if not loxone_io:
+            return False
+        return loxone_service.send_loxone_value(load_config(), loxone_io, value, add_log_entry, requests)
+
+    if target == "udp":
+        udp_ip = str(getattr(target_adapter, "target_host", "") or getattr(target_adapter, "target_ip", "") or "").strip()
+        udp_port = str(getattr(target_adapter, "target_port", "") or "").strip()
+        udp_topic = str(getattr(target_adapter, "udp_topic", "") or "").strip()
+        if not udp_topic:
+            legacy_format = str(getattr(target_adapter, "format", "") or "").strip()
+            if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number"}:
+                udp_topic = legacy_format
+        if not udp_ip or not udp_port:
+            return False
+        udp_format = str(getattr(target_adapter, "payload_mode", "") or "topic_value").strip() or "topic_value"
+        return send_mqtt2udp(udp_ip, udp_port, udp_topic, value, udp_format, object_id=item.id, source=original_source)
+
+    if target == "knx":
+        knx_ga = str(getattr(target_adapter, "group_address", "") or "").strip()
+        knx_dpt = str(getattr(target_adapter, "dpt", "") or "1.001").strip() or "1.001"
+        if not knx_ga or not knx_dpt or not bool(load_knx_config().get("enabled", False)):
+            return False
+        return knx_service.send_knx_value(knx_ga, knx_dpt, value, load_knx_config, add_log_entry)
+
+    if target == "influx":
+        if not _influx_adapter_complete(target_adapter):
+            return False
+        ok, result, bucket, measurement = influx_service.write_object_value(
+            target_adapter,
+            value,
+            load_config,
+            add_log_entry,
+            object_id=item.id,
+            source=original_source,
+            unit=str(getattr(item, "unit", "") or "").strip(),
+        )
+        return ok
+
+    return False
+
+
+def _dispatch_object_routes(live_items, original_source, source_ref, value, metadata=None):
+    metadata = dict(metadata or {})
     route_available = False
     any_sent = False
     for live_item in live_items or []:
@@ -1962,111 +2064,204 @@ def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=Fal
             continue
         item = object_core_service.get_object(object_id)
         if item is None:
-            LOGGER.info("Loxone route source=loxone object_id=%s value=%s target=none result=skipped reason=object_missing", object_id, value)
+            add_log_entry(f"Object input object_id={object_id} original_source={original_source} source_ref={source_ref} value={value} result=skipped reason=object_missing")
+            continue
+        route_info = object_core_service.route_object_value(object_id, original_source, source_ref, value, metadata)
+        routes = list(route_info.get("routes") or [])
+        route_report = route_info.get("route_report") or {}
+        available_routes = ",".join(sorted({str(entry.get("target", "")).lower() for entry in routes if entry.get("target")})) or "-"
+        add_log_entry(
+            f"Object input object_id={object_id} original_source={original_source} source_ref={source_ref} value={value}"
+        )
+        add_log_entry(
+            f"ENTER object routing object_id={object_id} original_source={original_source} target_adapter=all value={value} available_routes={available_routes}"
+        )
+        if not routes:
+            add_log_entry(
+                f"Object routing object_id={object_id} original_source={original_source} target_adapter=none value={value} skipped_echo=no reason=no_active_routes"
+            )
+            continue
+        route_available = True
+        for entry in routes:
+            target = str(entry.get("target", "") or "").strip().lower()
+            if not target:
+                continue
+            gateway_origin = str(metadata.get("gateway_origin") or "").strip().lower()
+            skipped_echo = target == original_source or (gateway_origin and gateway_origin == target)
+            add_log_entry(
+                f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={value} skipped_echo={'yes' if skipped_echo else 'no'}"
+            )
+            if skipped_echo:
+                continue
+            try:
+                ok = _route_object_target(item, target, value, original_source, source_ref, entry, metadata)
+                if ok:
+                    any_sent = True
+                    object_core_service.record_live_target(object_id, target, value=value, original_source=original_source)
+                    add_log_entry(
+                        f"Object route OK object_id={object_id} original_source={original_source} target_adapter={target}"
+                    )
+                else:
+                    add_log_entry(
+                        f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={value} skipped_echo=yes reason=send_failed"
+                    )
+            except Exception as exc:
+                add_log_entry(
+                    f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={value} skipped_echo=no error={exc}"
+                )
+    return any_sent
+
+
+def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=False):
+    return _dispatch_object_routes(live_items, "loxone", state_name, value, metadata={"loxone_io": state_name, "name": state_name})
+
+
+def _mqtt_object_route_loader(item, topic):
+    adapters = object_core_service._adapter_map(item)
+    source_adapter = adapters.get("mqtt")
+    if not _mqtt_adapter_complete(source_adapter, for_source=True):
+        LOGGER.debug(
+            "MQTT route loader skipped object_id=%s topic=%s reason=mqtt_source_incomplete",
+            getattr(item, "id", ""),
+            topic,
+        )
+        return {}
+    source_topic = object_core_service._adapter_value(source_adapter, "topic")
+    if not source_topic or source_topic != topic:
+        LOGGER.debug(
+            "MQTT route loader skipped object_id=%s topic=%s source_topic=%s reason=topic_mismatch",
+            getattr(item, "id", ""),
+            topic,
+            source_topic,
+        )
+        return {}
+
+    routes = {}
+
+    loxone_adapter = adapters.get("loxone")
+    if _loxone_adapter_complete(loxone_adapter):
+        loxone_io = object_core_service._adapter_value(loxone_adapter, "io_address")
+        if loxone_io:
+            routes["loxone"] = [{
+                "enabled": True,
+                "source_topic": topic,
+                "loxone_io": loxone_io,
+                "payload_mode": "raw",
+                "json_key": "",
+                "group": "Objektmanager V33",
+                "set_name": item.name or item.id,
+                "mapping_alias": item.name,
+                "custom_topic": "",
+            }]
+
+    udp_adapter = adapters.get("udp")
+    if _udp_adapter_complete(udp_adapter):
+        udp_ip = object_core_service._adapter_value(udp_adapter, "target_host") or object_core_service._adapter_value(udp_adapter, "target_ip")
+        udp_port = object_core_service._adapter_value(udp_adapter, "target_port")
+        udp_topic = object_core_service._adapter_value(udp_adapter, "udp_topic") or object_core_service._adapter_value(udp_adapter, "format")
+        udp_format = object_core_service._adapter_value(udp_adapter, "payload_mode") or object_core_service._adapter_value(udp_adapter, "udp_format") or "topic_value"
+        if udp_ip and udp_port and udp_topic is not None:
+            routes["udp"] = [{
+                "enabled": True,
+                "source_topic": topic,
+                "udp_topic": udp_topic,
+                "udp_ip": udp_ip,
+                "udp_port": udp_port,
+                "udp_format": str(udp_format or "topic_value") or "topic_value",
+                "group": "Objektmanager V33",
+                "set_name": item.name or item.id,
+                "mapping_alias": item.name,
+                "payload_mode": str(udp_format or "topic_value") or "topic_value",
+                "json_key": "",
+                "test_value": "1",
+            }]
+
+    knx_adapter = adapters.get("knx")
+    if _knx_adapter_complete(knx_adapter):
+        knx_ga = object_core_service._adapter_value(knx_adapter, "group_address")
+        knx_dpt = object_core_service._adapter_value(knx_adapter, "dpt") or object_core_service._default_knx_dpt_for_object(item)
+        if knx_ga and knx_dpt:
+            routes["knx"] = [{
+                "enabled": True,
+                "source_topic": topic,
+                "group_address": knx_ga,
+                "dpt": knx_dpt,
+                "invert": False,
+                "test_value": "1",
+                "group": "Objektmanager V33",
+                "set_name": item.name or item.id,
+                "mapping_alias": item.name,
+            }]
+
+    influx_adapter = adapters.get("influx")
+    if _influx_adapter_complete(influx_adapter):
+        routes["influx"] = influx_adapter
+
+    LOGGER.debug(
+        "MQTT route loader built object_id=%s topic=%s routes=%s",
+        getattr(item, "id", ""),
+        topic,
+        ",".join(sorted(routes.keys())) or "-",
+    )
+    return routes
+
+
+def _dispatch_mqtt_live_targets(live_items, topic, payload):
+    any_sent = False
+    for live_item in live_items or []:
+        object_id = str((live_item or {}).get("object_id", "") or "").strip()
+        if not object_id:
+            continue
+        item = object_core_service.get_object(object_id)
+        if item is None:
+            add_log_entry(f"Object input object_id={object_id} original_source=mqtt source_ref={topic} value={payload} result=skipped reason=object_missing")
             continue
         if object_core_service.get_object_route_status(item) != "aktiv":
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=none result=skipped reason=route_inactive", object_id, value)
+            add_log_entry(f"ENTER object routing object_id={object_id} original_source=mqtt target_adapter=none value={payload} available_routes=inactive")
             continue
 
-        adapters = _object_adapter_map(item)
-        source_adapter = adapters.get("loxone")
-        if not _loxone_adapter_complete(source_adapter):
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=none result=skipped reason=loxone_incomplete", object_id, value)
+        route_plan = object_core_service.route_object_value(
+            object_id,
+            "mqtt",
+            topic,
+            (live_item or {}).get("value", payload),
+            metadata={"topic": topic, "json_key": str((live_item or {}).get("recognized_endpoint", "") or "").split("/")[-1].strip() if "json_key" in str((live_item or {}).get("recognized_endpoint", "") or "").lower() else ""},
+        )
+        routes = list(route_plan.get("routes") or [])
+        available_routes = ",".join(sorted({str(entry.get("target", "")).lower() for entry in routes if entry.get("target")})) or "-"
+        routed_value = route_plan.get("value", payload)
+        add_log_entry(
+            f"Object input object_id={object_id} original_source=mqtt source_ref={topic} value={routed_value}"
+        )
+        add_log_entry(
+            f"ENTER object routing object_id={object_id} original_source=mqtt target_adapter=all value={routed_value} available_routes={available_routes}"
+        )
+        if not routes:
+            add_log_entry(f"MQTT route object_id={object_id} topic={topic} value={routed_value} target_adapter=none skipped_echo=no")
             continue
 
-        mqtt_adapter = adapters.get("mqtt")
-        if _mqtt_adapter_complete(mqtt_adapter):
-            route_available = True
-            topic = str(getattr(mqtt_adapter, "topic", "") or "").strip()
-            retain = bool(getattr(mqtt_adapter, "retain", False))
+        for entry in routes:
+            target = str(entry.get("target", "") or "").strip().lower()
+            if not target:
+                continue
+            gateway_origin = ""
+            skipped_echo = target == "mqtt" or gateway_origin == target
+            add_log_entry(
+                f"Object routing object_id={object_id} original_source=mqtt target_adapter={target} value={routed_value} skipped_echo={'yes' if skipped_echo else 'no'}"
+            )
+            if skipped_echo:
+                continue
             try:
-                if change_only and last_values.get(topic) == value:
-                    LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=mqtt result=skipped reason=change_only topic=%s", object_id, value, topic)
-                elif mqtt_client:
-                    _mark_object_router_publish(topic, value, object_id=object_id, source="loxone", target_adapter="mqtt")
-                    mqtt_client.publish(topic, value, retain=retain)
-                    last_values[topic] = value
+                ok = _route_object_target(item, target, routed_value, "mqtt", topic, entry, metadata={"topic": topic})
+                if ok:
                     any_sent = True
-                    object_core_service.record_live_target(object_id, "mqtt", value=value, original_source="loxone")
-                    add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=no")
+                    object_core_service.record_live_target(object_id, target, value=routed_value, original_source="mqtt")
+                    add_log_entry(f"Object route OK object_id={object_id} original_source=mqtt target_adapter={target}")
                 else:
-                    add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=yes")
+                    add_log_entry(f"Object routing object_id={object_id} original_source=mqtt target_adapter={target} value={routed_value} skipped_echo=yes reason=send_failed")
             except Exception as exc:
-                add_log_entry(f"Object routing object_id={object_id} original_source=loxone target_adapter=mqtt value={value} skipped_echo=yes error={exc}")
-        else:
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=mqtt result=skipped reason=target_incomplete", object_id, value)
-
-        udp_adapter = adapters.get("udp")
-        if _udp_adapter_complete(udp_adapter):
-            route_available = True
-            udp_ip = str(getattr(udp_adapter, "target_ip", "") or "").strip()
-            udp_port = str(getattr(udp_adapter, "target_port", "") or "").strip()
-            udp_format = str(getattr(udp_adapter, "payload_mode", "") or "topic_value").strip() or "topic_value"
-            udp_topic = str(getattr(udp_adapter, "udp_topic", "") or "").strip()
-            if not udp_topic:
-                legacy_format = str(getattr(udp_adapter, "format", "") or "").strip()
-                if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number"}:
-                    udp_topic = legacy_format
-            try:
-                ok = send_mqtt2udp(udp_ip, udp_port, udp_topic, value, udp_format, object_id=object_id, source="loxone")
-                if ok:
-                    any_sent = True
-                    object_core_service.record_live_target(object_id, "udp", value=value, original_source="loxone")
-                    add_log_entry(
-                        f"Object routing object_id={object_id} original_source=loxone target_adapter=udp value={value} skipped_echo=no"
-                    )
-            except Exception as exc:
-                add_log_entry(f"Loxone route source=loxone object_id={object_id} value={value} target=udp result=error error={exc}")
-        elif "udp" in adapters:
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=udp result=skipped reason=target_incomplete", object_id, value)
-
-        influx_adapter = adapters.get("influx")
-        if _influx_adapter_complete(influx_adapter):
-            route_available = True
-            measurement = str(getattr(influx_adapter, "measurement", "") or "").strip()
-            field = str(getattr(influx_adapter, "field", "") or "value").strip() or "value"
-            topic = str(getattr(influx_adapter, "topic", "") or "").strip()
-            try:
-                ok, result, bucket, topic = influx_service.write_object_value(
-                    influx_adapter,
-                    value,
-                    load_config,
-                    add_log_entry,
-                    object_id=object_id,
-                    source="loxone",
-                    unit=str(getattr(item, "unit", "") or "").strip(),
-                )
-                if ok:
-                    any_sent = True
-                    object_core_service.record_live_target(object_id, "influx", value=value, original_source="loxone")
-                add_log_entry(
-                    f"Object routing object_id={object_id} original_source=loxone target_adapter=influx value={value} measurement={measurement} field={field} topic={topic} bucket={bucket} result={result} skipped_echo=no"
-                )
-            except Exception as exc:
-                add_log_entry(
-                    f"Object routing object_id={object_id} original_source=loxone target_adapter=influx value={value} measurement={measurement} field={field} topic={topic} bucket= result=error error={exc} skipped_echo=no"
-                )
-        elif "influx" in adapters:
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=influx result=skipped reason=target_incomplete", object_id, value)
-
-        knx_adapter = adapters.get("knx")
-        if _knx_adapter_complete(knx_adapter) and bool(load_knx_config().get("enabled", False)):
-            route_available = True
-            knx_ga = str(getattr(knx_adapter, "group_address", "") or "").strip()
-            knx_dpt = str(getattr(knx_adapter, "dpt", "") or "1.001").strip() or "1.001"
-            try:
-                ok = knx_service.send_knx_value(knx_ga, knx_dpt, value, load_knx_config, add_log_entry)
-                if ok:
-                    any_sent = True
-                    object_core_service.record_live_target(object_id, "knx", value=value, original_source="loxone")
-                    add_log_entry(
-                        f"Object routing object_id={object_id} original_source=loxone target_adapter=knx value={value} skipped_echo=no"
-                    )
-            except Exception as exc:
-                add_log_entry(f"Loxone route source=loxone object_id={object_id} value={value} target=knx result=error error={exc}")
-        elif "knx" in adapters:
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=knx result=skipped reason=target_incomplete", object_id, value)
-    return route_available
+                add_log_entry(f"Object routing object_id={object_id} original_source=mqtt target_adapter={target} value={routed_value} skipped_echo=no error={exc}")
+    return any_sent
 
 
 def publish_value(config, name, value, uuid_str=""):
@@ -2324,10 +2519,33 @@ async def bridge_async(config):
             monitor_entry = mqtt_module.record_mqtt_message(broker_name, msg.topic, payload)
             set_mqtt_monitor_value(f"{broker_name}::{msg.topic}", monitor_entry)
             try:
-                object_core_service.record_live_value("mqtt", payload, topic=msg.topic)
+                live_items = object_core_service.record_live_value("mqtt", payload, topic=msg.topic)
+                matched_object_ids = [
+                    str((item or {}).get("object_id", "") or "").strip()
+                    for item in live_items or []
+                    if str((item or {}).get("object_id", "") or "").strip()
+                ]
+                for live_item in live_items or []:
+                    current_object_id = str((live_item or {}).get("object_id", "") or "").strip()
+                    if not current_object_id:
+                        continue
+                    recognized = str((live_item or {}).get("recognized_endpoint", "") or "").strip()
+                    extracted_value = (live_item or {}).get("value", payload)
+                    add_log_entry(
+                        f"MQTT RX topic={msg.topic} json_path={recognized or '-'} value={extracted_value} matched_object_id={current_object_id} current_source=mqtt"
+                    )
+                add_log_entry(
+                    f"MQTT ingress topic={msg.topic} value={payload} matched_object_id={','.join(matched_object_ids) or '-'} target_adapter={'object_router' if matched_object_ids else 'none'} skipped_echo=no"
+                )
+                if _dispatch_mqtt_live_targets(live_items, msg.topic, payload):
+                    bump_sse("mqtt")
+                    return
             except Exception:
                 pass
             bump_sse("mqtt")
+
+            if _dispatch_object_routes(live_items, "mqtt", msg.topic, payload, metadata={"topic": msg.topic}):
+                return
 
             # MQTT Explorer -> Influx: direkte Topics und aktivierte JSON-Keys schreiben.
             influx_service.write_mqtt_explorer_influx(msg.topic, payload, load_topic_config, get_nested_value, lambda t, v: influx_service.write_to_influx(t, v, load_config, load_topic_config, add_log_entry), lambda t, f, v, value_type="auto": influx_service.write_to_influx_field(t, f, v, load_config, add_log_entry, value_type=value_type), add_log_entry)
@@ -8285,7 +8503,7 @@ function buildJsonKeyButtons(obj, prefix = "") {
                             <option value="number" ${influxType === "number" ? "selected" : ""}>Zahl</option>
                             <option value="text" ${influxType === "text" ? "selected" : ""}>Text</option>
                         </select>
-                        <button type="button" class="json-influx-btn object-main-btn" onclick="sendJsonKeyToTarget('${encodeURIComponent(path)}', 'object')">+ Objekt</button>
+                        <button type="button" class="json-influx-btn object-main-btn" onclick="sendJsonKeyToTarget('${encodeURIComponent(path)}', 'object', '${encodeURIComponent(String(value))}')">+ Objekt</button>
                         <select class="json-map-select" title="Expertenmapping" onchange="sendJsonKeyToTarget('${encodeURIComponent(path)}', this.value); this.value='';">
                             <option value="">⚙ Mapping…</option>
                             <option value="lox">MQTT → Loxone</option>
@@ -8462,7 +8680,20 @@ function sendJsonKeyToUdp(jsonKey) {
         "&mapping_alias=" + encodeURIComponent(jsonKey);
 }
 
-function sendJsonKeyToTarget(jsonKey, target) {
+function inferJsonKeyDatatype(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return "auto";
+    const lowered = text.toLowerCase();
+    if (["true", "false", "on", "off", "yes", "no", "ja", "nein", "ein", "aus"].includes(lowered)) {
+        return "bool";
+    }
+    if (!Number.isNaN(Number(text)) && text !== "") {
+        return "number";
+    }
+    return "text";
+}
+
+function sendJsonKeyToTarget(jsonKey, target, rawValue = "") {
     if (!target) return;
 
     if (target === "lox") {
@@ -8471,6 +8702,28 @@ function sendJsonKeyToTarget(jsonKey, target) {
         sendJsonKeyToUdp(jsonKey);
     } else if (target === "knx") {
         sendJsonKeyToKnx(jsonKey);
+    } else if (target === "object") {
+        const topic = getSelectedTopic();
+        if (!topic) return;
+        const decodedJsonKey = decodeURIComponent(jsonKey || "");
+        const decodedValue = decodeURIComponent(rawValue || "");
+        const name = decodedJsonKey || topic.split('/').filter(Boolean).slice(-1).join(' ') || "Neues Objekt";
+        const params = new URLSearchParams({
+            explorer: "mqtt",
+            source: "mqtt",
+            source_type: "mqtt",
+            source_adapter: "mqtt",
+            tab: "mqtt",
+            name: name,
+            suggested_name: name,
+            topic: topic,
+            json_key: decodedJsonKey,
+            mqtt_json_key: decodedJsonKey,
+            source_path: decodedJsonKey ? (topic + "/" + decodedJsonKey) : topic,
+            value: decodedValue,
+            datatype: inferJsonKeyDatatype(decodedValue)
+        });
+        navigateObjectManagerFromExplorer("/objects_v33/create_from_explorer?" + params.toString());
     } else if (target === "udp2mqtt") {
         sendToUdp2Mqtt();
     }

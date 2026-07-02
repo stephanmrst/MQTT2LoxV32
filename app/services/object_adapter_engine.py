@@ -77,6 +77,38 @@ class LoxoneAdapter(BaseAdapter):
     visu_name: str = ""
     room: str = ""
     unit: str = ""
+    source_uuid: str = ""
+    source_name: str = ""
+    target_uuid: str = ""
+    target_name: str = ""
+    target_room: str = ""
+    target_category: str = ""
+    target_type: str = ""
+
+    @classmethod
+    def deserialize(cls, data: dict[str, Any]) -> "LoxoneAdapter":
+        payload = dict(data or {})
+        payload.setdefault("source_uuid", payload.get("uuid", ""))
+        payload.setdefault("source_name", payload.get("visu_name", payload.get("name", "")))
+        payload.setdefault("target_uuid", payload.get("target_uuid", ""))
+        payload.setdefault("target_name", payload.get("target_name", ""))
+        payload.setdefault("target_room", payload.get("target_room", payload.get("room", "")))
+        payload.setdefault("target_category", payload.get("target_category", payload.get("category", "")))
+        payload.setdefault("target_type", payload.get("target_type", payload.get("control_type", payload.get("type", ""))))
+        adapter = super().deserialize(payload)
+        if not str(adapter.source_uuid or "").strip():
+            adapter.source_uuid = str(adapter.uuid or "").strip()
+        if not str(adapter.source_name or "").strip():
+            adapter.source_name = str(adapter.visu_name or "").strip()
+        if not str(adapter.target_room or "").strip():
+            adapter.target_room = str(adapter.room or "").strip()
+        if not str(adapter.target_category or "").strip():
+            adapter.target_category = str(data.get("category", "") or "").strip()
+        if not str(adapter.target_type or "").strip():
+            adapter.target_type = str(adapter.control_type or "").strip() or str(data.get("type", "") or "").strip()
+        if str(adapter.uuid or "").strip() == "" and str(adapter.source_uuid or "").strip():
+            adapter.uuid = str(adapter.source_uuid or "").strip()
+        return adapter
 
 
 @dataclass

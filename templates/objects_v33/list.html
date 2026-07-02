@@ -417,8 +417,126 @@ function setObjectDetailPane(html) {
   const pane = document.getElementById("objectDetailPane");
   if (pane) {
     pane.innerHTML = html;
+    if (typeof initLoxoneTargetPickers === "function") {
+      initLoxoneTargetPickers();
+    }
   }
 }
+
+function findLoxonePickerRoot(prefix) {
+  return document.querySelector(`[data-loxone-target-root="${String(prefix || "")}"]`);
+}
+
+function initLoxoneTargetPicker(root) {
+  if (!root) return;
+  const prefix = String(root.getAttribute("data-loxone-target-root") || "");
+  const picker = document.getElementById(prefix + "_target_picker");
+  if (!picker) return;
+  const rowsEl = document.getElementById(prefix + "_target_picker_rows");
+  const emptyEl = document.getElementById(prefix + "_target_picker_empty");
+  const options = JSON.parse(picker.getAttribute("data-loxone-target-options") || "[]");
+  const search = document.getElementById(prefix + "_target_search");
+  const room = document.getElementById(prefix + "_target_room_filter");
+  const category = document.getElementById(prefix + "_target_category_filter");
+  const type = document.getElementById(prefix + "_target_type_filter");
+  const uuid = document.getElementById(prefix + "_target_uuid");
+  const name = document.getElementById(prefix + "_target_name");
+  const roomField = document.getElementById(prefix + "_target_room");
+  const categoryField = document.getElementById(prefix + "_target_category");
+  const typeField = document.getElementById(prefix + "_target_type");
+
+  const normalize = value => String(value || "").toLowerCase().trim();
+  const escapeHtmlLocal = value => escapeHtml(value);
+
+  function matches(option) {
+    const filterSearch = normalize(search && search.value);
+    const filterRoom = normalize(room && room.value);
+    const filterCategory = normalize(category && category.value);
+    const filterType = normalize(type && type.value);
+    const haystack = normalize([option.name, option.room, option.category, option.type, option.uuid].join(" "));
+    if (filterSearch && !haystack.includes(filterSearch)) return false;
+    if (filterRoom && !normalize(option.room).includes(filterRoom)) return false;
+    if (filterCategory && !normalize(option.category).includes(filterCategory)) return false;
+    if (filterType && !normalize(option.type).includes(filterType)) return false;
+    return true;
+  }
+
+  function renderRows() {
+    if (!rowsEl) return;
+    const filtered = options.filter(matches);
+    rowsEl.innerHTML = "";
+    if (!filtered.length) {
+      if (emptyEl) emptyEl.hidden = false;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    filtered.forEach(option => {
+      const row = document.createElement("tr");
+      if (uuid && uuid.value && uuid.value === option.uuid) row.classList.add("selected");
+      row.innerHTML = `
+        <td>${escapeHtmlLocal(option.name || "")}</td>
+        <td>${escapeHtmlLocal(option.room || "")}</td>
+        <td>${escapeHtmlLocal(option.category || "")}</td>
+        <td>${escapeHtmlLocal(option.type || "")}</td>
+        <td>${escapeHtmlLocal(option.uuid || "")}</td>
+      `;
+      row.addEventListener("click", () => {
+        if (uuid) uuid.value = option.uuid || "";
+        if (name) name.value = option.name || "";
+        if (roomField) roomField.value = option.room || "";
+        if (categoryField) categoryField.value = option.category || "";
+        if (typeField) typeField.value = option.type || "";
+        renderRows();
+      });
+      rowsEl.appendChild(row);
+    });
+  }
+
+  if (root.dataset.loxonePickerBound !== "1") {
+    root.dataset.loxonePickerBound = "1";
+    [search, room, category, type].forEach(input => {
+      if (!input || input.dataset.loxonePickerBound === "1") return;
+      input.dataset.loxonePickerBound = "1";
+      input.addEventListener("input", renderRows);
+    });
+  }
+
+  renderRows();
+}
+
+function initLoxoneTargetPickers() {
+  document.querySelectorAll("[data-loxone-target-root]").forEach(initLoxoneTargetPicker);
+}
+
+window.toggleLoxoneTargetPicker = function(prefix) {
+  const root = findLoxonePickerRoot(prefix);
+  if (!root) return;
+  const picker = document.getElementById(String(prefix || "") + "_target_picker");
+  if (!picker) return;
+  picker.hidden = !picker.hidden;
+  if (!picker.hidden && typeof initLoxoneTargetPickers === "function") {
+    initLoxoneTargetPickers();
+  }
+};
+
+window.clearLoxoneTarget = function(prefix) {
+  const root = findLoxonePickerRoot(prefix);
+  if (!root) return;
+  const picker = document.getElementById(String(prefix || "") + "_target_picker");
+  const uuid = document.getElementById(String(prefix || "") + "_target_uuid");
+  const name = document.getElementById(String(prefix || "") + "_target_name");
+  const room = document.getElementById(String(prefix || "") + "_target_room");
+  const category = document.getElementById(String(prefix || "") + "_target_category");
+  const type = document.getElementById(String(prefix || "") + "_target_type");
+  if (uuid) uuid.value = "";
+  if (name) name.value = "";
+  if (room) room.value = "";
+  if (category) category.value = "";
+  if (type) type.value = "";
+  if (picker && !picker.hidden && typeof initLoxoneTargetPickers === "function") {
+    initLoxoneTargetPickers();
+  }
+};
 
 function setObjectListHtml(html) {
   const list = document.getElementById("objectList");
@@ -605,5 +723,6 @@ async function refreshObjectLiveData() {
 
 refreshObjectLiveData();
 setInterval(refreshObjectLiveData, 3000);
+initLoxoneTargetPickers();
 </script>
 {% endblock %}

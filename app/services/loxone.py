@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+import requests
+
 
 def convert_lox_value(value):
     if isinstance(value, bool):
@@ -158,6 +160,32 @@ def handle_mqtt_to_loxone(
         return True
 
     return False
+
+
+def send_loxone_value(config, loxone_io, value, add_log_entry=None, requests_module=requests):
+    loxone_io = str(loxone_io or "").strip()
+    if not loxone_io:
+        if add_log_entry:
+            add_log_entry("LOXONE Fehler: IO-Adresse fehlt")
+        return False
+    try:
+        url = f"http://{config['loxone']['host']}/dev/sps/io/{loxone_io}/{convert_lox_value(value)}"
+        response = requests_module.get(
+            url,
+            auth=(config["loxone"]["user"], config["loxone"]["password"]),
+            timeout=5,
+        )
+        if response.status_code == 200:
+            if add_log_entry:
+                add_log_entry(f"LOXONE Senden OK io={loxone_io} value={value}")
+            return True
+        if add_log_entry:
+            add_log_entry(f"LOXONE Senden Fehler HTTP {response.status_code}: {response.text}")
+        return False
+    except Exception as exc:
+        if add_log_entry:
+            add_log_entry(f"LOXONE Senden Fehler: {type(exc).__name__}: {exc}")
+        return False
 
 
 def get_loxone_state_topic_options(

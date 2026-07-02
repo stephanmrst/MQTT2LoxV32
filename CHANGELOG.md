@@ -1,5 +1,111 @@
 # Changelog
 
+## 33.3.83
+
+- Im Loxone-Tab des Objektmanagers gibt es jetzt eine Zielauswahl mit Suche und Filter fuer Name, Raum, Kategorie und Typ.
+- Loxone-Quellfelder und Loxone-Zielfelder werden getrennt gespeichert; MQTT/UDP/KNX -> Loxone nutzt jetzt `target_uuid` statt der Quell-UUID.
+- Die Routing-Ansicht zeigt Loxone-Ziele als Namen mit Raum und Kategorie, und der Objektmanager kann Loxone-Ziele aus der Explorer-Struktur uebernehmen.
+
+## 33.3.82
+
+- Der gemeinsame Object-Router ruft den bestehenden UDP-Sender wieder mit der korrekten Signatur auf.
+- Die UDP-Ausgabe aus dem Objektmanager bleibt damit im neuen Routingpfad lauffaehig.
+
+## 33.3.81
+
+- Der gemeinsame Object-Router blockiert Legacy-Fallbacks nun nur noch, wenn wirklich mindestens ein Ziel erfolgreich gesendet hat.
+- UDP-Ausgabe aus dem Objektmanager bleibt damit auch dann wieder lauffaehig, wenn ein Objekt-Match zwar erkannt, aber nicht komplett verarbeitet wurde.
+
+## 33.3.80
+
+- Objektmanager-Routing laeuft jetzt ueber eine gemeinsame Zielschleife fuer Loxone, MQTT, UDP, KNX und Influx.
+- MQTT-, UDP- und KNX-Eingaenge nutzen denselben Objekt-Router, damit die Quelle nicht mehr in Zieladapter-States verrutscht.
+
+## 33.3.79
+
+- Der KNX-Monitor schreibt ausgehende Telegramme nicht mehr in den Live-Cache, damit die Quelle nicht auf KNX umspringt.
+- Nur echte KNX-RX-Ereignisse aktualisieren weiterhin die Live-Quelle.
+
+## 33.3.78
+
+- Ein geloeschtes UDP Topic wird beim Speichern wieder auf `<Objektname>/value` zurueckgesetzt.
+- Die Default-Logik fuer UDP liegt wieder zentral im object_service und greift bei Create und Update gleich.
+
+## 33.3.77
+
+- Neue UDP-Adapter bekommen beim ersten Speichern wieder das Default-Topic `<Objektname>/value`, wenn kein eigenes Topic gesetzt wurde.
+- Bereits vorhandene UDP-Adapter behalten ein bewusst geleertes Topic beim Bearbeiten leer.
+
+## 33.3.76
+
+- Der UDP-Adapter wird beim Speichern nicht mehr automatisch wieder aktiviert, wenn Zielwerte gesetzt sind.
+- Ein leer gespeichertes UDP Topic bleibt beim Bearbeiten jetzt leer statt erneut mit einem Default ueberschrieben zu werden.
+
+## 33.3.75
+
+- MQTT->UDP verwendet jetzt fuer normale MQTT-Objekte den frischen MQTT-Payload statt eines moeglich stale Live-Cache-Werts.
+- MQTT-Objekte mit JSON-Key behalten weiterhin den extrahierten Wert aus dem Live-Match.
+
+## 33.3.74
+
+- Der MQTT->UDP-Aufruf nutzt jetzt wieder die Wrapper-Signatur korrekt; `add_log_entry` wird nicht mehr als `object_id` fehlinterpretiert.
+- Dadurch verschwindet der Fehler `send_mqtt2udp() got multiple values for argument 'object_id'` beim objektbasierten UDP-Dispatch.
+
+## 33.3.73
+
+- Der MQTT->UDP-Objektrouter nutzt jetzt wieder die lokalen Core-Adapter-Pruefungen statt nicht vorhandener Helper im object_service.
+- Dadurch bricht der MQTT-Callback nicht mehr intern ab, bevor der UDP-Sender erreicht wird.
+
+## 33.3.72
+
+- Der UDP-Adapter im Objektmanager wird beim Speichern mit echten Zielwerten jetzt automatisch aktiviert, damit konfigurierte Routen nicht still als inaktiv gespeichert bleiben.
+- Damit reicht ein gespeicherter UDP-Tab mit Ziel-IP, Ziel-Port oder UDP-Topic aus, um den Router auf aktiv zu bringen.
+
+## 33.3.71
+
+- Die Objekt-Statuslogik orientiert sich jetzt an echten Quelle-Ziel-Paaren statt an der reinen Anzahl vollstaendiger Endpunkte.
+- Dadurch wird ein Objekt nur dann als aktiv angesehen, wenn mindestens eine saubere Routing-Kombination vorhanden ist.
+
+## 33.3.70
+
+- Der MQTT-Routenloader fuer Objektmanager-Routing nutzt jetzt die lokale UDP-Pruefung und loggt, warum eine Route vor dem Versand verworfen wird.
+- Damit wird sichtbar, ob MQTT->UDP an der Quelle, am Topic-Abgleich oder an fehlenden Zielparametern haengt.
+
+## 33.3.69
+
+- Der MQTT->UDP-Objektrouter loggt jetzt den Eintritt, die verfuegbaren Routen und die Abbruchgruende vor dem UDP-Sender, damit der fehlende Dispatch klar sichtbar wird.
+- MQTT-Eingaenge werden fuer das Routing weiter akzeptiert; der neue Log zeigt, ob der Router die Route wirklich erreicht oder vorher gefiltert wird.
+
+## 33.3.68
+
+- MQTT als Eingangsquelle wird im Objektmanager jetzt nicht mehr fälschlich wie ein reiner Ausgang behandelt; MQTT-Objekte mit `in` oder `both` werden fuer den Eingangs-Dispatch akzeptiert.
+- Die linke Objektkachel liest den aktuellen Livezustand nun zuerst aus dem Runtime-Cache, damit die Herkunft nicht durch alte Monitorwerte ueberschrieben wird.
+- MQTT->UDP bekommt zusaetzliche Diagnose-Logs mit vorbereiteten Zielparametern, damit fehlende UDP-Sends schneller sichtbar sind.
+
+## 33.3.67
+
+- MQTT→UDP im Objektmanager schickt jetzt direkt ueber den bestehenden UDP-Sendepfad wie Loxone→UDP und nutzt den aus dem JSON-Key extrahierten Wert.
+- Der MQTT-UDP-Zweig loggt jetzt deutlicher, wenn Zielhost oder Port fehlen, damit aktive Routen klarer von inaktiven getrennt werden.
+- Versionsstand auf `33.3.67` gesetzt.
+
+## 33.3.66
+
+- MQTT->UDP nutzt jetzt beim Objektmanager denselben bestehenden UDP-Ausgang wie Loxone->UDP und sendet den aus dem JSON-Key extrahierten Objektwert.
+- MQTT-UDP-Dispatch loggt jetzt klar MQTT-Eingang, objektbasierten UDP-Dispatch und den eigentlichen UDP-Sendepfad.
+- Versionsstand auf `33.3.66` gesetzt.
+
+## 33.3.65
+
+- MQTT→UDP im Objektmanager loggt jetzt MQTT-Eingang, objektbasierten UDP-Dispatch sowie UDP-Start/OK/Fehler klarer nach.
+- UDP-Routen erscheinen nur noch als aktiv, wenn Zielhost und Port wirklich gesetzt sind; MQTT JSON-Key-Objekte gehen sauber in den objektbasierten Sendepfad.
+- Versionsstand auf `33.3.65` gesetzt.
+
+## 33.3.64
+
+- Der MQTT-Hub kann JSON-Key-Zeilen jetzt direkt in den Objektmanager schicken; `+ Objekt` pro Key uebergibt Topic, JSON-Key, erkannte Daten und den MQTT-Quellkontext.
+- MQTT-Objekte mit JSON-Key speichern den Key im MQTT-Adapter und werden im Live-Match sowie in der Routenanzeige als Topic plus JSON-Key gefuehrt.
+- Versionsstand auf `33.3.64` gesetzt.
+
 ## 33.3.63
 
 - Der KNX-Testcenter-Fehler `name 'datetime' is not defined` ist beseitigt und der Zeitstempel faellt bei Problemen sauber auf `-` zurueck.
