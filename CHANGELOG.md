@@ -1,5 +1,87 @@
 # Changelog
 
+## 33.3.63
+
+- Der KNX-Testcenter-Fehler `name 'datetime' is not defined` ist beseitigt und der Zeitstempel faellt bei Problemen sauber auf `-` zurueck.
+- Die KNX-Testcenter-Buttons sind jetzt getrennt verdrahtet: Senden, Wiederholen und Monitor leeren loesen keine versehentlichen Submit-Aktionen mehr aus.
+- Nach `Monitor leeren` erscheint im Diagnosefeld jetzt klar `Status: Monitor geleert`.
+- Versionsstand auf `33.3.63` gesetzt.
+
+## 33.3.62
+
+- Der KNX-Testcenter-Backendpfad ist jetzt komplett per try/except abgesichert und liefert bei Fehlern immer JSON statt HTML-500.
+- `Auto` wird im KNX-Testcenter vor dem Senden auf einen konkreten DPT aufgeloest; die JSON-Diagnose fuehrt `in_monitor` sauber mit.
+- Versionsstand auf `33.3.62` gesetzt.
+
+## 33.3.61
+
+- Der KNX-Testcenter-Submit laeuft jetzt per JSON-Fetch statt als HTML-Redirect und zeigt Fehler direkt in der Diagnose an.
+- Der KNX-Hub ordnet zuerst Uebersicht und Kacheln an, danach erst KNX Testcenter und Diagnose.
+- Das Testcenter behandelt `Auto` intern als konkreten DPT und nutzt weiterhin denselben KNX-Sendepfad wie der Objektmanager.
+- Versionsstand auf `33.3.61` gesetzt.
+
+## 33.3.60
+
+- Der KNX-Hub zeigt jetzt einen eigenen KNX-Testbereich mit Gruppenadresse, DPT, Wert, Wiederholen und Monitor-Leeren.
+- Der KNX-Testbereich nutzt exakt denselben Sendepfad wie der Objektmanager und schreibt eine kopierbare Diagnose mit APDU und Status.
+- Neue Test-POST-Routen speichern den letzten Versuch in der Runtime, damit `Letzten Test wiederholen` ohne erneutes Ausfüllen funktioniert.
+- Versionsstand auf `33.3.60` gesetzt.
+
+## 33.3.59
+
+- Der KNX-Monitor trennt RX und OUT jetzt klar: externe Telegramme erscheinen als `RX`, eigene Gateway-Sends als `OUT` mit Status `OK`, `PENDING` oder `ERROR`.
+- Der KNX-Filter im Monitor wurde auf `RX`/`OUT` umgestellt, damit eigene Sendungen nicht mehr als RX-Echo einsortiert werden.
+- Die KNX-DPT-Auswahl bleibt konkret und zeigt keine generische `DPT 9.xxx`-Sammeloption.
+- Versionsstand auf `33.3.59` gesetzt.
+
+## 33.3.58
+
+- Der KNX-Sendepfad sendet jetzt explizit `GroupValueWrite`-Telegramme mit kodiertem APDU-Payload statt eines indirekten Device-Writes.
+- Der KNX-Sender loggt jetzt GA, DPT, Wert und die kodierte APDU vor dem Queueing sowie den erfolgreichen Queue-/Join-Durchlauf.
+- Der KNX-Monitor bekommt ausgehende Telegramme erst nach erfolgreichem Write als `OUT_OK`; der Payload-Fall `DPT 9.001` ist als Test- und Fallbackpfad weiter vorbereitet.
+- Versionsstand auf `33.3.58` gesetzt.
+
+## 33.3.57
+
+- Der KNX-Sendepfad loggt jetzt vor und nach dem echten xknx-Write sowie bei Fehlern den konkreten Exception-Typ.
+- Der KNX-Monitor trennt ausgehende Eintraege nun sichtbar in `OUT_PENDING`, `OUT_OK` und `OUT_ERROR`; der Status wird erst nach erfolgreichem Sendebefehl gesetzt.
+- Der KNX-Tab weist zusaetzlich auf DPT 9.xxx als Alternative hin, wenn Ziele 14.xxx nicht erwarten.
+- Versionsstand auf `33.3.57` gesetzt.
+
+## 33.3.56
+
+- Der KNX-Sendepfad importiert jetzt garantiert `app.core` statt des Top-Level-Moduls `core`.
+- Der KNX-Listener und der KNX-Sender loggen jetzt denselben Runtime-Identitaetskontext, damit Doppel-Imports sichtbar werden.
+- Das App-Paket fuegt sein Verzeichnis nicht mehr als Top-Level-Suchpfad hinzu, damit `app.core` nicht versehentlich als `core` geladen wird.
+- Versionsstand auf `33.3.56` gesetzt.
+
+## 33.3.54
+
+- Der KNX-Ausgang schreibt jetzt echte Telegramme fuer aktive Objektmanager-Routen mit passender Gruppenadresse und DPT.
+- Der KNX-Monitor markiert ausgehende Objektmanager-Telegramme als `WRITE`, damit Senden und Empfang klar unterscheidbar bleiben.
+- Der KNX-Tab bietet jetzt eine DPT-Auswahlliste und speichert den gewaehlten DPT pro Objekt.
+- Versionsstand auf `33.3.54` gesetzt.
+
+## 33.3.53
+
+- KNX ist im Objektmanager jetzt als weiterer Ausgang fuer Loxone, MQTT und UDP verdrahtet.
+- Die Routing-Vorschau und der Runtime-Dispatch erzeugen nun auch LOXONE -> KNX und MQTT -> KNX bzw. UDP -> KNX, wenn die KNX-Konfiguration vorhanden ist.
+- Versionsstand auf `33.3.53` gesetzt.
+
+## 33.3.52
+
+- Im Objektmanager zeigen Detailkopf und Objektkarte links jetzt nur noch ein Status-Badge pro Objekt.
+- Das doppelte Routing-Status-Badge wurde aus der Objektansicht entfernt.
+- Routing-Statusspalten in den Tabellen bleiben unveraendert erhalten.
+- Versionsstand auf `33.3.52` gesetzt.
+
+## 33.3.51
+
+- Der Routing-Tab zeigt jetzt getrennte Haupt-Routen und direkte Rueck-Routen.
+- Haupt-Routen folgen der aktiven Objekt-Quelle, Rueck-Routen zeigen nur direkt konfigurierte Rueckwege zur aktuellen Quelle.
+- Influx bleibt nur Ziel, nicht Rueck-Quelle.
+- Versionsstand auf `33.3.51` gesetzt.
+
 ## 33.3.50
 
 - Der Routing-Tab baut seine Eintraege jetzt aus der Objektkonfiguration mit allen aktivierten Quellen und Zielen auf und zeigt keine Selbst- oder Legacy-Routen mehr an.

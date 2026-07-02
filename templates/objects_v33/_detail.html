@@ -20,8 +20,6 @@
       </div>
       <div class="head-actions">
         <span class="badge {% if object_def.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if object_def.enabled else 'Inaktiv' }}</span>
-        {% set detail_status = route_status(object_def) %}
-        <span class="badge {% if detail_status == 'aktiv' %}route-active{% elif detail_status == 'deaktiviert' %}route-disabled{% elif detail_status == 'fehler' %}route-error{% else %}route-incomplete{% endif %}">{{ detail_status }}</span>
         <button form="objectGeneralForm" class="primary" type="submit">Speichern</button>
         <button type="button" disabled>Duplizieren</button>
         {% if object_def.id %}
@@ -89,14 +87,21 @@
         {% endfor %}
 
         <div class="tab-panel routing-panel">
-          {% set route_report = selected_route_report or {'routes': selected_preview, 'missing_endpoints': [], 'errors': [], 'status': detail_status} %}
-          {% if route_report.routes %}
+          {% set route_report = selected_route_report or {'routes': selected_preview, 'main_routes': selected_preview, 'return_routes': [], 'missing_endpoints': [], 'errors': [], 'status': detail_status, 'current_source': '', 'current_source_address': ''} %}
+          {% if route_report.current_source %}
+            <div class="empty" style="margin-bottom:12px;">Aktuelle Quelle: {{ route_report.current_source }}{% if route_report.current_source_address %} <span class="count">{{ route_report.current_source_address }}</span>{% endif %}</div>
+          {% else %}
+            <div class="empty" style="margin-bottom:12px;">Aktuelle Quelle: unbekannt</div>
+          {% endif %}
+
+          <div class="empty" style="margin-bottom:8px;">Haupt-Routen</div>
+          {% if route_report.main_routes %}
             <table>
               <thead>
                 <tr><th>Quelle</th><th>Ziel</th><th>Richtung</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {% for item in route_report.routes %}
+                {% for item in route_report.main_routes %}
                   <tr>
                     <td>{{ item.source }}{% if item.source_address %}<br><span class="count">{{ item.source_address }}</span>{% endif %}</td>
                     <td>{{ item.target }}{% if item.target_address %}<br><span class="count">{{ item.target_address }}</span>{% endif %}</td>
@@ -107,7 +112,28 @@
               </tbody>
             </table>
           {% else %}
-            <div class="empty">Keine erzeugten Routen vorhanden.</div>
+            <div class="empty">Keine Haupt-Routen vorhanden.</div>
+          {% endif %}
+
+          <div class="empty" style="margin:16px 0 8px;">Mögliche direkte Rück-Routen</div>
+          {% if route_report.return_routes %}
+            <table>
+              <thead>
+                <tr><th>Quelle</th><th>Ziel</th><th>Richtung</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {% for item in route_report.return_routes %}
+                  <tr>
+                    <td>{{ item.source }}{% if item.source_address %}<br><span class="count">{{ item.source_address }}</span>{% endif %}</td>
+                    <td>{{ item.target }}{% if item.target_address %}<br><span class="count">{{ item.target_address }}</span>{% endif %}</td>
+                    <td>{{ item.direction }}</td>
+                    <td><span class="badge on">{{ item.status }}</span></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <div class="empty">Keine direkten Rück-Routen vorhanden.</div>
           {% endif %}
           {% if route_report.missing_endpoints %}
             <div class="empty" style="margin-top:12px;">Fehlende Endpunkte: {{ route_report.missing_endpoints|join(', ') }}</div>

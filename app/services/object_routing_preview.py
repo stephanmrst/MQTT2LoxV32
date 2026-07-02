@@ -21,6 +21,7 @@ PREVIEW_ROUTE_PAIRS = (
     ("mqtt", "knx"),
     ("mqtt", "udp"),
     ("mqtt", "influx"),
+    ("loxone", "knx"),
     ("knx", "mqtt"),
     ("knx", "loxone"),
     ("knx", "influx"),

@@ -3,7 +3,14 @@
 These routes delegate to the app core handlers during the migration.
 """
 
-from flask import Blueprint, current_app
+from datetime import datetime
+
+from flask import Blueprint, current_app, jsonify, request
+
+try:
+    from app.services import knx as knx_service
+except ModuleNotFoundError:
+    from services import knx as knx_service
 
 
 bp = Blueprint("knx", __name__)
@@ -11,6 +18,33 @@ bp = Blueprint("knx", __name__)
 
 def _core():
     return current_app.extensions["app_core"]
+
+
+def _knx_test_error_response(exc, status_code=500):
+    group_address = knx_service.normalize_knx_ga(request.form.get("group_address", ""))
+    selected_dpt = str(request.form.get("dpt", "auto") or "auto").strip() or "auto"
+    raw_value = str(request.form.get("value", "") or "").strip()
+    in_monitor = str(request.form.get("show_in_monitor", "1")) == "1"
+    resolved_dpt = "9.001" if selected_dpt.lower() == "auto" else selected_dpt
+    payload = {
+        "ok": False,
+        "error": str(exc),
+        "diagnostic": {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "telegram_type": "GroupValueWrite",
+            "group_address": group_address,
+            "dpt": resolved_dpt,
+            "resolved_dpt": resolved_dpt,
+            "raw_value": raw_value,
+            "converted_value": "-",
+            "apdu": "-",
+            "status": "FEHLER",
+            "in_monitor": in_monitor,
+            "show_in_monitor": in_monitor,
+            "http_status": int(status_code),
+        },
+    }
+    return jsonify(payload), int(status_code)
 
 
 @bp.route("/knx")
@@ -30,7 +64,38 @@ def knx_save():
 
 @bp.route("/knx/test", methods=["POST"])
 def knx_test():
-    return _core().knx_test()
+    try:
+        return _core().knx_test()
+    except Exception as exc:
+        current_app.logger.exception("KNX test route failed")
+        return _knx_test_error_response(exc, 500)
+
+
+@bp.route("/knx_test/send", methods=["POST"])
+def knx_test_send():
+    try:
+        return _core().knx_test_send()
+    except Exception as exc:
+        current_app.logger.exception("KNX test send failed")
+        return _knx_test_error_response(exc, 500)
+
+
+@bp.route("/knx_test/repeat", methods=["POST"])
+def knx_test_repeat():
+    try:
+        return _core().knx_test_repeat()
+    except Exception as exc:
+        current_app.logger.exception("KNX test repeat failed")
+        return _knx_test_error_response(exc, 500)
+
+
+@bp.route("/knx_test/clear_monitor", methods=["POST"])
+def knx_test_clear_monitor():
+    try:
+        return _core().knx_test_clear_monitor()
+    except Exception as exc:
+        current_app.logger.exception("KNX test clear monitor failed")
+        return _knx_test_error_response(exc, 500)
 
 
 @bp.route("/mqtt2knx")

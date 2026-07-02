@@ -1,6 +1,7 @@
 import asyncio
 import re
 import threading
+import time
 from datetime import datetime
 
 import requests
@@ -39,27 +40,202 @@ def normalize_knx_ga(value):
 normalize_knx_group_address = normalize_knx_ga
 
 
-def convert_knx_value(value, dpt, invert=False):
-    dpt = str(dpt or "1.001").strip().lower()
+def _normalize_knx_dpt(dpt):
+    text = str(dpt or "").strip().lower()
+    if not text:
+        return "1.001"
+    if text in {"bool", "boolean", "switch"}:
+        return "1.001"
+    match = re.search(r"(\d+\.\d{3})", text)
+    if match:
+        return match.group(1)
+    text = text.replace("dpt", "", 1).strip()
+    text = text.replace(" ", "")
+    return text
+
+
+def _knx_parse_number(value):
+    text = str(value or "").strip().replace(",", ".")
+    if not text:
+        return 0.0
+    return float(text)
+
+
+def _knx_parse_int(value):
+    return int(round(_knx_parse_number(value)))
+
+
+def _knx_send_value_for_dpt(value, dpt, invert=False):
+    dpt = _normalize_knx_dpt(dpt)
     raw = value
-    v = value.strip().lower() if isinstance(value, str) else value
-    if dpt.startswith("1.") or dpt in ["bool", "boolean", "switch"]:
-        if isinstance(v, bool):
-            b = v
-        elif isinstance(v, (int, float)):
-            b = float(v) != 0
-        elif str(v) in ["true", "on", "1", "yes", "ja", "open", "auf"]:
+    text = str(raw).strip().lower() if isinstance(raw, str) else ""
+
+    if dpt.startswith("1."):
+        if isinstance(raw, bool):
+            b = raw
+        elif isinstance(raw, (int, float)):
+            b = float(raw) != 0
+        elif text in ["true", "on", "1", "yes", "ja", "open", "auf"]:
             b = True
-        elif str(v) in ["false", "off", "0", "no", "nein", "closed", "zu"]:
+        elif text in ["false", "off", "0", "no", "nein", "closed", "zu"]:
             b = False
         else:
-            b = bool(v)
-        return not b if invert else b
+            b = bool(raw)
+        return (not b) if invert else b
+
+    if dpt.startswith("5.001"):
+        return max(0.0, min(100.0, float(_knx_parse_number(raw))))
+
     if dpt.startswith("5."):
-        return max(0, min(255, int(float(raw))))
+        return max(0, min(255, _knx_parse_int(raw)))
+
+    if dpt.startswith("7.") or dpt.startswith("12."):
+        return max(0, _knx_parse_int(raw))
+
+    if dpt.startswith("8.") or dpt.startswith("13."):
+        return _knx_parse_int(raw)
+
     if dpt.startswith("9.") or dpt.startswith("14."):
-        return float(raw)
-    return str(raw)
+        return float(_knx_parse_number(raw))
+
+    if dpt.startswith("16."):
+        return str(raw)
+
+    return raw
+
+
+def resolve_knx_test_dpt(raw_value, selected_dpt):
+    dpt = _normalize_knx_dpt(selected_dpt)
+    if dpt != "auto":
+        return dpt
+
+    text = str(raw_value or "").strip().lower()
+    if not text:
+        return "1.001"
+
+    bool_like = {"true", "false", "on", "off", "1", "0", "yes", "no", "ja", "nein", "open", "closed", "auf", "zu"}
+    if text in bool_like:
+        return "1.001"
+
+    if "%" in text:
+        return "5.001"
+    if "°c" in text or " c" in text or text.endswith("c") or "temp" in text:
+        return "9.001"
+    if "w" in text or "watt" in text or "leistung" in text or "power" in text:
+        return "14.056"
+    if "a" in text or "amp" in text or "strom" in text:
+        return "14.019"
+    if "v" in text or "volt" in text or "spannung" in text:
+        return "14.027"
+
+    if re.fullmatch(r"-?\d+(?:[.,]\d+)?", text):
+        return "9.001"
+
+    return "16.001"
+
+
+def build_knx_send_diagnostic(group_address, dpt, value):
+    try:
+        from xknx.dpt import DPTBinary
+        from xknx.dpt.dpt_5 import DPTScaling, DPTValue1Ucount
+        from xknx.dpt.dpt_7 import DPT2ByteUnsigned
+        from xknx.dpt.dpt_8 import DPT2ByteSigned
+        from xknx.dpt.dpt_9 import DPTTemperature, DPTLux, DPTWsp, DPTPressure2Byte, DPTHumidity
+        from xknx.dpt.dpt_12 import DPT4ByteUnsigned
+        from xknx.dpt.dpt_13 import DPT4ByteSigned
+        from xknx.dpt.dpt_14 import DPTPower, DPTElectricCurrent, DPTElectricPotential
+        from xknx.dpt.dpt_16 import DPTString
+        from xknx.telegram import Telegram
+        from xknx.telegram.address import parse_device_group_address
+        from xknx.telegram.apci import GroupValueWrite
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": f"xknx fehlt oder laedt nicht: {e}",
+            "telegram_type": "GroupValueWrite",
+            "group_address": normalize_knx_ga(group_address),
+            "dpt": _normalize_knx_dpt(dpt),
+            "raw_value": value,
+            "converted_value": value,
+            "apdu": "",
+        }
+
+    ga = normalize_knx_ga(group_address)
+    dpt = resolve_knx_test_dpt(value, dpt)
+    converted_value = _knx_send_value_for_dpt(value, dpt)
+    value_type = None
+    if dpt.startswith("1."):
+        value_type = DPTBinary
+    elif dpt.startswith("5.001"):
+        value_type = DPTScaling
+    elif dpt.startswith("5."):
+        value_type = DPTValue1Ucount
+    elif dpt.startswith("7."):
+        value_type = DPT2ByteUnsigned
+    elif dpt.startswith("8."):
+        value_type = DPT2ByteSigned
+    elif dpt.startswith("9.001"):
+        value_type = DPTTemperature
+    elif dpt.startswith("9.004"):
+        value_type = DPTLux
+    elif dpt.startswith("9.005"):
+        value_type = DPTWsp
+    elif dpt.startswith("9.006"):
+        value_type = DPTPressure2Byte
+    elif dpt.startswith("9.007"):
+        value_type = DPTHumidity
+    elif dpt.startswith("12."):
+        value_type = DPT4ByteUnsigned
+    elif dpt.startswith("13."):
+        value_type = DPT4ByteSigned
+    elif dpt.startswith("14.056"):
+        value_type = DPTPower
+    elif dpt.startswith("14.019"):
+        value_type = DPTElectricCurrent
+    elif dpt.startswith("14.027"):
+        value_type = DPTElectricPotential
+    elif dpt.startswith("16."):
+        value_type = DPTString
+
+    if value_type is None:
+        return {
+            "ok": False,
+            "error": f"KNX DPT {dpt} wird nicht unterstuetzt",
+            "telegram_type": "GroupValueWrite",
+            "group_address": ga,
+            "dpt": dpt,
+            "raw_value": value,
+            "converted_value": converted_value,
+            "apdu": "",
+        }
+
+    if dpt.startswith("1."):
+        knx_payload = DPTBinary(1 if bool(converted_value) else 0)
+    else:
+        knx_payload = value_type.to_knx(converted_value)
+
+    telegram = Telegram(
+        destination_address=parse_device_group_address(ga),
+        payload=GroupValueWrite(knx_payload),
+    )
+    try:
+        apdu_hex = bytes(telegram.payload.to_knx()).hex()
+    except Exception:
+        apdu_hex = ""
+    return {
+        "ok": True,
+        "error": "",
+        "telegram_type": "GroupValueWrite",
+        "group_address": ga,
+        "dpt": dpt,
+        "raw_value": value,
+        "converted_value": converted_value,
+        "apdu": apdu_hex,
+    }
+
+
+def convert_knx_value(value, dpt, invert=False):
+    return _knx_send_value_for_dpt(value, dpt, invert=invert)
 
 
 knx_convert_value = convert_knx_value
@@ -264,48 +440,118 @@ def build_knx_udp_payload(value):
     return str(value)
 
 
-async def _send_knx_xknx(group_address, dpt, value, knx_cfg, add_log_entry, add_monitor_entry=None):
+def _load_core_runtime_api():
     try:
-        from xknx import XKNX
-        from xknx.io import ConnectionConfig, ConnectionType
-        from xknx.devices import Switch
+        from app import core as core_module
+        return core_module
+    except Exception:
+        return None
+
+
+def _log_core_runtime_identity(core_api, add_log_entry, prefix):
+    try:
+        module_name = getattr(core_api, "__name__", "<unknown>")
+        module_file = getattr(core_api, "__file__", "<unknown>")
+        knx_state = getattr(getattr(core_api, "runtime_context", None), "knx", None)
+        add_log_entry(
+            f"{prefix} core module={module_name} file={module_file} knx_state_id={id(knx_state)}"
+        )
+    except Exception:
+        pass
+
+
+async def _send_knx_runtime(group_address, dpt, value, xknx, add_log_entry, add_monitor_entry=None):
+    try:
+        from xknx.dpt import DPTBinary
+        from xknx.dpt.dpt_5 import DPTScaling, DPTValue1Ucount
+        from xknx.dpt.dpt_7 import DPT2ByteUnsigned
+        from xknx.dpt.dpt_8 import DPT2ByteSigned
+        from xknx.dpt.dpt_9 import DPTTemperature, DPTLux, DPTWsp, DPTPressure2Byte, DPTHumidity
+        from xknx.dpt.dpt_12 import DPT4ByteUnsigned
+        from xknx.dpt.dpt_13 import DPT4ByteSigned
+        from xknx.dpt.dpt_14 import DPTPower, DPTElectricCurrent, DPTElectricPotential
+        from xknx.dpt.dpt_16 import DPTString
+        from xknx.telegram import Telegram
+        from xknx.telegram.address import parse_device_group_address
+        from xknx.telegram.apci import GroupValueWrite
     except Exception as e:
         add_log_entry(f"KNX Fehler: xknx fehlt oder laedt nicht ({e})")
         add_log_entry("KNX Hinweis: pip install xknx")
         return False
-    dpt = str(dpt or "1.001").strip().lower()
-    if not (dpt.startswith("1.") or dpt in ["bool", "boolean", "switch"]):
-        add_log_entry(f"KNX DPT {dpt} ist in V12 vorbereitet, Senden folgt in naechster Stufe")
+    dpt = _normalize_knx_dpt(dpt)
+    converted_value = _knx_send_value_for_dpt(value, dpt)
+    add_log_entry(
+        f"KNX Senden Start ga={group_address} dpt={dpt} value_raw={value} value_conv={converted_value}"
+    )
+    value_type = None
+    if dpt.startswith("1."):
+        value_type = DPTBinary
+    elif dpt.startswith("5.001"):
+        value_type = DPTScaling
+    elif dpt.startswith("5."):
+        value_type = DPTValue1Ucount
+    elif dpt.startswith("7."):
+        value_type = DPT2ByteUnsigned
+    elif dpt.startswith("8."):
+        value_type = DPT2ByteSigned
+    elif dpt.startswith("9.001"):
+        value_type = DPTTemperature
+    elif dpt.startswith("9.004"):
+        value_type = DPTLux
+    elif dpt.startswith("9.005"):
+        value_type = DPTWsp
+    elif dpt.startswith("9.006"):
+        value_type = DPTPressure2Byte
+    elif dpt.startswith("9.007"):
+        value_type = DPTHumidity
+    elif dpt.startswith("12."):
+        value_type = DPT4ByteUnsigned
+    elif dpt.startswith("13."):
+        value_type = DPT4ByteSigned
+    elif dpt.startswith("14.056"):
+        value_type = DPTPower
+    elif dpt.startswith("14.019"):
+        value_type = DPTElectricCurrent
+    elif dpt.startswith("14.027"):
+        value_type = DPTElectricPotential
+    elif dpt.startswith("16."):
+        value_type = DPTString
+    else:
+        add_log_entry(f"KNX DPT {dpt} wird nicht unterstuetzt")
+        if add_monitor_entry:
+            add_monitor_entry(group_address, value, "OUT", dpt, status="ERROR", update_live=False, source="Objektmanager")
         return False
     try:
-        connection_type = ConnectionType.TUNNELING
-        if str(knx_cfg.get("connection_type", "tunneling")).lower() == "routing":
-            connection_type = ConnectionType.ROUTING
-        kwargs = {
-            "connection_type": connection_type,
-            "gateway_ip": knx_cfg.get("gateway_ip", ""),
-            "gateway_port": int(knx_cfg.get("gateway_port", 3671)),
-        }
-        local_ip = str(knx_cfg.get("local_ip", "")).strip()
-        if local_ip:
-            kwargs["local_ip"] = local_ip
-        connection_config = ConnectionConfig(**kwargs)
-        xknx = XKNX(connection_config=connection_config)
-        await xknx.start()
+        add_log_entry(f"KNX Senden Diagnose vor GroupValueWrite ga={group_address} dpt={dpt} value={converted_value}")
+        if dpt.startswith("1."):
+            knx_payload = DPTBinary(1 if bool(converted_value) else 0)
+        else:
+            knx_payload = value_type.to_knx(converted_value)
+        telegram = Telegram(
+            destination_address=parse_device_group_address(group_address),
+            payload=GroupValueWrite(knx_payload),
+        )
         try:
-            sw = Switch(xknx, name="mqtt2knx", group_address=group_address)
-            if bool(value):
-                await sw.set_on()
-            else:
-                await sw.set_off()
-        finally:
-            await xknx.stop()
+            apdu_hex = bytes(telegram.payload.to_knx()).hex()
+        except Exception:
+            apdu_hex = ""
+        add_log_entry(
+            f"KNX Senden Diagnose telegram_type=GroupValueWrite ga={group_address} dpt={dpt} value={converted_value} apdu={apdu_hex or '-'}"
+        )
+        xknx.telegrams.put_nowait(telegram)
+        add_log_entry(f"KNX Senden Diagnose queued GroupValueWrite ga={group_address} dpt={dpt}")
+        await asyncio.wait_for(xknx.join(), timeout=5)
+        add_log_entry(f"KNX Senden Diagnose after join ga={group_address} dpt={dpt}")
         if add_monitor_entry:
-            add_monitor_entry(group_address, value, "TX", dpt)
-        add_log_entry(f"KNX -> {group_address} DPT {dpt} = {value}")
+            add_monitor_entry(group_address, converted_value, "OUT", dpt, status="OK", update_live=False, source="Objektmanager")
+        add_log_entry(f"KNX Senden OK ga={group_address} dpt={dpt} value={converted_value}")
         return True
     except Exception as e:
-        add_log_entry(f"KNX Senden Fehler: {e}")
+        add_log_entry(f"KNX Senden Fehler konkret: {type(e).__name__}: {e}")
+        if dpt.startswith("14."):
+            add_log_entry("KNX Hinweis: einige Ziele erwarten fuer Leistung/Temp. eher DPT 9.xxx statt 14.xxx")
+        if add_monitor_entry:
+            add_monitor_entry(group_address, value, "OUT", dpt, status="ERROR", update_live=False, source="Objektmanager")
         return False
 
 
@@ -318,20 +564,55 @@ def send_knx_value(group_address, dpt, value, load_knx_config, add_log_entry, ad
     if not group_address:
         add_log_entry("KNX Fehler: Gruppenadresse fehlt")
         return False
+    core_api = _load_core_runtime_api()
+    if core_api is None:
+        add_log_entry("KNX Senden fehlgeschlagen: Runtime-Service nicht geladen")
+        return False
+    _log_core_runtime_identity(core_api, add_log_entry, "KNX SEND")
+
+    state = {}
     try:
-        return bool(asyncio.run(_send_knx_xknx(group_address, dpt, value, knx_cfg, add_log_entry, add_monitor_entry)))
-    except RuntimeError:
-        result = {"ok": False}
+        state = core_api.get_knx_runtime_state()
+    except Exception:
+        state = {}
 
-        def worker():
-            result["ok"] = asyncio.run(_send_knx_xknx(group_address, dpt, value, knx_cfg, add_log_entry, add_monitor_entry))
+    if not state.get("listener_running") or state.get("connection_status") != "connected" or not state.get("xknx") or not state.get("loop"):
+        try:
+            core_api.ensure_knx_listener_started("KNX Senden")
+        except Exception:
+            pass
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            try:
+                state = core_api.get_knx_runtime_state()
+            except Exception:
+                state = {}
+            if state.get("listener_running") and state.get("connection_status") == "connected" and state.get("xknx") and state.get("loop"):
+                break
+            time.sleep(0.2)
 
-        t = threading.Thread(target=worker, daemon=True)
-        t.start()
-        t.join(timeout=10)
-        return bool(result.get("ok"))
+    if not state.get("listener_running") or state.get("connection_status") != "connected" or not state.get("xknx") or not state.get("loop"):
+        add_log_entry("KNX Senden fehlgeschlagen: keine aktive KNX Tunnel-Verbindung")
+        return False
+
+    xknx = state.get("xknx")
+    try:
+        if add_monitor_entry:
+            add_monitor_entry(group_address, value, "OUT", dpt, status="PENDING", update_live=False, source="Objektmanager")
+        future = core_api.submit_knx_runtime_coro(
+            _send_knx_runtime(group_address, dpt, value, xknx, add_log_entry, add_monitor_entry)
+        )
+        if future is None:
+            if add_monitor_entry:
+                add_monitor_entry(group_address, value, "OUT", dpt, status="ERROR", update_live=False, source="Objektmanager")
+            add_log_entry("KNX Senden fehlgeschlagen: keine aktive KNX Tunnel-Verbindung")
+            return False
+        result = future.result(timeout=10)
+        return bool(result)
     except Exception as e:
-        add_log_entry(f"KNX Runtime Fehler: {e}")
+        if add_monitor_entry:
+            add_monitor_entry(group_address, value, "OUT", dpt, status="ERROR", update_live=False, source="Objektmanager")
+        add_log_entry(f"KNX Senden fehlgeschlagen: {e}")
         return False
 
 

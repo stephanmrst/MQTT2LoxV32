@@ -82,6 +82,7 @@ SUPPORTED_ROUTE_PAIRS = {
     ("mqtt", "udp"),
     ("mqtt", "influx"),
     ("loxone", "mqtt"),
+    ("loxone", "knx"),
     ("loxone", "udp"),
     ("loxone", "influx"),
     ("knx", "mqtt"),
@@ -91,9 +92,27 @@ SUPPORTED_ROUTE_PAIRS = {
     ("udp", "knx"),
     ("udp", "influx"),
 }
-ROUTE_SOURCE_PRIORITY = ("loxone", "mqtt", "udp", "knx")
+ROUTE_SOURCE_PRIORITY = ("loxone", "mqtt", "udp")
 INTERNAL_OBJECT_ID_RE = re.compile(r"(?:obj_[0-9a-f]{32}|[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", re.IGNORECASE)
 OBJECT_LIVE_CACHE: dict[str, dict[str, Any]] = {}
+KNX_DPT_LABELS = {
+    "1.001": "Switch / Bool",
+    "5.001": "Percent 0-100%",
+    "5.010": "Counter pulses",
+    "7.001": "Unsigned 2 byte",
+    "8.001": "Signed 2 byte",
+    "9.001": "Temperature °C",
+    "9.004": "Illuminance lux",
+    "9.005": "Wind speed m/s",
+    "9.006": "Pressure Pa",
+    "9.007": "Humidity %",
+    "12.001": "Unsigned 4 byte",
+    "13.001": "Signed 4 byte",
+    "14.056": "Power W",
+    "14.019": "Current A",
+    "14.027": "Voltage V",
+    "16.001": "Text",
+}
 
 
 def is_internal_object_id(value: Any) -> bool:
@@ -968,13 +987,76 @@ def _normalize_uuid_value(value: Any) -> str:
     return _normalize_match_value(value).replace("-", "")
 
 
+def _knx_gateway_enabled() -> bool:
+    try:
+        try:
+            from app.services.config import load_knx_config as _load_knx_config
+        except ModuleNotFoundError:
+            from services.config import load_knx_config as _load_knx_config
+        enabled = bool(_load_knx_config().get("enabled", False))
+    except Exception:
+        enabled = False
+    return enabled
+
+
+def _normalize_knx_dpt(value: Any) -> str:
+    dpt = _normalize_match_value(value)
+    if not dpt:
+        return ""
+    dpt = dpt.replace("dpt", "").replace("dpt_", "").replace("_", ".")
+    if dpt.isdigit() and len(dpt) == 4:
+        return f"{dpt[:2]}.{dpt[2:]}"
+    if dpt.isdigit() and len(dpt) == 5:
+        return f"{dpt[:2]}.{dpt[2:]}"
+    if "." in dpt:
+        parts = [part for part in dpt.split(".") if part]
+        if len(parts) >= 2:
+            return f"{parts[0]}.{parts[1]}"
+    return dpt
+
+
+def _default_knx_dpt_for_object(item: Any) -> str:
+    datatype = _normalize_match_value(getattr(item, "datatype", "") or "")
+    unit = _normalize_match_value(getattr(item, "unit", "") or "")
+    combined = f"{datatype} {unit}".strip()
+    if any(token in combined for token in ("bool", "switch", "on/off", "an/aus")):
+        return "1.001"
+    if "%" in combined or "percent" in combined:
+        return "5.001"
+    if "°c" in combined or "temp" in combined or "temperature" in combined:
+        return "9.001"
+    if "w" == unit or "power" in combined or "leistung" in combined:
+        return "14.056"
+    if "a" == unit or "current" in combined or "strom" in combined:
+        return "14.019"
+    if "v" == unit or "voltage" in combined or "spannung" in combined:
+        return "14.027"
+    if "text" in combined or "string" in combined:
+        return "16.001"
+    return "9.001"
+
+
+def _knx_dpt_label(dpt: Any) -> str:
+    dpt_value = _normalize_knx_dpt(dpt)
+    return KNX_DPT_LABELS.get(dpt_value, "")
+
+
 def _endpoint_address(protocol: str, adapter: Any) -> str:
     if protocol == "mqtt":
         return _adapter_value(adapter, "topic")
     if protocol == "loxone":
         return _adapter_value(adapter, "io_address") or _adapter_value(adapter, "uuid")
     if protocol == "knx":
-        return _adapter_value(adapter, "group_address")
+        group_address = _adapter_value(adapter, "group_address")
+        dpt = _normalize_knx_dpt(_adapter_value(adapter, "dpt"))
+        if not group_address:
+            return ""
+        label = _knx_dpt_label(dpt)
+        if dpt and label:
+            return f"{group_address} · DPT {dpt} {label}"
+        if dpt:
+            return f"{group_address} · DPT {dpt}"
+        return group_address
     if protocol == "udp":
         topic = _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format")
         host = _adapter_value(adapter, "target_ip")
@@ -995,7 +1077,7 @@ def _endpoint_missing_fields(protocol: str, adapter: Any) -> list[str]:
     required = {
         "mqtt": (("topic", "Topic"),),
         "loxone": (),
-        "knx": (("group_address", "Gruppenadresse"),),
+        "knx": (("group_address", "Gruppenadresse"), ("dpt", "DPT")),
         "udp": (("target_ip", "Ziel-IP"), ("target_port", "Ziel-Port")),
         "influx": (("measurement", "Measurement"),),
     }.get(protocol, ())
@@ -1009,6 +1091,8 @@ def _is_enabled_adapter(adapter: Any) -> bool:
 
 
 def _is_complete_endpoint(protocol: str, adapter: Any) -> bool:
+    if protocol == "knx" and not _knx_gateway_enabled():
+        return False
     return _is_enabled_adapter(adapter) and not _endpoint_missing_fields(protocol, adapter)
 
 
@@ -1022,6 +1106,11 @@ def _adapter_config_errors(protocol: str, adapter: Any) -> list[str]:
     datatype = str(getattr(adapter, "datatype", "auto") or "auto").strip()
     if not datatype:
         errors.append(f"{protocol.upper()}: Datentyp fehlt")
+    if protocol == "knx":
+        if not _adapter_value(adapter, "group_address"):
+            errors.append("KNX: Gruppenadresse fehlt")
+        if not _normalize_knx_dpt(_adapter_value(adapter, "dpt")):
+            errors.append("KNX: DPT fehlt")
     return errors
 
 
@@ -1032,8 +1121,24 @@ def _can_source(adapter: Any) -> bool:
 
 
 def _can_target(adapter: Any) -> bool:
+    protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
+    if protocol == "knx" and not _knx_gateway_enabled():
+        return False
     direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
     return direction in {"out", "both"}
+
+
+def _primary_route_source(item: GatewayObject) -> tuple[str | None, Any | None, dict[str, Any]]:
+    adapters = {
+        protocol: adapter
+        for protocol, adapter in _adapter_map(item).items()
+        if _is_complete_endpoint(protocol, adapter)
+    }
+    for protocol in ROUTE_SOURCE_PRIORITY:
+        adapter = adapters.get(protocol)
+        if adapter is not None and _can_source(adapter):
+            return protocol, adapter, adapters
+    return None, None, adapters
 
 
 def get_object_route_status(item: GatewayObject) -> str:
@@ -1054,31 +1159,51 @@ def get_object_route_status(item: GatewayObject) -> str:
 
 
 def build_generated_route_entries(item: GatewayObject) -> list[dict[str, str]]:
-    adapters = {
-        protocol: adapter
-        for protocol, adapter in _adapter_map(item).items()
-        if _is_complete_endpoint(protocol, adapter)
-    }
+    source_protocol, source_adapter, adapters = _primary_route_source(item)
+    if source_protocol is None or source_adapter is None:
+        return []
     entries = []
-    for source_protocol in ROUTE_SOURCE_PRIORITY:
-        source_adapter = adapters.get(source_protocol)
-        if source_adapter is None or not _can_source(source_adapter):
+    for target, target_adapter in adapters.items():
+        if target == source_protocol or not _can_target(target_adapter):
             continue
-        for target, target_adapter in adapters.items():
-            if target == source_protocol or not _can_target(target_adapter):
-                continue
-            if (source_protocol, target) not in SUPPORTED_ROUTE_PAIRS:
-                continue
-            entries.append(
-                {
-                    "source": source_protocol.upper(),
-                    "target": target.upper(),
-                    "source_address": _endpoint_address(source_protocol, source_adapter),
-                    "target_address": _endpoint_address(target, target_adapter),
-                    "direction": f"{source_protocol.upper()} -> {target.upper()}",
-                    "status": "aktiv",
-                }
-            )
+        if (source_protocol, target) not in SUPPORTED_ROUTE_PAIRS:
+            continue
+        entries.append(
+            {
+                "source": source_protocol.upper(),
+                "target": target.upper(),
+                "source_address": _endpoint_address(source_protocol, source_adapter),
+                "target_address": _endpoint_address(target, target_adapter),
+                "direction": f"{source_protocol.upper()} -> {target.upper()}",
+                "status": "aktiv",
+            }
+        )
+    return entries
+
+
+def build_return_route_entries(item: GatewayObject) -> list[dict[str, str]]:
+    source_protocol, source_adapter, adapters = _primary_route_source(item)
+    if source_protocol is None or source_adapter is None or not _can_target(source_adapter):
+        return []
+    entries = []
+    for candidate_protocol in ("mqtt", "udp"):
+        if candidate_protocol == source_protocol:
+            continue
+        candidate_adapter = adapters.get(candidate_protocol)
+        if candidate_adapter is None or not _can_source(candidate_adapter):
+            continue
+        if (candidate_protocol, source_protocol) not in SUPPORTED_ROUTE_PAIRS:
+            continue
+        entries.append(
+            {
+                "source": candidate_protocol.upper(),
+                "target": source_protocol.upper(),
+                "source_address": _endpoint_address(candidate_protocol, candidate_adapter),
+                "target_address": _endpoint_address(source_protocol, source_adapter),
+                "direction": f"{candidate_protocol.upper()} -> {source_protocol.upper()}",
+                "status": "konfiguriert",
+            }
+        )
     return entries
 
 
@@ -1088,6 +1213,9 @@ def get_object_route_report(item: GatewayObject) -> dict[str, Any]:
     errors = []
     for protocol in ("mqtt", "loxone", "udp", "knx", "influx"):
         adapter = adapters.get(protocol)
+        if protocol == "knx" and not _knx_gateway_enabled():
+            missing.append("KNX deaktiviert")
+            continue
         if not adapter or not _is_enabled_adapter(adapter):
             missing.append(f"{protocol.upper()} inaktiv")
             continue
@@ -1102,9 +1230,16 @@ def get_object_route_report(item: GatewayObject) -> dict[str, Any]:
     )
     if complete_count >= 2:
         missing = [entry for entry in missing if not entry.endswith("inaktiv")]
+    main_routes = build_generated_route_entries(item)
+    return_routes = build_return_route_entries(item)
+    source_protocol, source_adapter, _ = _primary_route_source(item)
     return {
         "status": get_object_route_status(item),
-        "routes": build_generated_route_entries(item),
+        "current_source": source_protocol.upper() if source_protocol else "",
+        "current_source_address": _endpoint_address(source_protocol, source_adapter) if source_protocol and source_adapter else "",
+        "main_routes": main_routes,
+        "return_routes": return_routes,
+        "routes": main_routes,
         "missing_endpoints": missing,
         "errors": errors,
     }
@@ -1187,6 +1322,7 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
         "mqtt2udp": [],
         "mqtt2knx": [],
         "loxone2mqtt": [],
+        "loxone2knx": [],
         "knx2mqtt": [],
         "udp2mqtt": [],
         "udp2knx": [],
@@ -1216,6 +1352,9 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                 elif source == "loxone" and target == "mqtt":
                     routes["loxone2mqtt"] = routes.get("loxone2mqtt", [])
                     routes["loxone2mqtt"].append({"enabled": True, "loxone_uuid": _adapter_value(source_adapter, "uuid"), "loxone_io": _adapter_value(source_adapter, "io_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "retain": bool(getattr(target_adapter, "retain", False)), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
+                    active += 1
+                elif source == "loxone" and target == "knx":
+                    routes["loxone2knx"].append({"enabled": True, "loxone_uuid": _adapter_value(source_adapter, "uuid"), "loxone_io": _adapter_value(source_adapter, "io_address"), "group_address": _adapter_value(target_adapter, "group_address"), "dpt": _adapter_value(target_adapter, "dpt"), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
                     active += 1
                 elif source == "mqtt" and target == "knx":
                     route = dict(base)

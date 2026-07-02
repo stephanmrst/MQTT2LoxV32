@@ -1,19 +1,7 @@
 """Application factory for MP-Gateway."""
 
-import sys
-from pathlib import Path
-
 from .engine import port
 from .branding import APP_LEGACY_NAME, APP_NAME, APP_SUBTITLE
-
-
-PACKAGE_ROOT = Path(__file__).resolve().parent
-
-
-def _ensure_package_paths():
-    package_root = str(PACKAGE_ROOT)
-    if package_root not in sys.path:
-        sys.path.insert(0, package_root)
 
 
 def _register_blueprints(app):
@@ -53,7 +41,6 @@ def _register_blueprints(app):
 
 def create_app():
     """Create the Flask application."""
-    _ensure_package_paths()
     port.configure_paths()
     port.run_startup_check()
 

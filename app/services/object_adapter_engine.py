@@ -104,6 +104,14 @@ class KNXAdapter(BaseAdapter):
     group_address: str = ""
     dpt: str = ""
 
+    def validate(self) -> list[str]:
+        errors = super().validate()
+        if not str(self.group_address or "").strip():
+            errors.append("KNX: Gruppenadresse fehlt")
+        if not str(self.dpt or "").strip():
+            errors.append("KNX: DPT fehlt")
+        return errors
+
 
 @dataclass
 class InfluxAdapter(BaseAdapter):

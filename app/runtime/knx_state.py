@@ -15,4 +15,14 @@ class KNXState:
     start_requested: bool = False
     stop_requested: bool = False
     monitor_version: int = 0
+    xknx: object = None
+    loop: object = None
+    connection_status: str = "stopped"
+    connection_mode: str = ""
+    gateway_ip: str = ""
+    gateway_port: int = 3671
+    local_ip: str = ""
+    physical_address: str = ""
+    last_error: str = ""
+    last_test: dict = field(default_factory=dict)
     lock: RLock = field(default_factory=RLock)

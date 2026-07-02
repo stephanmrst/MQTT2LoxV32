@@ -2,6 +2,24 @@
 
 ## 33.0.x
 
+- KNX-Testcenter 33.3.63 pruefen: Zeitstempel-Fallback, JSON-Fehlerantwort und getrennte Buttons fuer Senden/Wiederholen/Monitor leeren muessen stabil bleiben.
+- KNX-Testcenter 33.3.62 pruefen: Backend liefert bei Fehlern JSON statt HTML-500 und `Auto` wird vor dem Senden auf einen konkreten DPT aufgeloest.
+- KNX-Testcenter 33.3.61 pruefen: Submit laeuft per JSON-Fetch, Fehler erscheinen in der Diagnose und das Testcenter steht unter den Uebersichtskacheln.
+- KNX-Testcenter 33.3.60 pruefen: Senden, Wiederholen, Monitor leeren und Diagnose-Kopie muessen stabil funktionieren.
+- KNX-Monitor 33.3.59 pruefen: RX/OUT-Filter, Richtungssymbole und Statusfarben muessen klar getrennt bleiben.
+- KNX Write 33.3.58 pruefen: GroupValueWrite muss mit APDU-Payload im Busmonitor sichtbar sein und Loxone soll Write/Len/Val anzeigen.
+- KNX-Sendepfad 33.3.57 pruefen: `OUT_PENDING`/`OUT_OK`/`OUT_ERROR` muessen nach echtem Write sichtbar sein, inklusive Exception-Logging.
+- KNX-Import 33.3.56 pruefen: Sender und Listener muessen denselben `app.core`-Runtime-State sehen.
+- KNX-Ausgang 33.3.55 pruefen: Senden nutzt die laufende KNX Runtime-Verbindung und erzeugt keinen neuen Tunnel pro Wert.
+- KNX Monitor 33.3.55 pruefen: selbst gesendete Objektmanager-Telegramme erscheinen als `OUT` mit Quelle `Objektmanager`.
+- KNX-Ausgang 33.3.54 pruefen: aktive Routen mit Gruppenadresse und DPT senden echte Telegramme und erscheinen im KNX Monitor als `WRITE`.
+- KNX-Tab 33.3.54 pruefen: DPT-Auswahl wird gespeichert, geladen und bei fehlender Gruppenadresse/DPT blockiert.
+- Objekt-Routing 33.3.53 pruefen: KNX im Objektmanager als Ziel speichern, im Routing-Tab anzeigen und im Runtime-Dispatch aus Loxone/MQTT/UDP senden.
+- Objekt-Routing 33.3.53 pruefen: KNX-Routen werden bei Deaktivieren und Loeschen des Objekts sauber deaktiviert bzw. entfernt.
+- Objekt-UI 33.3.53 pruefen: KNX-Ausgang im Objektmanager erscheint in Routing-Vorschau und Runtime-Dispatch.
+- Objekt-UI 33.3.52 pruefen: Detailkopf und Objektkarte links zeigen pro Objekt nur noch ein einziges Status-Badge.
+- Objekt-Routing 33.3.51 pruefen: Routing-Tab zeigt getrennte Haupt-Routen und direkte Rueck-Routen zur aktuellen Quelle.
+- Objekt-Routing 33.3.51 pruefen: Rueck-Routen zeigen nur direkt konfigurierte und technisch moegliche Rueckwege, keine Legacy- oder Echo-Pfade.
 - Objekt-Routing 33.3.50 pruefen: Routing-Tab zeigt nur objektbasierte Routen mit aktiven Quellen und Zielen, ohne Selbst- oder Legacy-Routen.
 - Objekt-Routing 33.3.50 pruefen: Influx-Ziele im Routing-Tab zeigen `Measurement / Field / Topic` als Zieladresse.
 - Objekt-Live 33.3.49 pruefen: Loxone-Wert mit MQTT/UDP/Influx-Zielrouting muss in Objektkarte, Live-Tab und API weiter `Quelle: Loxone` anzeigen.
@@ -131,3 +149,6 @@
 - Interne Broker-Prozessverwaltung aus dem Legacy-Core herausloesen.
 - Runtime-/Bridge-Logik erst nach weiterer Port-Stabilisierung modularisieren.
 - Objektmanager nur nach ausdruecklicher Freigabe umbauen.
+
+
+

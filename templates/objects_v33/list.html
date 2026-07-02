@@ -273,8 +273,6 @@
               <div class="card-top">
                 <span class="badge type">{{ item.type or 'Objekt' }}</span>
                 <span class="badge {% if item.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if item.enabled else 'Inaktiv' }}</span>
-                {% set status = route_status(item) %}
-                <span class="badge {% if status == 'aktiv' %}route-active{% elif status == 'deaktiviert' %}route-disabled{% elif status == 'fehler' %}route-error{% else %}route-incomplete{% endif %}">{{ status }}</span>
               </div>
               <div class="object-name">{{ item.name or item.key or item.id }}</div>
               <div class="object-live">

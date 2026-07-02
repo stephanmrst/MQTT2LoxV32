@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+from datetime import datetime
 import requests
 import socket
 import subprocess
@@ -14,7 +15,7 @@ import shutil
 import paho.mqtt.client as mqtt
 import zipfile
 import io
-from flask import Flask, request, render_template_string, redirect, send_file
+from flask import Flask, request, render_template_string, redirect, send_file, jsonify
 from markupsafe import escape
 from loxwebsocket.lox_ws_api import LoxWs
 from collections import deque
@@ -363,6 +364,22 @@ def clear_knx_monitor_log():
         runtime_context.knx.monitor_log.clear()
 
 
+def get_knx_test_state():
+    with runtime_context.knx.lock:
+        return dict(runtime_context.knx.last_test or {})
+
+
+def set_knx_test_state(data):
+    with runtime_context.knx.lock:
+        runtime_context.knx.last_test = dict(data or {})
+        return dict(runtime_context.knx.last_test)
+
+
+def clear_knx_test_state():
+    with runtime_context.knx.lock:
+        runtime_context.knx.last_test.clear()
+
+
 def get_knx_monitor_version():
     with runtime_context.knx.lock:
         return int(runtime_context.knx.monitor_version)
@@ -405,31 +422,93 @@ def request_knx_stop():
         runtime_context.knx.start_requested = False
 
 
-def add_knx_monitor_entry(group_address, value, direction="RX", dpt=""):
+def set_knx_runtime_state(**kwargs):
+    with runtime_context.knx.lock:
+        for key, value in kwargs.items():
+            if hasattr(runtime_context.knx, key):
+                setattr(runtime_context.knx, key, value)
+        return {
+            "xknx": runtime_context.knx.xknx,
+            "loop": runtime_context.knx.loop,
+            "connection_status": runtime_context.knx.connection_status,
+            "connection_mode": runtime_context.knx.connection_mode,
+            "gateway_ip": runtime_context.knx.gateway_ip,
+            "gateway_port": runtime_context.knx.gateway_port,
+            "local_ip": runtime_context.knx.local_ip,
+            "physical_address": runtime_context.knx.physical_address,
+            "last_error": runtime_context.knx.last_error,
+        }
+
+
+def log_knx_runtime_identity(prefix="KNX"):
+    try:
+        module_name = __name__
+        module_file = __file__
+        add_log_entry(
+            f"{prefix} core module={module_name} file={module_file} knx_state_id={id(runtime_context.knx)}"
+        )
+    except Exception:
+        pass
+
+
+def get_knx_runtime_state():
+    with runtime_context.knx.lock:
+        return {
+            "xknx": runtime_context.knx.xknx,
+            "loop": runtime_context.knx.loop,
+            "connection_status": runtime_context.knx.connection_status,
+            "connection_mode": runtime_context.knx.connection_mode,
+            "gateway_ip": runtime_context.knx.gateway_ip,
+            "gateway_port": runtime_context.knx.gateway_port,
+            "local_ip": runtime_context.knx.local_ip,
+            "physical_address": runtime_context.knx.physical_address,
+            "last_error": runtime_context.knx.last_error,
+            "listener_running": bool(runtime_context.knx.listener_running),
+        }
+
+
+def submit_knx_runtime_coro(coro, timeout=5):
+    state = get_knx_runtime_state()
+    loop = state.get("loop")
+    if not loop or not state.get("listener_running"):
+        return None
+    try:
+        return asyncio.run_coroutine_threadsafe(coro, loop)
+    except Exception as exc:
+        add_log_entry(f"KNX Runtime Submit Fehler: {exc}")
+        return None
+
+
+def add_knx_monitor_entry(group_address, value, direction="RX", dpt="", status="", update_live=True, source=None):
     """Add a KNX telegram to the live KNX monitor."""
     from datetime import datetime
 
     ga = knx_service.normalize_knx_ga(group_address)
     if not ga:
         ga = str(group_address or "").strip()
+    direction_text = str(direction or "RX").upper()
+    status_text = str(status or "").upper()
 
     entry = {
         "time": datetime.now().strftime("%H:%M:%S"),
         "ga": ga,
         "value": str(value),
-        "direction": str(direction or "RX").upper(),
-        "dpt": str(dpt or "")
+        "direction": direction_text,
+        "dpt": str(dpt or ""),
+        "status": status_text,
+        "source": str(source or ("Objektmanager" if direction_text in {"OUT", "WRITE"} or status_text.startswith("OUT_") else "KNX Bus")),
     }
 
     print("[KNX MONITOR ADD]", entry)
     add_knx_monitor_log_entry(entry)
     if ga:
         set_knx_monitor_value(ga, entry)
-        try:
-            object_core_service.record_live_value("knx", entry.get("value", value), group_address=ga)
-        except Exception:
-            pass
-        write_knx_monitor_influx(ga, entry.get("value", value), entry.get("dpt", dpt), entry.get("direction", direction))
+        if update_live:
+            try:
+                object_core_service.record_live_value("knx", entry.get("value", value), group_address=ga)
+            except Exception:
+                pass
+            write_knx_monitor_influx(ga, entry.get("value", value), entry.get("dpt", dpt), entry.get("direction", direction))
     bump_sse("knx")
 
 def load_topic_config():
@@ -1395,10 +1474,29 @@ async def _knx_listener_async(knx_cfg):
     if local_ip:
         kwargs["local_ip"] = local_ip
     xknx = XKNX(connection_config=ConnectionConfig(**kwargs))
+    loop = asyncio.get_running_loop()
+    set_knx_runtime_state(
+        xknx=xknx,
+        loop=loop,
+        connection_status="starting",
+        connection_mode=str(knx_cfg.get("connection_type", "tunneling") or "tunneling"),
+        gateway_ip=str(knx_cfg.get("gateway_ip", "") or ""),
+        gateway_port=int(knx_cfg.get("gateway_port", 3671)),
+        local_ip=local_ip,
+        physical_address=str(knx_cfg.get("physical_address", "") or ""),
+        last_error="",
+    )
+    log_knx_runtime_identity("KNX LISTENER")
+    add_log_entry(
+        f"KNX Runtime Start mode={str(knx_cfg.get('connection_type', 'tunneling') or 'tunneling')} "
+        f"gateway={str(knx_cfg.get('gateway_ip', '') or '')}:{int(knx_cfg.get('gateway_port', 3671))} "
+        f"local_ip={local_ip or '-'} status=starting"
+    )
     def telegram_received_cb(telegram):
         try:
             ga = str(getattr(telegram, "destination_address", ""))
             payload = getattr(telegram, "payload", None)
+            add_log_entry(f"KNX RX Callback erreicht GA={ga or '-'} DPT=? Value={payload}")
             if ga:
                 detected_dpt = knx_service.infer_knx_dpt(
                     ga,
@@ -1419,30 +1517,44 @@ async def _knx_listener_async(knx_cfg):
                     except Exception:
                         monitor_dpt = ""
 
+                add_log_entry(f"KNX RX vor add_knx_monitor_entry GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
                 add_knx_monitor_entry(ga, value_text, "RX", monitor_dpt)
+                add_log_entry(f"KNX RX vor publish_knx_to_mqtt GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
                 knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, runtime_context.knx.knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
+                add_log_entry(f"KNX RX vor publish_knx_to_loxone GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
                 knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
         except Exception as e:
             add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
     try:
         if hasattr(xknx, "telegram_queue") and hasattr(xknx.telegram_queue, "register_telegram_received_cb"):
             xknx.telegram_queue.register_telegram_received_cb(telegram_received_cb)
+            add_log_entry("KNX Listener RX Callback registriert via register_telegram_received_cb")
         elif hasattr(xknx, "telegram_queue") and hasattr(xknx.telegram_queue, "register_telegram_received_callback"):
             xknx.telegram_queue.register_telegram_received_callback(telegram_received_cb)
+            add_log_entry("KNX Listener RX Callback registriert via register_telegram_received_callback")
         else:
             add_log_entry("KNX Listener Fehler: keine passende xknx Callback-API gefunden")
+            set_knx_runtime_state(connection_status="error", last_error="no callback api")
             return
         await xknx.start()
+        set_knx_runtime_state(connection_status="connected", last_error="")
+        add_log_entry(
+            f"KNX Runtime connected mode={str(knx_cfg.get('connection_type', 'tunneling') or 'tunneling')} "
+            f"gateway={str(knx_cfg.get('gateway_ip', '') or '')}:{int(knx_cfg.get('gateway_port', 3671))} "
+            f"local_ip={local_ip or '-'} status=connected"
+        )
         add_log_entry("KNX Listener gestartet")
         while not runtime_context.bridge.stop_requested:
             await asyncio.sleep(1)
     except Exception as e:
+        set_knx_runtime_state(connection_status="error", last_error=str(e))
         add_log_entry(f"KNX Listener Fehler: {e}")
     finally:
         try:
             await xknx.stop()
         except Exception:
             pass
+        set_knx_runtime_state(connection_status="stopped", xknx=None, loop=None)
         add_log_entry("KNX Listener gestoppt")
 
 
@@ -1831,6 +1943,16 @@ def _influx_adapter_complete(adapter):
     return bool(str(getattr(adapter, "measurement", "") or "").strip() and str(getattr(adapter, "field", "") or "value").strip())
 
 
+def _knx_adapter_complete(adapter):
+    if not adapter:
+        return False
+    if not bool(getattr(adapter, "enabled", False)):
+        return False
+    if str(getattr(adapter, "direction", "both") or "both").strip().lower() not in {"out", "both"}:
+        return False
+    return bool(str(getattr(adapter, "group_address", "") or "").strip() and str(getattr(adapter, "dpt", "") or "").strip())
+
+
 def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=False):
     route_available = False
     any_sent = False
@@ -1927,9 +2049,23 @@ def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=Fal
         elif "influx" in adapters:
             LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=influx result=skipped reason=target_incomplete", object_id, value)
 
-        if "knx" in adapters:
+        knx_adapter = adapters.get("knx")
+        if _knx_adapter_complete(knx_adapter) and bool(load_knx_config().get("enabled", False)):
             route_available = True
-            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=knx result=skipped reason=not_implemented", object_id, value)
+            knx_ga = str(getattr(knx_adapter, "group_address", "") or "").strip()
+            knx_dpt = str(getattr(knx_adapter, "dpt", "") or "1.001").strip() or "1.001"
+            try:
+                ok = knx_service.send_knx_value(knx_ga, knx_dpt, value, load_knx_config, add_log_entry)
+                if ok:
+                    any_sent = True
+                    object_core_service.record_live_target(object_id, "knx", value=value, original_source="loxone")
+                    add_log_entry(
+                        f"Object routing object_id={object_id} original_source=loxone target_adapter=knx value={value} skipped_echo=no"
+                    )
+            except Exception as exc:
+                add_log_entry(f"Loxone route source=loxone object_id={object_id} value={value} target=knx result=error error={exc}")
+        elif "knx" in adapters:
+            LOGGER.debug("Loxone route source=loxone object_id=%s value=%s target=knx result=skipped reason=target_incomplete", object_id, value)
     return route_available
 
 
@@ -8899,6 +9035,12 @@ def mqtt_hub():
 def knx_hub_content():
     knx_cfg = load_knx_config()
     monitor_values = get_knx_monitor_values()
+    test_state = get_knx_test_state()
+    diag_text = _knx_test_diagnostics_text(test_state)
+    test_group_address = escape(str(test_state.get("group_address", "") or ""))
+    test_value = escape(str(test_state.get("raw_value", "") or ""))
+    test_selected_dpt = escape(str(test_state.get("selected_dpt", "auto") or "auto"))
+    show_in_monitor_checked = 'checked' if test_state.get("show_in_monitor", True) else ''
     cards = [
         ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
         ("KNX → MQTT", "/knx2mqtt", len(load_knx2mqtt_config()), "KNX Telegramme als MQTT Topics veröffentlichen."),
@@ -8922,12 +9064,20 @@ body {{ font-family:Arial; background:#202830; color:#f4f7fb; margin:30px; }}
 a {{ color:inherit; text-decoration:none; }}
 .card {{ background:#1b2229; border:1px solid #303b45; border-radius:12px; padding:18px; margin-bottom:16px; }}
 .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }}
+.test-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }}
 .knx-card {{ background:#1b2229; border:1px solid #303b45; border-radius:12px; padding:18px; display:block; transition:.12s ease; }}
 .knx-card:hover {{ background:#25303a; border-color:#5f686f; transform:translateY(-1px); }}
 .knx-card-title {{ font-size:20px; font-weight:800; margin-bottom:10px; }}
 .knx-card-count {{ font-size:30px; font-weight:900; margin-bottom:6px; color:#fff; }}
 .small {{ color:#aeb8c4; font-size:13px; line-height:1.35; }} .mini-row {{ display:flex; gap:6px; align-items:center; }} .mini-row input {{ flex:1; }} .mini-btn {{ padding:9px 10px; white-space:nowrap; }}
 .badge {{ display:inline-block; padding:4px 8px; border-radius:999px; background:#2a333d; color:#dbe6f2; font-size:12px; }}
+input[type=text], select, textarea {{ width:100%; background:#10131a; color:#fff; border:1px solid #485063; border-radius:7px; padding:8px 10px; box-sizing:border-box; }}
+textarea {{ min-height:220px; resize:vertical; font-family:Consolas, monospace; }}
+label {{ display:block; margin-bottom:4px; color:#dbe6f2; font-weight:700; font-size:13px; }}
+.button-row {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }}
+button, .button-link {{ background:#5f686f; color:#fff; border:0; border-radius:8px; padding:9px 14px; cursor:pointer; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; }}
+button:hover, .button-link:hover {{ background:#737d86; }}
+.diagnostic-box {{ white-space:pre-wrap; background:#10131a; border:1px solid #485063; border-radius:8px; padding:12px; font-family:Consolas, monospace; min-height:180px; }}
 </style></head><body>
 <h1>KNX Hub</h1>
 <div class="card">
@@ -8935,6 +9085,141 @@ a {{ color:inherit; text-decoration:none; }}
     <p class="small">Alle KNX Brücken an einem Ort: MQTT, UDP, Loxone, Gateway und Monitor. Der KNX Monitor bleibt zusätzlich direkt in der Sidebar erreichbar.</p>
 </div>
 <div class="grid">{html_cards}</div>
+<div class="card">
+    <h2 style="margin-top:0;">KNX Testcenter</h2>
+    <form id="knxTestForm" method="post" action="/knx_test/send" data-default-action="/knx_test/send">
+        <div class="test-grid">
+            <div>
+                <label>Gruppenadresse</label>
+                <input type="text" name="group_address" value="{test_group_address}" placeholder="0/3/1" required>
+            </div>
+            <div>
+                <label>DPT</label>
+                <select name="dpt">
+                    {_knx_test_dpt_options(test_selected_dpt)}
+                </select>
+            </div>
+            <div>
+                <label>Wert</label>
+                <input type="text" name="value" value="{test_value}" placeholder="23.28" required>
+            </div>
+        </div>
+        <label style="margin-top:10px;"><input type="checkbox" name="show_in_monitor" value="1" {show_in_monitor_checked}> Telegramm zusätzlich im KNX Monitor anzeigen</label>
+        <div class="button-row">
+            <button id="knxTestSendBtn" type="button">Telegramm senden</button>
+            <button id="knxTestRepeatBtn" type="button">Letzten Test wiederholen</button>
+            <button id="knxTestClearBtn" type="button">Monitor leeren</button>
+        </div>
+    </form>
+</div>
+<div class="card">
+    <h2 style="margin-top:0;">Diagnose</h2>
+    <div class="small">Kopierbare Zusammenfassung für Supportanfragen.</div>
+    <textarea id="knxTestDiag" readonly>{escape(diag_text)}</textarea>
+    <div class="button-row">
+        <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('knxTestDiag').value)">Diagnose kopieren</button>
+    </div>
+</div>
+<script>
+(function() {{
+    const form = document.getElementById('knxTestForm');
+    const diagBox = document.getElementById('knxTestDiag');
+    const sendButton = document.getElementById('knxTestSendBtn');
+    const repeatButton = document.getElementById('knxTestRepeatBtn');
+    const clearButton = document.getElementById('knxTestClearBtn');
+    if (!form || !diagBox || !sendButton || !repeatButton || !clearButton) return;
+    const buttons = [sendButton, repeatButton, clearButton];
+
+    function formatDiagnostics(payload, httpStatus) {{
+        const diagnostic = (payload && payload.diagnostic) ? payload.diagnostic : (payload || {{}});
+        const status = diagnostic.status || (payload && payload.ok ? 'OK' : 'FEHLER');
+        const error = diagnostic.error || (payload && payload.error) || '-';
+        return [
+            'Zeit: ' + (diagnostic.time || '-'),
+            'Telegrammtyp: ' + (diagnostic.telegram_type || '-'),
+            'Gruppenadresse: ' + (diagnostic.group_address || '-'),
+            'DPT: ' + (diagnostic.resolved_dpt || diagnostic.dpt || diagnostic.selected_dpt || '-'),
+            'Rohwert: ' + (diagnostic.raw_value || '-'),
+            'Konvertierter Wert: ' + (diagnostic.converted_value || '-'),
+            'APDU: ' + (diagnostic.apdu || '-'),
+            'Status: ' + (status || '-'),
+            'Fehlermeldung: ' + (error || '-'),
+            'HTTP Status: ' + (httpStatus || diagnostic.http_status || '-'),
+            'Im Monitor: ' + ((diagnostic.show_in_monitor === false) ? 'nein' : 'ja')
+        ].join('\\n');
+    }}
+
+    async function postKnxTest(action) {{
+        const data = new FormData(form);
+        buttons.forEach(btn => btn.disabled = true);
+        try {{
+            const response = await fetch(action, {{
+                method: 'POST',
+                body: data,
+                headers: {{ 'X-Requested-With': 'fetch' }}
+            }});
+            const text = await response.text();
+            let payload = null;
+            try {{
+                payload = text ? JSON.parse(text) : {{}};
+            }} catch (parseError) {{
+                payload = {{
+                    ok: false,
+                    error: text || ('HTTP ' + response.status),
+                    diagnostic: {{}}
+                }};
+            }}
+            if (!payload.diagnostic) payload.diagnostic = {{}};
+            payload.diagnostic.http_status = response.status;
+            if (response.ok && payload.ok !== false) {{
+                payload.diagnostic.status = payload.diagnostic.status || 'OK';
+            }} else {{
+                payload.diagnostic.status = 'FEHLER';
+                payload.diagnostic.error = payload.error || payload.diagnostic.error || ('HTTP ' + response.status);
+            }}
+            diagBox.value = formatDiagnostics(payload, response.status);
+        }} catch (error) {{
+            diagBox.value = [
+                'Zeit: -',
+                'Telegrammtyp: -',
+                'Gruppenadresse: -',
+                'DPT: -',
+                'Rohwert: -',
+                'Konvertierter Wert: -',
+                'APDU: -',
+                'Status: FEHLER',
+                'Fehlermeldung: ' + (error && error.message ? error.message : String(error)),
+                'HTTP Status: -',
+                'Im Monitor: nein'
+            ].join('\\n');
+        }} finally {{
+            buttons.forEach(btn => btn.disabled = false);
+        }}
+    }}
+
+    window.sendKnxTest = function() {{
+        postKnxTest(form.getAttribute('data-default-action') || form.action, 'OK');
+    }};
+
+    window.repeatKnxTest = function() {{
+        postKnxTest('/knx_test/repeat', 'OK');
+    }};
+
+    window.clearKnxMonitor = function() {{
+        postKnxTest('/knx_test/clear_monitor', 'Monitor geleert');
+    }};
+
+    sendButton.addEventListener('click', function() {{
+        window.sendKnxTest();
+    }});
+    repeatButton.addEventListener('click', function() {{
+        window.repeatKnxTest();
+    }});
+    clearButton.addEventListener('click', function() {{
+        window.clearKnxMonitor();
+    }});
+}})();
+</script>
 </body></html>'''
 
 
@@ -9532,6 +9817,239 @@ def knx2mqtt_data():
 
 
 
+def _knx_test_option_html(value, label, selected):
+    sel = ' selected' if str(selected or 'auto') == str(value) else ''
+    return f'<option value="{escape(str(value))}"{sel}>{escape(str(label))}</option>'
+
+
+def _knx_test_dpt_options(selected="auto"):
+    options = [
+        ("auto", "Auto"),
+        ("1.001", "1.001 Switch"),
+        ("5.001", "5.001 Prozent"),
+        ("7.001", "7.001 UInt16"),
+        ("8.001", "8.001 Int16"),
+        ("9.001", "9.001 Temperatur"),
+        ("12.001", "12.001 UInt32"),
+        ("13.001", "13.001 Int32"),
+        ("14.019", "14.019 Strom"),
+        ("14.027", "14.027 Spannung"),
+        ("14.056", "14.056 Leistung"),
+        ("16.001", "16.001 Text"),
+    ]
+    return "".join(_knx_test_option_html(value, label, selected) for value, label in options)
+
+
+def _knx_test_diagnostics_text(state):
+    state = dict(state or {})
+    lines = [
+        f"Zeit: {state.get('time', '-')}",
+        f"Telegrammtyp: {state.get('telegram_type', '-')}",
+        f"Gruppenadresse: {state.get('group_address', '-')}",
+        f"DPT: {state.get('resolved_dpt', state.get('selected_dpt', '-'))}",
+        f"Rohwert: {state.get('raw_value', '-')}",
+        f"Konvertierter Wert: {state.get('converted_value', '-')}",
+        f"APDU: {state.get('apdu', '-')}",
+        f"Status: {state.get('status', '-')}",
+        f"Fehlermeldung: {state.get('error', '') or '-'}",
+        f"HTTP Status: {state.get('http_status', '-')}",
+        f"Im Monitor: {'ja' if state.get('show_in_monitor') else 'nein'}",
+    ]
+    return "\n".join(lines)
+
+
+def _knx_test_now():
+    try:
+        return datetime.now().strftime("%H:%M:%S")
+    except Exception:
+        return "-"
+
+
+def _knx_test_json_response(state, http_status=200, ok=None):
+    state = dict(state or {})
+    diagnostic = dict(state)
+    diagnostic.setdefault("http_status", int(http_status))
+    if "in_monitor" not in diagnostic and "show_in_monitor" in diagnostic:
+        diagnostic["in_monitor"] = bool(diagnostic.get("show_in_monitor"))
+    payload = {
+        "ok": bool(ok if ok is not None else str(state.get("status", "")).upper() == "OK"),
+        "error": str(state.get("error", "") or ""),
+        "diagnostic": diagnostic,
+    }
+    return jsonify(payload), int(http_status)
+
+
+def _run_knx_test_send(group_address, selected_dpt, raw_value, show_in_monitor=True):
+    now = _knx_test_now()
+    diag = knx_service.build_knx_send_diagnostic(group_address, selected_dpt, raw_value)
+    state = {
+        "time": now,
+        "selected_dpt": str(selected_dpt or "auto"),
+        "show_in_monitor": bool(show_in_monitor),
+        "in_monitor": bool(show_in_monitor),
+        "raw_value": str(raw_value or ""),
+        "group_address": str(diag.get("group_address", "") or ""),
+        "resolved_dpt": str(diag.get("dpt", "") or ""),
+        "converted_value": str(diag.get("converted_value", "") or ""),
+        "telegram_type": str(diag.get("telegram_type", "GroupValueWrite") or "GroupValueWrite"),
+        "apdu": str(diag.get("apdu", "") or ""),
+        "status": "ERROR",
+        "error": "",
+        "source": "KNX Test",
+    }
+
+    if not state["group_address"]:
+        state["error"] = "Gruppenadresse fehlt"
+        set_knx_test_state(state)
+        return state
+
+    if not diag.get("ok"):
+        state["resolved_dpt"] = state["resolved_dpt"] or state["selected_dpt"]
+        state["error"] = str(diag.get("error", "KNX DPT konnte nicht vorbereitet werden"))
+        set_knx_test_state(state)
+        return state
+
+    try:
+        def monitor_cb(*args, **kwargs):
+            kwargs.setdefault("source", "KNX Test")
+            kwargs.setdefault("update_live", False)
+            return add_knx_monitor_entry(*args, **kwargs)
+
+        monitor_entry = monitor_cb if show_in_monitor else None
+        ok = knx_service.send_knx_value(
+            state["group_address"],
+            state["resolved_dpt"] or state["selected_dpt"],
+            raw_value,
+            load_knx_config,
+            add_log_entry,
+            add_monitor_entry=monitor_entry,
+        )
+        state["status"] = "OK" if ok else "ERROR"
+        state["error"] = "" if ok else "KNX Senden fehlgeschlagen"
+    except Exception as exc:
+        state["status"] = "ERROR"
+        state["error"] = str(exc)
+
+    set_knx_test_state(state)
+    return state
+
+
+def knx_test_send():
+    try:
+        group_address = knx_service.normalize_knx_ga(request.form.get("group_address", ""))
+        selected_dpt = request.form.get("dpt", "auto").strip() or "auto"
+        raw_value = request.form.get("value", "").strip()
+        show_in_monitor = request.form.get("show_in_monitor", "1") == "1"
+        if str(selected_dpt).strip().lower() == "auto":
+            selected_dpt = "9.001"
+        state = _run_knx_test_send(group_address, selected_dpt, raw_value, show_in_monitor=show_in_monitor)
+        state["http_status"] = 200 if state.get("status") == "OK" else 400
+        if state.get("status") == "ERROR" and not state.get("error"):
+            state["error"] = "KNX Senden fehlgeschlagen"
+        set_knx_test_state(state)
+        return _knx_test_json_response(state, http_status=state["http_status"], ok=state.get("status") == "OK")
+    except Exception as exc:
+        now = _knx_test_now()
+        group_address = knx_service.normalize_knx_ga(request.form.get("group_address", ""))
+        selected_dpt = request.form.get("dpt", "auto").strip() or "auto"
+        raw_value = request.form.get("value", "").strip()
+        show_in_monitor = request.form.get("show_in_monitor", "1") == "1"
+        resolved_dpt = "9.001" if str(selected_dpt).strip().lower() == "auto" else selected_dpt
+        state = {
+            "time": now,
+            "telegram_type": "GroupValueWrite",
+            "group_address": group_address,
+            "selected_dpt": selected_dpt,
+            "resolved_dpt": resolved_dpt,
+            "dpt": resolved_dpt,
+            "raw_value": raw_value,
+            "converted_value": "-",
+            "apdu": "-",
+            "status": "FEHLER",
+            "error": str(exc),
+            "in_monitor": bool(show_in_monitor),
+            "show_in_monitor": bool(show_in_monitor),
+            "http_status": 500,
+            "source": "KNX Test",
+        }
+        set_knx_test_state(state)
+        return _knx_test_json_response(state, http_status=500, ok=False)
+
+
+def knx_test_repeat():
+    try:
+        state = get_knx_test_state()
+        if not state:
+            state = {
+                "time": _knx_test_now(),
+                "status": "ERROR",
+                "error": "Kein letzter KNX Test gespeichert",
+                "telegram_type": "GroupValueWrite",
+                "source": "KNX Test",
+                "http_status": 400,
+                "in_monitor": False,
+                "show_in_monitor": False,
+            }
+            set_knx_test_state(state)
+            return _knx_test_json_response(state, http_status=400, ok=False)
+        state = _run_knx_test_send(
+            state.get("group_address", ""),
+            state.get("selected_dpt", state.get("resolved_dpt", "auto")),
+            state.get("raw_value", ""),
+            show_in_monitor=bool(state.get("show_in_monitor", state.get("in_monitor", True))),
+        )
+        state["http_status"] = 200 if state.get("status") == "OK" else 400
+        set_knx_test_state(state)
+        return _knx_test_json_response(state, http_status=state["http_status"], ok=state.get("status") == "OK")
+    except Exception as exc:
+        state = {
+            "time": _knx_test_now(),
+            "status": "FEHLER",
+            "error": str(exc),
+            "telegram_type": "GroupValueWrite",
+            "source": "KNX Test",
+            "http_status": 500,
+            "in_monitor": False,
+            "show_in_monitor": False,
+        }
+        set_knx_test_state(state)
+        return _knx_test_json_response(state, http_status=500, ok=False)
+
+
+def knx_test_clear_monitor():
+    try:
+        clear_knx_monitor_log()
+        clear_knx_monitor_values()
+        clear_knx_test_state()
+        bump_sse("knx")
+        add_log_entry("KNX Testmonitor geleert")
+        state = {
+            "time": _knx_test_now(),
+            "status": "Monitor geleert",
+            "error": "",
+            "telegram_type": "GroupValueWrite",
+            "source": "KNX Test",
+            "http_status": 200,
+            "action": "clear_monitor",
+            "in_monitor": False,
+            "show_in_monitor": False,
+        }
+        return _knx_test_json_response(state, http_status=200, ok=True)
+    except Exception as exc:
+        state = {
+            "time": _knx_test_now(),
+            "status": "FEHLER",
+            "error": str(exc),
+            "telegram_type": "GroupValueWrite",
+            "source": "KNX Test",
+            "http_status": 500,
+            "action": "clear_monitor",
+            "in_monitor": False,
+            "show_in_monitor": False,
+        }
+        return _knx_test_json_response(state, http_status=500, ok=False)
+
+
 def knx_monitor():
     ensure_knx_listener_started("Monitor geöffnet")
     return """
@@ -9567,6 +10085,10 @@ th { background:#202534; position:sticky; top:0; z-index:1; }
 .badge { display:inline-block; min-width:36px; text-align:center; border-radius:12px; padding:3px 8px; font-weight:700; }
 .rx { background:#243e2e; color:#7dff9e; }
 .tx { background:#263653; color:#7cb5ff; }
+.out { background:#4a3420; color:#ffcb8a; }
+.out-pending { background:#4a3d20; color:#ffd88a; }
+.out-ok { background:#23422f; color:#7dff9e; }
+.out-error { background:#4a2020; color:#ff9a9a; }
 .small { color:#aeb8c4; font-size:12px; }
 .value { font-family:Consolas, monospace; white-space:pre-wrap; word-break:break-word; }
 .actions a, .actions button { font-size:12px; padding:6px 8px; margin-right:5px; text-decoration:none; color:white; border-radius:6px; background:#5f686f; display:inline-block; }
@@ -9589,7 +10111,7 @@ th { background:#202534; position:sticky; top:0; z-index:1; }
         <select id="direction">
             <option value="">Empfangen + Senden</option>
             <option value="RX">nur Empfangen</option>
-            <option value="TX">nur Senden</option>
+            <option value="OUT">nur Senden</option>
         </select>
         <button id="pauseBtn" onclick="togglePause()">Pause</button>
         <button onclick="clearView()">Ansicht leeren</button>
@@ -9614,6 +10136,7 @@ th { background:#202534; position:sticky; top:0; z-index:1; }
                     <th>Zeit</th>
                     <th>Richtung</th>
                     <th>Gruppenadresse</th>
+                    <th>Quelle</th>
                     <th>Wert</th>
                     <th>DPT</th>
                     <th class="actions">Aktion</th>
@@ -9775,12 +10298,20 @@ function showCopyHint(text) {
     window.copyHintTimer = setTimeout(() => { el.textContent = ""; }, 1800);
 }
 
-function directionLabel(direction) {
-    return String(direction || "RX").toUpperCase() === "TX" ? "Senden" : "Empfangen";
+function knxMonitorBadgeLabel(entry) {
+    const d = String(entry && entry.direction ? entry.direction : "RX").toUpperCase();
+    if (d === "OUT" || d === "WRITE") return "Senden";
+    return "Empfangen";
 }
 
-function directionClass(direction) {
-    return String(direction || "RX").toUpperCase() === "TX" ? "tx" : "rx";
+function knxMonitorBadgeClass(entry) {
+    const status = String(entry && entry.status ? entry.status : "").toUpperCase();
+    if (status === "PENDING") return "out-pending";
+    if (status === "OK") return "out-ok";
+    if (status === "ERROR") return "out-error";
+    const d = String(entry && entry.direction ? entry.direction : "RX").toUpperCase();
+    if (d === "OUT" || d === "WRITE") return "out";
+    return "rx";
 }
 
 function togglePause() {
@@ -9830,18 +10361,20 @@ function renderLast(data) {
         const aliasMark = alias ? ` → ${esc(alias)}` : '';
         const influxMark = isKnxInfluxActive(ga) ? `<span class="small" style="color:#7dff9e;font-weight:700;">Influx${aliasMark}</span><br>` : '';
         return `<div class="ga ${selectedGa===ga?'active':''}" onclick="selectGa('${esc(ga)}')">
-            <span><span class="ga-main">${esc(ga)}</span><br>${influxMark}<span class="ga-sub">${esc(e.value || "")}</span></span>
-            <span class="badge ${directionClass(e.direction)}">${esc(directionLabel(e.direction))}</span>
+            <span><span class="ga-main">${esc(ga)}</span><br>${influxMark}<span class="ga-sub">${esc(e.source || "KNX")} · ${esc(e.value || "")}</span></span>
+            <span class="badge ${knxMonitorBadgeClass(e)}">${esc(knxMonitorBadgeLabel(e))}</span>
         </div>`;
     }).join("");
 
     document.getElementById("treeBox").innerHTML = treeHtml || '<div class="small">Noch keine KNX Telegramme.</div>';
 
     let filtered = log.filter(e => {
-        if (dir && e.direction !== dir) return false;
+        const entryDirection = String(e.direction || "RX").toUpperCase();
+        if (dir === "RX" && entryDirection !== "RX") return false;
+        if (dir === "OUT" && entryDirection !== "OUT" && entryDirection !== "WRITE") return false;
         if (selectedGa && e.ga !== selectedGa) return false;
         if (search) {
-            const hay = [e.time, e.ga, e.value, e.direction, directionLabel(e.direction), e.dpt].join(" ").toLowerCase();
+            const hay = [e.time, e.ga, e.value, e.direction, e.status, knxMonitorBadgeLabel(e), e.dpt].join(" ").toLowerCase();
             if (!hay.includes(search)) return false;
         }
         return true;
@@ -9862,8 +10395,9 @@ function renderLast(data) {
         const aliasInputValue = aliasEditActive && (String(e.ga || "") in knxAliasDraft) ? knxAliasDraft[String(e.ga || "")] : influxTopicAlias;
         return `<tr>
             <td>${esc(e.time)}</td>
-            <td><span class="badge ${directionClass(e.direction)}">${esc(directionLabel(e.direction))}</span></td>
+            <td><span class="badge ${knxMonitorBadgeClass(e)}">${esc(knxMonitorBadgeLabel(e))}</span></td>
             <td><b>${esc(e.ga)}</b></td>
+            <td class="small">${esc(e.source || "")}</td>
             <td class="value">${esc(e.value)}</td>
             <td>${esc(e.dpt || "")}</td>
             <td class="actions" style="min-width:230px;width:230px;">

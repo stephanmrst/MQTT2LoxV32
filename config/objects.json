@@ -1,23 +1,21 @@
 [
   {
-    "id": "obj_87000e2eda5b41f8bb9e57a745b2c43e",
+    "id": "obj_5a57be76ae7b4f89beaeebb37024119d",
     "name": "Gesamtleistung(W)",
     "datatype": "number",
     "unit": "",
     "enabled": true,
-    "created_at": "2026-06-30T19:59:13+00:00",
-    "updated_at": "2026-06-30T20:43:27+00:00",
-    "notes": "",
-    "category": "Loxone",
-    "scaling": "",
-    "icon": "",
+    "created_at": "2026-07-01T06:06:38+00:00",
+    "updated_at": "2026-07-02T09:17:29+00:00",
     "room": "Wertr von NodeRed",
+    "category": "Loxone",
+    "notes": "",
     "mqtt": {
       "protocol": "mqtt",
       "enabled": true,
       "direction": "both",
       "datatype": "auto",
-      "topic": "MPGateway/Test Gedsamtleistung",
+      "topic": "MPGateway/Test Gedsamtleistung1",
       "qos": 0,
       "retain": false,
       "json_key": ""
@@ -32,6 +30,14 @@
       "format": "",
       "udp_topic": "Gesamtleistung(W)/value",
       "payload_mode": "topic_value"
+    },
+    "knx": {
+      "protocol": "knx",
+      "enabled": false,
+      "direction": "both",
+      "datatype": "auto",
+      "group_address": "0/3/1",
+      "dpt": "9.001"
     },
     "loxone": {
       "protocol": "loxone",
@@ -48,13 +54,13 @@
     "influx": {
       "protocol": "influx",
       "enabled": true,
-      "direction": "both",
-      "datatype": "auto",
-      "bucket": "",
-      "measurement": "Loxone",
-      "field": "Leistung",
+      "direction": "out",
+      "datatype": "number",
+      "bucket": "Loxone",
+      "measurement": "Gesamtleistung(W)",
+      "field": "value",
       "topic": "Gesamtleistung(W)/value",
-      "tags": "Watt"
+      "tags": ""
     }
   }
 ]

@@ -245,6 +245,8 @@ def _ensure_known_adapters(object_def):
         adapter = adapters.get(protocol)
         if adapter is None:
             adapter = ADAPTER_TYPES[protocol](enabled=False)
+        if protocol == "knx" and not str(getattr(adapter, "dpt", "") or "").strip():
+            adapter.dpt = object_service._default_knx_dpt_for_object(object_def)
         if protocol == "influx":
             if not str(getattr(adapter, "measurement", "") or "").strip():
                 adapter.measurement = object_service._default_influx_measurement(getattr(object_def, "name", "") or "")
