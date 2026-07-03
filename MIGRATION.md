@@ -1,6 +1,6 @@
 # Migration
 
-## Aktueller Stand: 33.3.83
+## Aktueller Stand: 33.3.89
 
 Der Projektstand basiert auf dem bereinigten v32-Port und fuehrt mit 33.3.49 die V33-Entwicklung fuer Objektmanager 2.0 fort. Die aktive Startkette ist:
 
@@ -15,9 +15,12 @@ Die Config-/JSON-Dateifunktionen liegen in `app/services/config.py`. MQTT-Verbin
 
 Keine manuelle Migration erforderlich.
 
-Livewerte erhalten zusaetzlich `original_source`, `last_target_adapter` und `last_target_adapters`. Bestehende Objektkonfigurationen bleiben unveraendert. Ab 33.3.50 baut der Routing-Tab seine Anzeige nur noch aus der Objektkonfiguration auf und zeigt keine Selbst- oder Legacy-Routen mehr an. Ab 33.3.51 trennt der Routing-Tab Haupt-Routen und direkte Rueck-Routen; Rueck-Routen werden nur fuer direkt konfigurierbare Rueckwege zur aktuellen Quelle angezeigt. Ab 33.3.52 wurde die Objektansicht optisch beruhigt: pro Objekt ist nur noch ein Status-Badge sichtbar. Ab 33.3.53 ist KNX als Objektmanager-Ausgang im Runtime-Dispatch und in der Route-Vorschau enthalten. Ab 33.3.54 sendet der KNX-Ausgang echte Telegramme fuer aktiv konfigurierte Ziele, und der KNX-Tab speichert und validiert den gewaehlten DPT pro Objekt. Ab 33.3.55 nutzt der KNX-Sendepfad die laufende Runtime-Verbindung statt einer neuen Tunnel-Instanz pro Wert.
+Livewerte erhalten zusaetzlich `original_source`, `last_target_adapter` und `last_target_adapters`. Bestehende Objektkonfigurationen bleiben unveraendert. Ab 33.3.50 baut der Routing-Tab seine Anzeige nur noch aus der Objektkonfiguration auf und zeigt keine Selbst- oder Legacy-Routen mehr an. Ab 33.3.51 trennt der Routing-Tab Haupt-Routen und direkte Rueck-Routen; Rueck-Routen werden nur fuer direkt konfigurierbare Rueckwege zur aktuellen Quelle angezeigt. Ab 33.3.52 wurde die Objektansicht optisch beruhigt: pro Objekt ist nur noch ein Status-Badge sichtbar. Ab 33.3.53 ist KNX als Objektmanager-Ausgang im Runtime-Dispatch und in der Route-Vorschau enthalten. Ab 33.3.54 sendet der KNX-Ausgang echte Telegramme fuer aktiv konfigurierte Ziele, und der KNX-Tab speichert und validiert den gewaehlten DPT pro Objekt. Ab 33.3.55 nutzt der KNX-Sendepfad die laufende Runtime-Verbindung statt einer neuen Tunnel-Instanz pro Wert. Ab 33.3.88 werden externe MQTT-Broker als reine Runtime-Verbindungen verwaltet; dafuer ist keine JSON-Migration noetig. Neue Reconnect- und Statusdaten leben nur im laufenden Prozess und werden nicht in `config/mqtt_brokers.json` gespeichert.
 
 Ab 33.3.83 kann der Loxone-Tab im Objektmanager Quelle und Ziel getrennt speichern; die Zielauswahl uebernimmt UUID, Name, Raum, Kategorie und Typ aus der Explorer-Struktur, und MQTT/UDP/KNX -> Loxone verwendet `target_uuid` mit Fallback auf die alte Quelle.
+
+Ab 33.3.86 wird ein Loxone-Ziel nur dann als aktiv gewertet, wenn Zielhaken, Ziel-UUID und Loxone-Verbindung vorhanden sind; andernfalls bleibt die Route als nicht konfiguriert sichtbar.
+Ab 33.3.87 liest der Objektmanager die Loxone-/KNX-Gateway-Konfiguration im Service robuster direkt aus den lokalen Config-Dateien, damit Zielrouten im Routing-Tab und in der linken Infokachel nicht mehr fälschlich als nicht konfiguriert erscheinen.
 
 ## Von 33.3.47 nach 33.3.48
 
@@ -973,3 +976,6 @@ Ab 33.3.72 wird ein gespeicherter UDP-Tab beim Objektmanager-Save automatisch ak
 Ab 33.3.73 nutzt der MQTT-Objektrouter wieder die lokalen Core-Pruefungen statt nicht vorhandener Helper im object_service; dadurch kann MQTT->UDP den Sender erreichen.
 Ab 33.3.74 wird der MQTT->UDP-Aufruf wieder mit der korrekten Wrapper-Signatur ausgefuehrt, damit kein `object_id`-Argument doppelt gesetzt wird.
 Ab 33.3.75 sendet MQTT->UDP fuer normale MQTT-Topics den frischen Payload; JSON-Key-Objekte verwenden weiterhin den extrahierten Wert aus dem Live-Match.
+
+
+

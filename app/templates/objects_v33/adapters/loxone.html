@@ -21,24 +21,28 @@
 <label for="{{ adapter.protocol }}_source_uuid">Quelle UUID</label>
 <input id="{{ adapter.protocol }}_source_uuid" name="source_uuid" value="{{ adapter.source_uuid or adapter.uuid }}">
 
-<label for="{{ adapter.protocol }}_io_address">IO-Adresse</label>
-<input id="{{ adapter.protocol }}_io_address" name="io_address" value="{{ adapter.io_address }}">
+<label for="{{ adapter.protocol }}_source_io">IO-Adresse</label>
+<input id="{{ adapter.protocol }}_source_io" name="source_io" value="{{ adapter.source_io or adapter.io_address }}">
 
-<label for="{{ adapter.protocol }}_control_type">Control-Typ</label>
-<input id="{{ adapter.protocol }}_control_type" name="control_type" value="{{ adapter.control_type }}">
+<label for="{{ adapter.protocol }}_source_category">Control-Typ</label>
+<input id="{{ adapter.protocol }}_source_category" name="source_category" value="{{ adapter.source_category or adapter.control_type }}">
 
-<label for="{{ adapter.protocol }}_visu_name">Visu-Name</label>
-<input id="{{ adapter.protocol }}_visu_name" name="visu_name" value="{{ adapter.visu_name }}">
+<label for="{{ adapter.protocol }}_source_name">Visu-Name</label>
+<input id="{{ adapter.protocol }}_source_name" name="source_name" value="{{ adapter.source_name or adapter.visu_name }}">
 
-<label for="{{ adapter.protocol }}_room">Raum</label>
-<input id="{{ adapter.protocol }}_room" name="room" value="{{ adapter.room }}">
+<label for="{{ adapter.protocol }}_source_room">Raum</label>
+<input id="{{ adapter.protocol }}_source_room" name="source_room" value="{{ adapter.source_room or adapter.room }}">
 
 <label for="{{ adapter.protocol }}_unit">Einheit</label>
 <input id="{{ adapter.protocol }}_unit" name="unit" value="{{ adapter.unit }}">
 
 <div style="margin-top:18px;" class="loxone-box" data-loxone-target-root="{{ adapter.protocol }}">
   <h3>Loxone Ziel</h3>
-  {% if not adapter.target_uuid and (adapter.uuid or adapter.io_address) %}
+  <label class="check" style="margin-top:0;">
+    <input type="checkbox" name="target_enabled" {% if adapter.target_enabled %}checked{% endif %}>
+    Loxone-Ziel aktiv
+  </label>
+  {% if adapter.target_enabled and not adapter.target_uuid %}
     <div class="loxone-note">Kein Loxone-Ziel gewählt</div>
   {% endif %}
   <div class="loxone-grid">
@@ -110,6 +114,7 @@
     room: document.getElementById(prefix + "_target_room_filter"),
     category: document.getElementById(prefix + "_target_category_filter"),
     type: document.getElementById(prefix + "_target_type_filter"),
+    enabled: document.querySelector(`[data-loxone-target-root="${prefix}"] input[name="target_enabled"]`),
     uuid: document.getElementById(prefix + "_target_uuid"),
     name: document.getElementById(prefix + "_target_name"),
     roomField: document.getElementById(prefix + "_target_room"),
@@ -155,6 +160,7 @@
     if (inputs.roomField) inputs.roomField.value = option.room || "";
     if (inputs.categoryField) inputs.categoryField.value = option.category || "";
     if (inputs.typeField) inputs.typeField.value = option.type || "";
+    if (inputs.enabled) inputs.enabled.checked = true;
     renderRows();
   }
 
@@ -214,3 +220,7 @@
   window.addEventListener("load", renderRows);
 })();
 </script>
+
+
+
+

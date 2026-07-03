@@ -50,6 +50,18 @@ def _request_first(*names: str) -> str:
     return ""
 
 
+def _request_bool(*names: str, default: bool = False) -> bool:
+    for name in names:
+        if name in request.form:
+            value = request.form.get(name)
+            return str(value or "").strip().lower() not in {"", "0", "false", "off", "no", "nein"}
+        if name in request.args:
+            value = request.args.get(name, "")
+            if value != "":
+                return str(value or "").strip().lower() not in {"", "0", "false", "off", "no", "nein"}
+    return bool(default)
+
+
 def _datatype_from_request() -> str:
     datatype = _request_first("datatype", "value_type", "type")
     if datatype and datatype.lower() != "auto":
@@ -83,13 +95,52 @@ def _adapter_protocols(object_def):
     for adapter in object_def.adapters:
         if isinstance(adapter, dict):
             adapter = deserialize_adapter(adapter)
+        protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
+        if not protocol:
+            continue
+        if protocol == "loxone":
+            has_source = bool(
+                str(getattr(adapter, "source_uuid", "") or "").strip()
+                or str(getattr(adapter, "source_io", "") or getattr(adapter, "io_address", "") or "").strip()
+                or str(getattr(adapter, "source_name", "") or getattr(adapter, "visu_name", "") or "").strip()
+            )
+            has_target = bool(
+                bool(getattr(adapter, "target_enabled", False))
+                and str(getattr(adapter, "target_uuid", "") or "").strip()
+            )
+            if has_source or has_target:
+                protocols.append(protocol)
+            continue
         if getattr(adapter, "enabled", False):
-            protocols.append(str(getattr(adapter, "protocol", "") or "").strip().lower())
+            protocols.append(protocol)
     return sorted(set(protocol for protocol in protocols if protocol))
 
 
 def _route_status(object_def):
     return object_service.get_object_route_status(object_def)
+
+
+def _current_source_label(object_def):
+    try:
+        report = object_service.get_object_route_report(object_def) or {}
+    except Exception:
+        return "unbekannt"
+    value = str(report.get("current_source") or "unbekannt").strip().lower()
+    return {
+        "loxone": "Loxone",
+        "mqtt": "MQTT",
+        "udp": "UDP",
+        "knx": "KNX",
+        "influx": "Influx",
+    }.get(value, "unbekannt")
+
+
+def _current_source_address(object_def):
+    try:
+        report = object_service.get_object_route_report(object_def) or {}
+    except Exception:
+        return ""
+    return str(report.get("current_source_address") or "").strip()
 
 
 def _reload_object_routes():
@@ -312,7 +363,11 @@ def _find_object_by_loxone_endpoint(loxone_uuid: str = "", io_address: str = "")
         if adapter is None:
             continue
         adapter_uuid = _normalize_external_uuid(getattr(adapter, "uuid", ""))
-        adapter_io = str(getattr(adapter, "io_address", "") or "").strip().lower()
+        adapter_io = str(
+            getattr(adapter, "source_io", "")
+            or getattr(adapter, "io_address", "")
+            or ""
+        ).strip().lower()
         if uuid_needle and adapter_uuid and adapter_uuid == uuid_needle:
             return item
         if io_needle and adapter_io and adapter_io == io_needle:
@@ -406,24 +461,33 @@ def _clean_prefill(value: str) -> str:
 
 def _loxone_adapter_from_request(datatype: str):
     source_uuid = _request_first("source_uuid", "loxone_uuid", "state_uuid", "uuid", "control_uuid")
+    source_io = _request_first("source_io", "loxone_io", "io_address", "source_address", "path", "topic", "name")
+    source_name = _request_first("source_name", "visu_name", "display_name", "label")
+    source_room = _request_first("source_room", "room")
+    source_category = _request_first("source_category", "control_type", "cat", "category", "type")
     target_uuid = _request_first("target_uuid")
     return ADAPTER_TYPES["loxone"](
         enabled=True,
         direction="both",
         datatype=datatype or "auto",
         uuid=source_uuid,
-        io_address=_request_first("loxone_io", "io_address", "source_address", "path", "topic", "name"),
-        control_type=_request_first("control_type", "cat"),
-        visu_name=_request_first("visu_name", "display_name", "label"),
-        room=_request_first("room"),
+        io_address=source_io,
+        control_type=source_category,
+        visu_name=source_name,
+        room=source_room,
         unit=_request_first("unit"),
         source_uuid=source_uuid,
-        source_name=_request_first("source_name", "visu_name", "display_name", "label"),
+        source_io=source_io,
+        source_name=source_name,
+        source_room=source_room,
+        source_category=source_category,
+        source_enabled=_request_bool("source_enabled", default=bool(source_uuid or source_io or source_name)),
         target_uuid=target_uuid,
         target_name=_request_first("target_name"),
         target_room=_request_first("target_room"),
         target_category=_request_first("target_category"),
         target_type=_request_first("target_type"),
+        target_enabled=_request_bool("target_enabled", "active", default=bool(target_uuid)),
     )
 
 
@@ -513,6 +577,8 @@ def _detail_context(selected, selected_tab: str = "general", notice: str = "", e
         "is_new": bool(is_new) if is_new is not None else not bool(selected),
         "adapter_protocols": _adapter_protocols,
         "route_status": _route_status,
+        "current_source_label": _current_source_label,
+        "current_source_address": _current_source_address,
     }
 
 

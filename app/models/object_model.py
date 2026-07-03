@@ -53,6 +53,10 @@ class GatewayObject:
         return str(self.meta.get("category", "") or "")
 
     @property
+    def active(self) -> bool:
+        return bool(self.enabled)
+
+    @property
     def room(self) -> str:
         return str(self.meta.get("room", "") or "")
 

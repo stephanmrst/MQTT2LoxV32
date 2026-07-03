@@ -2,7 +2,10 @@
 
 ## 33.0.x
 
-- Loxone-Zielauswahl 33.3.83 pruefen: Quelle und Ziel muessen im Loxone-Tab getrennt speicherbar sein, und MQTT/UDP/KNX -> Loxone muss `target_uuid` nutzen.
+- MQTT externe Broker 33.3.89 pruefen: Queue-voll-Meldungen muessen gedrosselt werden und der Gateway-Stop muss MQTT/UDP/KNX wirklich beenden.
+- MQTT externe Broker 33.3.88 pruefen: Pro Broker muss ein eigener Client mit Queue-Worker, Auto-Reconnect, Healthcheck und Statusanzeige laufen.
+- Loxone-Zielroute 33.3.87 pruefen: Der Routing-Tab und die linke Infokachel muessen Loxone-Ziele wieder als aktiv anzeigen, wenn Zielhaken, Ziel-UUID und Gateway-Konfiguration vorhanden sind.
+- Loxone-Zielroute 33.3.86 pruefen: Die linke Infokachel und der Routing-Tab muessen Loxone-Ziele nur dann als aktiv markieren, wenn Zielhaken, Ziel-UUID und Verbindung vorhanden sind.
 - Object-Routing 33.3.82 pruefen: UDP-Ausgabe muss den bestehenden Sender wieder mit korrekter Signatur erreichen.
 - Object-Routing 33.3.81 pruefen: Legacy-Fallbacks duerfen erst blockiert werden, wenn ein Objektziel wirklich erfolgreich gesendet hat.
 - Object-Routing 33.3.80 pruefen: LOXONE/MQTT/UDP/KNX sollen dieselbe Objekt-Routenschleife nutzen und die Quelle darf nicht in den Zieladapter kippen.
@@ -169,6 +172,9 @@
 - Interne Broker-Prozessverwaltung aus dem Legacy-Core herausloesen.
 - Runtime-/Bridge-Logik erst nach weiterer Port-Stabilisierung modularisieren.
 - Objektmanager nur nach ausdruecklicher Freigabe umbauen.
+
+
+
 
 
 

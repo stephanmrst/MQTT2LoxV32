@@ -572,8 +572,8 @@ def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
             continue
         if protocol == "loxone":
             uuid_value = _normalize_uuid_value(_loxone_source_uuid(adapter))
-            io_value = _normalize_match_value(_adapter_value(adapter, "io_address"))
-            name_value = _normalize_match_value(getattr(item, "name", ""))
+            io_value = _normalize_match_value(_loxone_source_io(adapter))
+            name_value = _normalize_match_value(_loxone_source_name(adapter) or getattr(item, "name", ""))
             visu_name_value = _normalize_match_value(_loxone_source_name(adapter))
             if uuid_value:
                 keys.append(_endpoint_index_key("loxone_uuid", uuid_value))
@@ -789,9 +789,9 @@ def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: An
         return False
     if source == "loxone":
         uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid") or endpoint.get("source_uuid"))
-        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("name") or endpoint.get("source_name"))
+        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("source_io") or endpoint.get("io_address") or endpoint.get("name") or endpoint.get("source_name"))
         adapter_uuid = _normalize_uuid_value(_adapter_value(adapter, "uuid"))
-        adapter_io = _normalize_match_value(_adapter_value(adapter, "io_address"))
+        adapter_io = _normalize_match_value(_loxone_source_io(adapter))
         adapter_source_uuid = _normalize_uuid_value(_adapter_value(adapter, "source_uuid"))
         adapter_source_name = _normalize_match_value(_adapter_value(adapter, "source_name"))
         return bool(
@@ -813,7 +813,7 @@ def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str
     source = str(source or "").strip().lower()
     if source == "loxone":
         uuid_value = _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid") or endpoint.get("source_uuid"))
-        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name") or endpoint.get("source_name"))
+        io_value = _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("source_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name") or endpoint.get("source_name"))
         name_value = _normalize_match_value(endpoint.get("name") or endpoint.get("visu_name") or endpoint.get("source_name"))
         return [
             ("loxone_uuid", uuid_value, "loxone.uuid"),
@@ -1055,12 +1055,28 @@ def _loxone_source_uuid(adapter: Any) -> str:
     return _adapter_value(adapter, "source_uuid") or _adapter_value(adapter, "uuid")
 
 
+def _loxone_source_io(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_io") or _adapter_value(adapter, "io_address")
+
+
 def _loxone_source_name(adapter: Any) -> str:
     return _adapter_value(adapter, "source_name") or _adapter_value(adapter, "visu_name")
 
 
+def _loxone_source_room(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_room") or _adapter_value(adapter, "room")
+
+
+def _loxone_source_category(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_category") or _adapter_value(adapter, "control_type") or _adapter_value(adapter, "type")
+
+
 def _loxone_target_uuid(adapter: Any) -> str:
     return _adapter_value(adapter, "target_uuid") or _loxone_source_uuid(adapter)
+
+
+def _loxone_target_uuid_explicit(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_uuid")
 
 
 def _loxone_target_name(adapter: Any) -> str:
@@ -1079,6 +1095,52 @@ def _loxone_target_type(adapter: Any) -> str:
     return _adapter_value(adapter, "target_type") or _loxone_target_category(adapter)
 
 
+def _loxone_target_enabled(adapter: Any) -> bool:
+    value = getattr(adapter, "target_enabled", None)
+    if value is None:
+        value = getattr(adapter, "active", None)
+    if value is None and _loxone_target_uuid_explicit(adapter):
+        value = True
+    return bool(value)
+
+
+def _loxone_source_enabled(adapter: Any) -> bool:
+    value = getattr(adapter, "source_enabled", None)
+    if value is None:
+        value = getattr(adapter, "enabled", None)
+    if value is None and (_loxone_source_uuid(adapter) or _loxone_source_io(adapter) or _loxone_source_name(adapter)):
+        value = True
+    return bool(value and (_loxone_source_uuid(adapter) or _loxone_source_io(adapter) or _loxone_source_name(adapter)))
+
+
+def _loxone_source_route_active(adapter: Any) -> bool:
+    return bool(_loxone_source_enabled(adapter) and (_loxone_source_uuid(adapter) or _loxone_source_io(adapter) or _loxone_source_name(adapter)))
+
+
+def _loxone_gateway_configured() -> bool:
+    config_path = CONFIG_DIR / "config.json"
+    try:
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as handle:
+                cfg = json.load(handle) or {}
+            return bool(str((cfg.get("loxone") or {}).get("host", "")).strip())
+    except Exception:
+        LOGGER.exception("Loxone-Gateway-Check ueber config.json fehlgeschlagen")
+    try:
+        try:
+            from app.services.config import load_config as _load_config
+        except ModuleNotFoundError:
+            from services.config import load_config as _load_config
+        cfg = _load_config() or {}
+        return bool(str((cfg.get("loxone") or {}).get("host", "")).strip())
+    except Exception:
+        return False
+
+
+def _loxone_target_route_active(adapter: Any) -> bool:
+    return bool(_loxone_target_enabled(adapter) and _loxone_target_uuid_explicit(adapter) and _loxone_gateway_configured())
+
+
 def _loxone_display_label(adapter: Any, role: str = "source") -> str:
     role = str(role or "").strip().lower()
     if role == "target":
@@ -1087,14 +1149,14 @@ def _loxone_display_label(adapter: Any, role: str = "source") -> str:
             _loxone_target_room(adapter),
             _loxone_target_category(adapter),
         ]
-        fallback = _loxone_target_uuid(adapter) or _adapter_value(adapter, "io_address")
+        fallback = _loxone_target_uuid(adapter) or _loxone_source_io(adapter)
     else:
         parts = [
-            _loxone_source_name(adapter) or _adapter_value(adapter, "io_address"),
-            _adapter_value(adapter, "room"),
-            _adapter_value(adapter, "control_type") or _adapter_value(adapter, "type"),
+            _loxone_source_name(adapter) or _loxone_source_io(adapter),
+            _loxone_source_room(adapter),
+            _loxone_source_category(adapter),
         ]
-        fallback = _loxone_source_uuid(adapter) or _adapter_value(adapter, "io_address")
+        fallback = _loxone_source_uuid(adapter) or _loxone_source_io(adapter)
     parts = [part for part in parts if part]
     return " · ".join(parts) if parts else fallback
 
@@ -1108,6 +1170,14 @@ def _normalize_uuid_value(value: Any) -> str:
 
 
 def _knx_gateway_enabled() -> bool:
+    config_path = CONFIG_DIR / "knx_config.json"
+    try:
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as handle:
+                cfg = json.load(handle) or {}
+            return bool(cfg.get("enabled", False))
+    except Exception:
+        LOGGER.exception("KNX-Gateway-Check ueber knx_config.json fehlgeschlagen")
     try:
         try:
             from app.services.config import load_knx_config as _load_knx_config
@@ -1206,7 +1276,7 @@ def _endpoint_missing_fields(protocol: str, adapter: Any) -> list[str]:
         "influx": (("measurement", "Measurement"),),
     }.get(protocol, ())
     if protocol == "loxone":
-        return [] if (_loxone_source_uuid(adapter) or _adapter_value(adapter, "io_address") or _loxone_target_uuid(adapter)) else ["UUID oder IO-Adresse"]
+        return [] if (_loxone_source_uuid(adapter) or _loxone_source_io(adapter) or _loxone_source_name(adapter) or _loxone_target_uuid_explicit(adapter)) else ["UUID oder IO-Adresse"]
     if protocol == "udp":
         host = _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")
         return [label for field, label in required if not (host if field == "target_ip" else _adapter_value(adapter, field))]
@@ -1221,7 +1291,10 @@ def _is_complete_endpoint(protocol: str, adapter: Any) -> bool:
     if protocol == "knx" and not _knx_gateway_enabled():
         return False
     if protocol == "loxone":
-        return _is_enabled_adapter(adapter) and bool(_loxone_source_uuid(adapter) or _adapter_value(adapter, "io_address") or _loxone_target_uuid(adapter))
+        has_endpoint = bool(_loxone_source_uuid(adapter) or _loxone_source_io(adapter) or _loxone_source_name(adapter) or _loxone_target_uuid_explicit(adapter))
+        has_source = _loxone_source_route_active(adapter)
+        has_target = _loxone_target_route_active(adapter)
+        return bool(has_endpoint and (has_source or has_target))
     return _is_enabled_adapter(adapter) and not _endpoint_missing_fields(protocol, adapter)
 
 
@@ -1253,6 +1326,8 @@ def _can_target(adapter: Any) -> bool:
     protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
     if protocol == "knx" and not _knx_gateway_enabled():
         return False
+    if protocol == "loxone":
+        return _loxone_target_route_active(adapter)
     direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
     return direction in {"out", "both"}
 
@@ -1266,6 +1341,8 @@ def _primary_route_source(item: GatewayObject) -> tuple[str | None, Any | None, 
     for protocol in ROUTE_SOURCE_PRIORITY:
         adapter = adapters.get(protocol)
         if adapter is not None and _can_source(adapter):
+            if protocol == "loxone" and not _loxone_source_enabled(adapter):
+                continue
             return protocol, adapter, adapters
     return None, None, adapters
 
@@ -1282,7 +1359,10 @@ def get_object_route_status(item: GatewayObject) -> str:
             continue
         errors.extend(_adapter_config_errors(protocol, adapter))
         if _is_complete_endpoint(protocol, adapter):
-            if _can_source(adapter):
+            if protocol == "loxone":
+                if _loxone_source_enabled(adapter):
+                    source_protocols.add(protocol)
+            elif _can_source(adapter):
                 source_protocols.add(protocol)
             if _can_target(adapter):
                 target_protocols.add(protocol)
@@ -1294,7 +1374,7 @@ def get_object_route_status(item: GatewayObject) -> str:
                 continue
             if (source_protocol, target_protocol) in SUPPORTED_ROUTE_PAIRS:
                 return "aktiv"
-    return "unvollständig"
+    return "nicht konfiguriert"
 
 
 def _route_source_for_report(item: GatewayObject) -> tuple[str | None, Any | None, dict[str, Any]]:
@@ -1303,6 +1383,8 @@ def _route_source_for_report(item: GatewayObject) -> tuple[str | None, Any | Non
     live_source = str(live.get("source") or live.get("original_source") or "").strip().lower()
     live_adapter = adapters.get(live_source)
     if live_adapter is not None and _can_source(live_adapter):
+        if live_source == "loxone" and not _loxone_source_enabled(live_adapter):
+            return _primary_route_source(item)
         return live_source, live_adapter, adapters
     return _primary_route_source(item)
 
@@ -1431,6 +1513,11 @@ def get_object_route_report(item: GatewayObject) -> dict[str, Any]:
         if protocol == "knx" and not _knx_gateway_enabled():
             missing.append("KNX deaktiviert")
             continue
+        if protocol == "loxone":
+            target_uuid = _loxone_target_uuid_explicit(adapter) if adapter is not None else ""
+            if adapter is not None and _loxone_target_enabled(adapter) and (not target_uuid or not _loxone_gateway_configured()):
+                missing.append("LOXONE nicht konfiguriert")
+                continue
         if not adapter or not _is_enabled_adapter(adapter):
             missing.append(f"{protocol.upper()} inaktiv")
             continue
@@ -1564,7 +1651,8 @@ def build_routes_from_objects(log_func=None) -> dict[str, list[dict[str, Any]] |
                 target_adapter = adapters[target]
                 base = _route_base(item, entry["source_address"])
                 if source == "mqtt" and target == "loxone":
-                    continue
+                    routes["mqtt2lox"].append({"enabled": True, "loxone_uuid": _loxone_target_uuid(target_adapter) or _loxone_source_uuid(target_adapter), "loxone_io": _loxone_target_uuid(target_adapter) or _adapter_value(target_adapter, "io_address"), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
+                    active += 1
                 elif source == "loxone" and target == "mqtt":
                     routes["loxone2mqtt"] = routes.get("loxone2mqtt", [])
                     routes["loxone2mqtt"].append({"enabled": True, "loxone_uuid": _loxone_source_uuid(source_adapter), "loxone_io": _adapter_value(source_adapter, "io_address"), "mqtt_topic": _adapter_value(target_adapter, "topic"), "retain": bool(getattr(target_adapter, "retain", False)), "group": "Objektmanager V33", "set_name": item.name or item.id, "mapping_alias": item.name, "__object_route": True, "__object_id": item.id})
@@ -1632,3 +1720,4 @@ def find_loxone_to_mqtt_route(loxone_uuid: str = "", loxone_io: str = "", state_
         if routes:
             return dict(routes[0])
     return None
+

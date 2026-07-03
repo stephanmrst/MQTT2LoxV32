@@ -422,6 +422,75 @@ def request_knx_stop():
         runtime_context.knx.start_requested = False
 
 
+def set_udp_listener_running(running):
+    with runtime_context.udp.lock:
+        runtime_context.udp.listener_running = bool(running)
+        return runtime_context.udp.listener_running
+
+
+def request_udp_stop():
+    with runtime_context.udp.lock:
+        runtime_context.udp.stop_requested = True
+        runtime_context.udp.status = "stopping"
+    try:
+        udp.request_udp_stop()
+    except Exception:
+        pass
+
+
+def request_udp_start():
+    with runtime_context.udp.lock:
+        runtime_context.udp.stop_requested = False
+        runtime_context.udp.status = "startet"
+    try:
+        udp.reset_udp_stop()
+    except Exception:
+        pass
+
+
+def _stop_gateway_services():
+    add_log_entry("Gateway Stop requested")
+    update_broker_state(stop_requested=True, start_requested=False, status="Stop angefordert")
+    runtime_context.bridge.stop_requested = True
+    runtime_context.bridge.status = "Stop angefordert"
+    try:
+        add_log_entry("Stoppe KNX...")
+        request_knx_stop()
+        set_knx_listener_running(False)
+        with runtime_context.knx.lock:
+            runtime_context.knx.connection_status = "stopping"
+    except Exception:
+        pass
+    try:
+        add_log_entry("Stoppe UDP...")
+        request_udp_stop()
+    except Exception:
+        pass
+    try:
+        add_log_entry("Stoppe MQTT...")
+        mqtt_module.stop_clients(add_log_entry)
+    except Exception as exc:
+        add_log_entry(f"MQTT Stop Fehler: {exc}")
+    try:
+        with runtime_context.udp.lock:
+            runtime_context.udp.status = "stopping"
+    except Exception:
+        pass
+    try:
+        add_log_entry("Gateway Stop angefordert")
+    except Exception:
+        pass
+
+
+def request_gateway_stop_async():
+    def worker():
+        try:
+            _stop_gateway_services()
+        except Exception as exc:
+            add_log_entry(f"Gateway Stop Fehler: {exc}")
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def set_knx_runtime_state(**kwargs):
     with runtime_context.knx.lock:
         for key, value in kwargs.items():
@@ -1494,6 +1563,8 @@ async def _knx_listener_async(knx_cfg):
     )
     def telegram_received_cb(telegram):
         try:
+            if runtime_context.bridge.stop_requested:
+                return
             ga = str(getattr(telegram, "destination_address", ""))
             payload = getattr(telegram, "payload", None)
             add_log_entry(f"KNX RX Callback erreicht GA={ga or '-'} DPT=? Value={payload}")
@@ -1693,20 +1764,32 @@ def restart_bridge_async():
 
 def udp_input_listener(config):
     global mqtt_client, udp_input_last_seen
+    request_udp_start()
     def _handle_udp_to_knx_with_object_routes(topic, value):
+        if runtime_context.bridge.stop_requested:
+            return True
         live_items = object_core_service.record_live_value("udp", value, udp_topic=topic)
         if _dispatch_object_routes(live_items, "udp", topic, value, metadata={"udp_topic": topic}):
             return True
         return _handle_udp_to_knx_service(topic, value)
-
-    return udp.udp_input_listener(
-        config,
-        load_config,
-        _handle_udp_to_knx_with_object_routes,
-        handle_udp_to_mqtt,
-        add_log_entry,
-        update_udp_last_seen,
-    )
+    try:
+        with runtime_context.udp.lock:
+            runtime_context.udp.listener_thread = threading.current_thread()
+        set_udp_listener_running(True)
+        result = udp.udp_input_listener(
+            config,
+            load_config,
+            _handle_udp_to_knx_with_object_routes,
+            handle_udp_to_mqtt,
+            add_log_entry,
+            update_udp_last_seen,
+        )
+        return result
+    finally:
+        set_udp_listener_running(False)
+        with runtime_context.udp.lock:
+            runtime_context.udp.status = "stopped"
+            runtime_context.udp.listener_thread = None
 
 
 DEFAULT_CONFIG = {
@@ -2499,6 +2582,8 @@ async def bridge_async(config):
 
     def on_mqtt_message(client, userdata, msg):
         try:
+            if runtime_context.bridge.stop_requested:
+                return
             payload = msg.payload.decode("utf-8", errors="ignore").strip()
 
             broker_name = (
@@ -2639,6 +2724,8 @@ async def bridge_async(config):
     ws = LoxWs()
 
     async def message_callback(data, msg_type):
+        if runtime_context.bridge.stop_requested:
+            return
         if not isinstance(data, dict):
             return
 
@@ -2675,7 +2762,7 @@ async def bridge_async(config):
     while not runtime_context.bridge.stop_requested:
         await asyncio.sleep(1)
 
-    runtime_context.bridge.status = "stoppe"
+    runtime_context.bridge.status = "stopping"
 
     try:
         if ws:
@@ -2684,20 +2771,29 @@ async def bridge_async(config):
         pass
 
     try:
-        for name, client in mqtt_clients.items():
-            try:
-                client.loop_stop()
-                client.disconnect()
-                add_log_entry(f"MQTT getrennt: {name}")
-            except Exception as e:
-                add_log_entry(f"MQTT Disconnect Fehler {name}: {e}")
+        mqtt_module.stop_clients(add_log_entry)
+    except Exception:
+        pass
 
+    try:
+        request_udp_stop()
+    except Exception:
+        pass
 
+    try:
+        request_knx_stop()
+        set_knx_listener_running(False)
     except Exception:
         pass
 
     runtime_context.bridge.running = False
     runtime_context.bridge.status = "gestoppt"
+    update_broker_state(running=False, status="gestoppt", stop_requested=False)
+    with runtime_context.udp.lock:
+        runtime_context.udp.status = "stopped"
+        runtime_context.udp.listener_running = False
+    with runtime_context.knx.lock:
+        runtime_context.knx.connection_status = "stopped"
     print("Bridge gestoppt")
 
 
@@ -3925,6 +4021,7 @@ def mqtt_settings_content(config, notice=""):
 
     mq = config.get("mqtt", {})
     brokers = load_mqtt_brokers()
+    broker_statuses = mqtt_module.get_broker_statuses()
     new_i = len(brokers)
     notice_html = notice or ""
 
@@ -3951,6 +4048,56 @@ def mqtt_settings_content(config, notice=""):
     </div>
 </form>
 
+<div class="card">
+    <h2 class="section-title">MQTT Broker Status</h2>
+    <table>
+        <tr>
+            <th>Broker</th>
+            <th>Status</th>
+            <th>Host</th>
+            <th>Port</th>
+            <th>Letzter Connect</th>
+            <th>Letzter Disconnect</th>
+            <th>Reconnects</th>
+            <th>Reconnect läuft</th>
+            <th>Subscriptions</th>
+            <th>Queue</th>
+            <th>Verarbeitet</th>
+            <th>Verworfen</th>
+            <th>Worker</th>
+        </tr>
+"""
+
+    if broker_statuses:
+        for item in broker_statuses:
+            html += f"""
+        <tr>
+            <td>{escape(str(item.get('name', '')))}</td>
+            <td>{escape(str(item.get('status', '')))}</td>
+            <td>{escape(str(item.get('host', '')))}</td>
+            <td>{escape(str(item.get('port', '')))}</td>
+            <td>{escape(str(item.get('last_connect', '') or '-'))}</td>
+            <td>{escape(str(item.get('last_disconnect', '') or '-'))}</td>
+            <td>{escape(str(item.get('reconnect_attempts', 0)))}</td>
+            <td>{'ja' if item.get('reconnect_running') else 'nein'}</td>
+            <td>{escape(str(item.get('subscription_count', 0)))}</td>
+            <td>{escape(str(item.get('queue_size', 0)))}/{escape(str(item.get('max_queue_size', 0)))} ({escape(str(item.get('queue_mode', '')) )})</td>
+            <td>{escape(str(item.get('processed_messages', 0)))}</td>
+            <td>{escape(str(item.get('dropped_messages', 0)))}</td>
+            <td>{'ja' if item.get('worker_alive') else 'nein'}</td>
+        </tr>
+"""
+    else:
+        html += """
+        <tr>
+            <td colspan="13">Noch keine MQTT-Broker aktiv.</td>
+        </tr>
+"""
+
+    html += f"""
+    </table>
+</div>
+
 {internal_broker_settings_block()}
 
 <form method="post" action="/mqtt_brokers/save">
@@ -3965,6 +4112,8 @@ def mqtt_settings_content(config, notice=""):
                 <th>Port</th>
                 <th>User</th>
                 <th>Passwort</th>
+                <th>Queue-Modus</th>
+                <th>Max Queue</th>
                 <th>Test</th>
                 <th>Löschen</th>
             </tr>
@@ -3981,6 +4130,13 @@ def mqtt_settings_content(config, notice=""):
                 <td><input type="text" name="port_{i}" value="{escape(str(item.get('port', 1883)))}"></td>
                 <td><input type="text" name="user_{i}" value="{escape(item.get('user', ''))}"></td>
                 <td><input type="password" name="password_{i}" value="{escape(item.get('password', ''))}"></td>
+                <td>
+                    <select name="queue_mode_{i}">
+                        <option value="latest-per-topic" {"selected" if str(item.get('queue_mode', 'latest-per-topic')).replace('_', '-').lower() == 'latest-per-topic' else ''}>latest-per-topic</option>
+                        <option value="normal" {"selected" if str(item.get('queue_mode', 'latest-per-topic')).replace('_', '-').lower() == 'normal' else ''}>normal</option>
+                    </select>
+                </td>
+                <td><input type="text" name="max_queue_size_{i}" value="{escape(str(item.get('max_queue_size', 500)))}"></td>
                 <td><button type="submit" formaction="/test/mqtt_broker/{i}" formmethod="post">Test</button></td>
                 <td class="checkbox-col"><input type="checkbox" name="delete_{i}"></td>
             </tr>
@@ -3994,6 +4150,13 @@ def mqtt_settings_content(config, notice=""):
                 <td><input type="text" name="port_{new_i}" value="1883"></td>
                 <td><input type="text" name="user_{new_i}"></td>
                 <td><input type="password" name="password_{new_i}"></td>
+                <td>
+                    <select name="queue_mode_{new_i}">
+                        <option value="latest-per-topic" selected>latest-per-topic</option>
+                        <option value="normal">normal</option>
+                    </select>
+                </td>
+                <td><input type="text" name="max_queue_size_{new_i}" value="500"></td>
                 <td>-</td>
                 <td>-</td>
             </tr>
@@ -11446,6 +11609,8 @@ def mqtt_brokers_save():
         port = request.form.get(f"port_{i}", "1883").strip()
         user = request.form.get(f"user_{i}", "").strip()
         password = request.form.get(f"password_{i}", "").strip()
+        queue_mode = request.form.get(f"queue_mode_{i}", "latest-per-topic").strip().lower().replace("_", "-") or "latest-per-topic"
+        max_queue_size = request.form.get(f"max_queue_size_{i}", "500").strip()
 
         enabled = f"enabled_{i}" in request.form
 
@@ -11458,7 +11623,9 @@ def mqtt_brokers_save():
             "host": host,
             "port": port,
             "user": user,
-            "password": password
+            "password": password,
+            "queue_mode": queue_mode if queue_mode in {"normal", "latest-per-topic"} else "latest-per-topic",
+            "max_queue_size": int(max_queue_size) if str(max_queue_size).isdigit() else 500,
         })
 
     save_mqtt_brokers(new_data)

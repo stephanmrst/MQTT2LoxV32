@@ -148,7 +148,7 @@
         </div>
 
         <div class="tab-panel live-panel">
-          <div class="live-grid" data-selected-live="{{ object_def.id }}">
+          <div class="live-grid" data-selected-live="{{ object_def.id }}" data-configured-source="{{ selected_route_report.current_source if selected_route_report else '' }}" data-configured-source-address="{{ selected_route_report.current_source_address if selected_route_report else '' }}">
             <div class="live-field">
               <div class="live-label">Letzter Wert</div>
               <div class="live-value" id="objectLiveValue">-</div>
@@ -163,11 +163,11 @@
             </div>
             <div class="live-field">
               <div class="live-label">Quelle / Adapter</div>
-              <div class="live-value" id="objectLiveSource">unbekannt</div>
+              <div class="live-value" id="objectLiveSource">{{ selected_route_report.current_source if selected_route_report and selected_route_report.current_source else 'unbekannt' }}</div>
             </div>
             <div class="live-field">
               <div class="live-label">Erkannter Endpunkt</div>
-              <div class="live-value" id="objectLiveEndpoint">-</div>
+              <div class="live-value" id="objectLiveEndpoint">{{ selected_route_report.current_source_address if selected_route_report and selected_route_report.current_source_address else '-' }}</div>
             </div>
             <div class="live-field">
               <div class="live-label">Letzte Ziel-Adapter</div>

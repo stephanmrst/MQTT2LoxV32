@@ -267,7 +267,8 @@
       {% if objects %}
         {% for item in objects %}
           {% set protocols = adapter_protocols(item) %}
-          <button type="button" class="object-card {% if selected and item.id == selected.id %}selected{% endif %}" data-object-card="1" data-object-id="{{ item.id }}">
+          {% set loxone_target = item.loxone if item.loxone and item.loxone.target_enabled and item.loxone.target_uuid else none %}
+          <button type="button" class="object-card {% if selected and item.id == selected.id %}selected{% endif %}" data-object-card="1" data-object-id="{{ item.id }}" data-configured-source="{{ current_source_label(item) }}" data-configured-source-address="{{ current_source_address(item) }}">
             <div class="object-initial">{{ (item.name or item.key or item.id or '?')[:1]|upper }}</div>
             <div class="object-body">
               <div class="card-top">
@@ -277,9 +278,14 @@
               <div class="object-name">{{ item.name or item.key or item.id }}</div>
               <div class="object-live">
                 <span class="object-live-value" data-live-field="value">-</span>
-                <span class="object-live-source">Quelle: <span data-live-field="source">unbekannt</span></span>
+                <span class="object-live-source">Quelle: <span data-live-field="source">{{ current_source_label(item) }}</span></span>
               </div>
               <div class="object-meta">{{ item.type or 'auto' }}{% if item.unit %} &middot; {{ item.unit }}{% endif %}</div>
+              {% if loxone_target %}
+                <div class="object-meta">Loxone Ziel aktiv: {{ loxone_target.target_name or loxone_target.target_uuid }}{% if loxone_target.target_room %} &middot; {{ loxone_target.target_room }}{% endif %}{% if loxone_target.target_category %} &middot; {{ loxone_target.target_category }}{% endif %}</div>
+              {% elif item.loxone and item.loxone.target_enabled and not item.loxone.target_uuid %}
+                <div class="object-meta">Loxone nicht konfiguriert</div>
+              {% endif %}
               <div class="badges">
                 {% for protocol, label in [('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
                   <span class="badge proto proto-{{ protocol }} {% if protocol in protocols %}active{% else %}inactive{% endif %}">{{ label }}</span>
@@ -317,7 +323,46 @@ function escapeHtml(value) {
 }
 
 function objectProtocols(item) {
-  return ["mqtt", "loxone", "udp", "knx", "influx"].filter(protocol => item && item[protocol]);
+  const protocols = [];
+  if (!item) return protocols;
+  if (item.mqtt) protocols.push("mqtt");
+  if (item.loxone) {
+    const loxone = item.loxone || {};
+    const active = Boolean(
+      loxone.source_enabled
+      || loxone.target_enabled
+      || loxone.source_uuid
+      || loxone.source_io
+      || loxone.source_name
+      || loxone.target_uuid
+    );
+    if (active) protocols.push("loxone");
+  }
+  if (item.udp) protocols.push("udp");
+  if (item.knx) protocols.push("knx");
+  if (item.influx) protocols.push("influx");
+  return protocols;
+}
+
+function loxoneTargetSummary(item) {
+  const loxone = item && item.loxone ? item.loxone : {};
+  const enabled = Boolean(loxone.target_enabled || loxone.active || loxone.target_uuid);
+  const uuid = String(loxone.target_uuid || "").trim();
+  if (!enabled) return "";
+  if (!uuid) return "Loxone nicht konfiguriert";
+  const parts = [loxone.target_name, loxone.target_room, loxone.target_category].filter(Boolean);
+  return parts.length ? `Loxone Ziel aktiv: ${parts.join(" · ")}` : "Loxone Ziel aktiv";
+}
+
+function configuredSourceLabel(item) {
+  const route = item && item.route_report ? item.route_report : {};
+  const source = String(route.current_source || "").trim().toLowerCase();
+  if (source === "loxone") return "Loxone";
+  if (source === "mqtt") return "MQTT";
+  if (source === "udp") return "UDP";
+  if (source === "knx") return "KNX";
+  if (source === "influx") return "Influx";
+  return "unbekannt";
 }
 
 function objectStatusClass(status) {
@@ -329,13 +374,15 @@ function objectStatusClass(status) {
 
 function buildObjectCard(item) {
   const protocols = objectProtocols(item);
-  const status = String(item.route_status || "unvollständig");
+  const status = String(item.route_status || "nicht konfiguriert");
   const selected = selectedObjectId && String(item.id || "") === selectedObjectId ? " selected" : "";
   const enabledClass = item.enabled ? "on" : "off";
   const enabledLabel = item.enabled ? "Aktiv" : "Inaktiv";
   const value = item.live && item.live.value !== undefined ? item.live.value : "";
+  const loxoneTarget = loxoneTargetSummary(item);
+  const configuredSource = configuredSourceLabel(item);
   return `
-    <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}">
+    <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}" data-configured-source="${escapeHtml(configuredSource)}">
       <div class="object-initial">${escapeHtml((item.name || item.key || item.id || "?").slice(0, 1).toUpperCase())}</div>
       <div class="object-body">
         <div class="card-top">
@@ -346,9 +393,10 @@ function buildObjectCard(item) {
         <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
         <div class="object-live">
           <span class="object-live-value" data-live-field="value">${escapeHtml(value || "-")}</span>
-          <span class="object-live-source">Quelle: <span data-live-field="source">unbekannt</span></span>
+          <span class="object-live-source">Quelle: <span data-live-field="source">${escapeHtml(configuredSource)}</span></span>
         </div>
         <div class="object-meta">${escapeHtml(item.type || "auto")}${item.unit ? " &middot; " + escapeHtml(item.unit) : ""}</div>
+        ${loxoneTarget ? `<div class="object-meta">${escapeHtml(loxoneTarget)}</div>` : ""}
         <div class="badges">
           ${["mqtt", "loxone", "udp", "knx", "influx"].map(protocol => `
             <span class="badge proto proto-${protocol} ${protocols.includes(protocol) ? "active" : "inactive"}">${protocol.toUpperCase()}</span>
@@ -361,12 +409,14 @@ function buildObjectCard(item) {
 
 function buildObjectCardHtml(item) {
   const protocols = objectProtocols(item);
-  const status = String(item.route_status || "unvollständig");
+  const status = String(item.route_status || "nicht konfiguriert");
   const selected = selectedObjectId && String(item.id || "") === selectedObjectId ? " selected" : "";
   const enabledClass = item.enabled ? "on" : "off";
   const enabledLabel = item.enabled ? "Aktiv" : "Inaktiv";
+  const loxoneTarget = loxoneTargetSummary(item);
+  const configuredSource = configuredSourceLabel(item);
   return `
-    <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}">
+    <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}" data-configured-source="${escapeHtml(configuredSource)}">
       <div class="object-initial">${escapeHtml((item.name || item.key || item.id || "?").slice(0, 1).toUpperCase())}</div>
       <div class="object-body">
         <div class="card-top">
@@ -377,9 +427,10 @@ function buildObjectCardHtml(item) {
         <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
         <div class="object-live">
           <span class="object-live-value" data-live-field="value">-</span>
-          <span class="object-live-source">Quelle: <span data-live-field="source">unbekannt</span></span>
+          <span class="object-live-source">Quelle: <span data-live-field="source">${escapeHtml(configuredSource)}</span></span>
         </div>
         <div class="object-meta">${escapeHtml(item.type || "auto")}${item.unit ? " &middot; " + escapeHtml(item.unit) : ""}</div>
+        ${loxoneTarget ? `<div class="object-meta">${escapeHtml(loxoneTarget)}</div>` : ""}
         <div class="badges">
           ${["mqtt", "loxone", "udp", "knx", "influx"].map(protocol => `
             <span class="badge proto proto-${protocol} ${protocols.includes(protocol) ? "active" : "inactive"}">${protocol.toUpperCase()}</span>
@@ -444,6 +495,7 @@ function initLoxoneTargetPicker(root) {
   const roomField = document.getElementById(prefix + "_target_room");
   const categoryField = document.getElementById(prefix + "_target_category");
   const typeField = document.getElementById(prefix + "_target_type");
+  const enabledField = root.querySelector('input[name="target_enabled"]');
 
   const normalize = value => String(value || "").toLowerCase().trim();
   const escapeHtmlLocal = value => escapeHtml(value);
@@ -486,6 +538,7 @@ function initLoxoneTargetPicker(root) {
         if (roomField) roomField.value = option.room || "";
         if (categoryField) categoryField.value = option.category || "";
         if (typeField) typeField.value = option.type || "";
+        if (enabledField) enabledField.checked = true;
         renderRows();
       });
       rowsEl.appendChild(row);
@@ -528,11 +581,13 @@ window.clearLoxoneTarget = function(prefix) {
   const room = document.getElementById(String(prefix || "") + "_target_room");
   const category = document.getElementById(String(prefix || "") + "_target_category");
   const type = document.getElementById(String(prefix || "") + "_target_type");
+  const enabled = root.querySelector('input[name="target_enabled"]');
   if (uuid) uuid.value = "";
   if (name) name.value = "";
   if (room) room.value = "";
   if (category) category.value = "";
   if (type) type.value = "";
+  if (enabled) enabled.checked = false;
   if (picker && !picker.hidden && typeof initLoxoneTargetPickers === "function") {
     initLoxoneTargetPickers();
   }
@@ -666,8 +721,8 @@ function formatObjectLiveValue(item) {
   return String(item.value) + unit;
 }
 
-function formatObjectLiveSource(source) {
-  const value = String(source || "unbekannt").toLowerCase();
+function formatObjectLiveSource(source, fallback = "") {
+  const value = String(source || fallback || "unbekannt").toLowerCase();
   if (value === "loxone") return "Loxone";
   if (value === "mqtt") return "MQTT";
   if (value === "knx") return "KNX";
@@ -695,15 +750,18 @@ function applyObjectLiveData(items) {
     const item = byId.get(String(card.getAttribute("data-object-id") || ""));
     const valueEl = card.querySelector('[data-live-field="value"]');
     const sourceEl = card.querySelector('[data-live-field="source"]');
+    const configuredSource = String(card.getAttribute("data-configured-source") || "").trim();
     if (valueEl) valueEl.textContent = formatObjectLiveValue(item);
-    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && (item.original_source || item.source));
+    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && (item.original_source || item.source), configuredSource);
   });
   const selected = byId.get(String(selectedObjectId || ""));
   if (selected) {
+    const liveRoot = document.querySelector(".live-grid");
+    const configuredSource = liveRoot ? String(liveRoot.getAttribute("data-configured-source") || "").trim() : "";
     setObjectLiveText("objectLiveValue", formatObjectLiveValue(selected));
     setObjectLiveText("objectLiveUnit", selected.unit || "-");
     setObjectLiveText("objectLiveTimestamp", selected.timestamp || "-");
-    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.original_source || selected.source));
+    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.original_source || selected.source, configuredSource));
     setObjectLiveText("objectLiveEndpoint", formatObjectLiveEndpoint(selected));
     const targetAdapters = (selected.last_target_adapters || []).length ? selected.last_target_adapters : (selected.targets || []);
     setObjectLiveText("objectLiveTargets", targetAdapters.length ? targetAdapters.join(", ") : "-");
@@ -726,3 +784,4 @@ setInterval(refreshObjectLiveData, 3000);
 initLoxoneTargetPickers();
 </script>
 {% endblock %}
+

@@ -78,28 +78,54 @@ class LoxoneAdapter(BaseAdapter):
     room: str = ""
     unit: str = ""
     source_uuid: str = ""
+    source_io: str = ""
     source_name: str = ""
+    source_room: str = ""
+    source_category: str = ""
+    source_enabled: bool = True
     target_uuid: str = ""
     target_name: str = ""
     target_room: str = ""
     target_category: str = ""
     target_type: str = ""
+    target_enabled: bool = False
+    active: bool = False
 
     @classmethod
     def deserialize(cls, data: dict[str, Any]) -> "LoxoneAdapter":
         payload = dict(data or {})
         payload.setdefault("source_uuid", payload.get("uuid", ""))
-        payload.setdefault("source_name", payload.get("visu_name", payload.get("name", "")))
+        payload.setdefault("source_io", payload.get("source_io", payload.get("io_address", "")))
+        payload.setdefault("source_name", payload.get("source_name", payload.get("visu_name", payload.get("name", ""))))
+        payload.setdefault("source_room", payload.get("source_room", payload.get("room", "")))
+        payload.setdefault("source_category", payload.get("source_category", payload.get("control_type", payload.get("category", payload.get("type", "")))))
+        if "source_enabled" not in payload and any(
+            str(payload.get(field, "") or "").strip()
+            for field in ("source_uuid", "source_io", "source_name", "uuid", "io_address", "visu_name")
+        ):
+            payload["source_enabled"] = payload.get("enabled", True)
         payload.setdefault("target_uuid", payload.get("target_uuid", ""))
         payload.setdefault("target_name", payload.get("target_name", ""))
         payload.setdefault("target_room", payload.get("target_room", payload.get("room", "")))
         payload.setdefault("target_category", payload.get("target_category", payload.get("category", "")))
         payload.setdefault("target_type", payload.get("target_type", payload.get("control_type", payload.get("type", ""))))
+        if "target_enabled" not in payload and "active" in payload:
+            payload["target_enabled"] = payload.get("active", False)
+        if "target_enabled" not in payload and payload.get("target_uuid"):
+            payload["target_enabled"] = payload.get("enabled", True)
+        if "active" not in payload and "target_enabled" in payload:
+            payload["active"] = payload.get("target_enabled", False)
         adapter = super().deserialize(payload)
         if not str(adapter.source_uuid or "").strip():
             adapter.source_uuid = str(adapter.uuid or "").strip()
+        if not str(adapter.source_io or "").strip():
+            adapter.source_io = str(adapter.io_address or "").strip()
         if not str(adapter.source_name or "").strip():
             adapter.source_name = str(adapter.visu_name or "").strip()
+        if not str(adapter.source_room or "").strip():
+            adapter.source_room = str(adapter.room or "").strip()
+        if not str(adapter.source_category or "").strip():
+            adapter.source_category = str(adapter.control_type or "").strip() or str(data.get("category", "") or "").strip() or str(data.get("type", "") or "").strip()
         if not str(adapter.target_room or "").strip():
             adapter.target_room = str(adapter.room or "").strip()
         if not str(adapter.target_category or "").strip():
@@ -108,6 +134,27 @@ class LoxoneAdapter(BaseAdapter):
             adapter.target_type = str(adapter.control_type or "").strip() or str(data.get("type", "") or "").strip()
         if str(adapter.uuid or "").strip() == "" and str(adapter.source_uuid or "").strip():
             adapter.uuid = str(adapter.source_uuid or "").strip()
+        if str(adapter.io_address or "").strip() == "" and str(adapter.source_io or "").strip():
+            adapter.io_address = str(adapter.source_io or "").strip()
+        if str(adapter.visu_name or "").strip() == "" and str(adapter.source_name or "").strip():
+            adapter.visu_name = str(adapter.source_name or "").strip()
+        if str(adapter.room or "").strip() == "" and str(adapter.source_room or "").strip():
+            adapter.room = str(adapter.source_room or "").strip()
+        if str(adapter.control_type or "").strip() == "" and str(adapter.source_category or "").strip():
+            adapter.control_type = str(adapter.source_category or "").strip()
+        if "source_enabled" in payload:
+            adapter.source_enabled = bool(payload.get("source_enabled", False))
+        if "target_enabled" in payload:
+            adapter.target_enabled = bool(payload.get("target_enabled", False))
+        adapter.active = bool(getattr(adapter, "active", False) or adapter.target_enabled)
+        if not adapter.source_enabled and (adapter.source_uuid or adapter.source_io or adapter.source_name):
+            adapter.source_enabled = True
+        if not str(adapter.target_uuid or "").strip():
+            adapter.target_enabled = False
+            adapter.active = bool(adapter.source_enabled)
+        if not adapter.target_enabled and str(adapter.target_uuid or "").strip():
+            adapter.target_enabled = True
+            adapter.active = True
         return adapter
 
 
@@ -175,7 +222,7 @@ def adapter_from_form(protocol: str, form_data: Any) -> BaseAdapter:
     protocol = str(protocol or "").strip().lower()
     payload = {
         "protocol": protocol,
-        "enabled": "enabled" in form_data,
+        "enabled": True if protocol == "loxone" else ("enabled" in form_data),
         "direction": form_data.get("direction", "both"),
         "datatype": form_data.get("datatype", "auto"),
     }
@@ -184,13 +231,18 @@ def adapter_from_form(protocol: str, form_data: Any) -> BaseAdapter:
         if field.name in payload:
             continue
         if field.name in form_data:
-            payload[field.name] = form_data.get(field.name, "")
+            if protocol == "loxone" and field.name == "target_enabled":
+                payload[field.name] = field.name in form_data
+            else:
+                payload[field.name] = form_data.get(field.name, "")
     if protocol == "mqtt":
         payload["retain"] = "retain" in form_data
         try:
             payload["qos"] = int(form_data.get("qos", 0) or 0)
         except (TypeError, ValueError):
             payload["qos"] = 0
+    if protocol == "loxone" and "target_enabled" not in payload:
+        payload["target_enabled"] = "target_enabled" in form_data
     return deserialize_adapter(payload)
 
 

@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import threading
 from datetime import datetime
 import json
 
@@ -10,6 +11,7 @@ from services import config
 mqtt2udp_last_seen = {}
 udp2mqtt_last_seen = {}
 udp_input_last_seen = {}
+_UDP_STOP_EVENT = threading.Event()
 
 DEFAULT_UDP_PRESETS = [
     {"port": "7000", "label": "Loxone UDP 7000"},
@@ -21,6 +23,18 @@ DEFAULT_UDP_PRESETS = [
 def _log(add_log_entry, message):
     if add_log_entry:
         add_log_entry(message)
+
+
+def request_udp_stop():
+    _UDP_STOP_EVENT.set()
+
+
+def reset_udp_stop():
+    _UDP_STOP_EVENT.clear()
+
+
+def is_udp_stop_requested():
+    return _UDP_STOP_EVENT.is_set()
 
 
 def parse_udp_input_message(text):
@@ -231,6 +245,7 @@ def handle_udp_to_mqtt(
 
 def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqtt_func, add_log_entry=None, update_last_seen=None):
     _log(add_log_entry, "UDP Input Funktion wurde aufgerufen")
+    sock = None
 
     try:
         udp_config = config.get("udp_input", {})
@@ -247,12 +262,20 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
             return
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1.0)
         sock.bind(("0.0.0.0", port))
 
         _log(add_log_entry, f"UDP Input lauscht auf Port {port}")
 
-        while True:
-            data, addr = sock.recvfrom(4096)
+        while not _UDP_STOP_EVENT.is_set():
+            try:
+                data, addr = sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except OSError as exc:
+                if _UDP_STOP_EVENT.is_set():
+                    break
+                raise
 
             text = data.decode("utf-8", errors="ignore").strip()
             _log(add_log_entry, f"UDP RX roh von {addr[0]}:{addr[1]} | {text}")
@@ -286,6 +309,11 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
 
     except Exception as exc:
         _log(add_log_entry, f"UDP Input Start/Runtime Fehler: {repr(exc)}")
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
 
 
 def load_udp_presets():

@@ -31,7 +31,7 @@ def start_bridge():
 
 @bp.route("/stop", methods=["POST"])
 def stop_bridge():
-    bridge_engine.request_bridge_stop(_core().runtime_context)
+    _core().request_gateway_stop_async()
     return redirect("/")
 
 

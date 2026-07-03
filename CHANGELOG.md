@@ -1,5 +1,25 @@
 # Changelog
 
+## 33.3.89
+
+- Externe MQTT-Broker bekommen jetzt eine entlastete Queue-Verarbeitung mit Rate-Limit fuer Queue-voll-Meldungen, plus Diagnosewerte fuer Queue, Drops, Verarbeitung und Worker-Status.
+- Der Gateway-Stop stoßt nun MQTT, UDP und KNX wirklich an, statt nur den UI-Status zu setzen; laufende Inputs werden nach Stop ignoriert.
+
+## 33.3.88
+
+- Externe MQTT-Broker laufen jetzt pro Broker mit eigenem Client, Queue-Worker und Auto-Reconnect mit Backoff weiter, statt nach einem Abbruch stehenzubleiben.
+- Im MQTT-Hub zeigt die neue Statusuebersicht Verbunden/Getrennt, letzte Connect-/Disconnect-Zeit, Reconnect-Aktivitaet und Subscription-Zahl pro Broker an.
+
+## 33.3.87
+
+- Die Loxone-Zielroute wird im Objektmanager jetzt auch dann als aktiv ausgewertet, wenn die Loxone-Verbindung aus der lokalen Config direkt gelesen wird.
+- Haupt-Routen und linke Infokachel zeigen Loxone-Ziele wieder sauber an, wenn Zielhaken, Ziel-UUID und Gateway-Konfiguration vorhanden sind.
+
+## 33.3.84
+
+- Im Loxone-Tab des Objektmanagers gibt es jetzt einen Haken fuer die Loxone-Zielroute; die Loxone-Quelle bleibt getrennt und MQTT/UDP/KNX -> Loxone nutzt das Ziel nur bei aktivem Zielhaken.
+- Ein deaktiviertes Loxone-Ziel bleibt gespeichert, wird aber im Routing-Status als nicht konfiguriert angezeigt.
+
 ## 33.3.83
 
 - Im Loxone-Tab des Objektmanagers gibt es jetzt eine Zielauswahl mit Suche und Filter fuer Name, Raum, Kategorie und Typ.
@@ -1173,3 +1193,6 @@
 - Config-, Mapping-, Monitor-, Backup-, MQTT-, UDP-, KNX-, Loxone-, Influx- und Objektmanager-Logik bleibt erhalten.
 - v32 Startpunkt `app/main.py` delegiert an den Legacy-Core.
 - Persistente Pfade werden auf `config/`, `data/` und `backups/` im v32-Projekt gesetzt.
+
+
+
