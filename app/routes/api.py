@@ -18,6 +18,14 @@ def _core():
     return current_app.extensions["app_core"]
 
 
+def _object_service():
+    try:
+        core = _core()
+        return getattr(core, "object_core_service", object_service)
+    except Exception:
+        return object_service
+
+
 def _reload_object_routes():
     try:
         core = _core()
@@ -60,7 +68,7 @@ def _sync_object_live_from_core():
                     break
             if value in (None, ""):
                 continue
-            object_service.record_live_value(
+            _object_service().record_live_value(
                 "loxone",
                 value,
                 loxone_uuid=uuid,
@@ -72,19 +80,19 @@ def _sync_object_live_from_core():
     try:
         for info in getattr(core, "get_mqtt_monitor_values", lambda: {})().values():
             if isinstance(info, dict):
-                object_service.record_live_value("mqtt", info.get("payload"), topic=info.get("topic", ""), timestamp=info.get("timestamp", info.get("time", "")))
+                _object_service().record_live_value("mqtt", info.get("payload"), topic=info.get("topic", ""), timestamp=info.get("timestamp", info.get("time", "")))
     except Exception:
         current_app.logger.exception("Object live MQTT sync failed")
     try:
         for ga, info in getattr(core, "get_knx_monitor_values", lambda: {})().items():
             if isinstance(info, dict):
-                object_service.record_live_value("knx", info.get("value"), group_address=info.get("ga", ga), timestamp=info.get("timestamp", info.get("time", "")))
+                _object_service().record_live_value("knx", info.get("value"), group_address=info.get("ga", ga), timestamp=info.get("timestamp", info.get("time", "")))
     except Exception:
         current_app.logger.exception("Object live KNX sync failed")
     try:
         for topic, info in getattr(core, "get_udp_last_seen", lambda kind: {})("udp2mqtt").items():
             if isinstance(info, dict):
-                object_service.record_live_value("udp", info.get("value"), udp_topic=topic, timestamp=info.get("timestamp", info.get("time", "")))
+                _object_service().record_live_value("udp", info.get("value"), udp_topic=topic, timestamp=info.get("timestamp", info.get("time", "")))
     except Exception:
         current_app.logger.exception("Object live UDP sync failed")
 
@@ -126,15 +134,42 @@ def api_objects_get(object_id):
 @bp.route("/api/objects/live")
 def api_objects_live():
     _sync_object_live_from_core()
-    return jsonify({"objects": object_service.list_object_live_status()})
+    service = _object_service()
+    objects = service.list_object_live_status()
+    for payload in objects:
+        object_id = str((payload or {}).get("object_id", "") or "").strip()
+        if not object_id:
+            continue
+        item = service.get_object(object_id)
+        memory_live_state = dict(getattr(service, "OBJECT_LIVE_CACHE", {}).get(object_id) or {})
+        current_app.logger.info(
+            "LIVE TAB DEBUG object_id=%s memory_live_state=%s object.live_value=%s object.last_value=%s return=%s",
+            object_id,
+            memory_live_state,
+            getattr(item, "live_value", None) if item is not None else None,
+            getattr(item, "last_value", None) if item is not None else None,
+            payload,
+        )
+    return jsonify({"objects": objects})
 
 
 @bp.route("/api/objects/<object_id>/live")
 def api_objects_live_get(object_id):
     _sync_object_live_from_core()
-    live = object_service.get_object_live_status(object_id)
+    service = _object_service()
+    live = service.get_object_live_status(object_id)
     if live is None:
         return jsonify({"success": False, "error": "object_not_found"}), 404
+    item = service.get_object(object_id)
+    memory_live_state = dict(getattr(service, "OBJECT_LIVE_CACHE", {}).get(str(object_id or "").strip()) or {})
+    current_app.logger.info(
+        "LIVE TAB DEBUG object_id=%s memory_live_state=%s object.live_value=%s object.last_value=%s return=%s",
+        object_id,
+        memory_live_state,
+        getattr(item, "live_value", None) if item is not None else None,
+        getattr(item, "last_value", None) if item is not None else None,
+        live,
+    )
     return jsonify(live)
 
 

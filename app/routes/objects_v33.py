@@ -7,6 +7,7 @@ import threading
 from flask import Blueprint, current_app, redirect, render_template, request, url_for
 
 try:
+    from app.models.object_model import GatewayObject
     from app.services.object_adapter_engine import (
         ADAPTER_TYPES,
         adapter_from_form,
@@ -16,6 +17,7 @@ try:
     from app.services import object_service
     from app.services.object_routing_preview import build_object_routing_preview
 except ModuleNotFoundError:
+    from models.object_model import GatewayObject
     from services.object_adapter_engine import (
         ADAPTER_TYPES,
         adapter_from_form,
@@ -123,24 +125,76 @@ def _route_status(object_def):
 def _current_source_label(object_def):
     try:
         report = object_service.get_object_route_report(object_def) or {}
+        live_source = str(report.get("current_source") or "").strip().lower()
+        if not live_source:
+            live_source = str(getattr(object_def, "source_protocol", "") or getattr(object_def, "input_protocol", "") or "").strip().lower()
     except Exception:
         return "unbekannt"
-    value = str(report.get("current_source") or "unbekannt").strip().lower()
+    if not live_source or live_source == "unbekannt":
+        return "unbekannt"
     return {
         "loxone": "Loxone",
         "mqtt": "MQTT",
         "udp": "UDP",
         "knx": "KNX",
         "influx": "Influx",
-    }.get(value, "unbekannt")
+    }.get(live_source, "unbekannt")
 
 
 def _current_source_address(object_def):
     try:
         report = object_service.get_object_route_report(object_def) or {}
+        live_source = str(report.get("current_source") or "").strip().lower()
+        live_address = str(report.get("current_source_address") or "").strip()
+        if live_address:
+            return live_address
     except Exception:
         return ""
-    return str(report.get("current_source_address") or "").strip()
+    if not live_source or live_source == "unbekannt":
+        return ""
+    return ""
+
+
+def _selected_source_type(object_def) -> str:
+    try:
+        report = object_service.get_object_route_report(object_def) or {}
+        live_source = str(report.get("current_source") or "").strip().lower()
+        if not live_source:
+            live = object_service.get_object_live_status(getattr(object_def, "id", "")) or {}
+            live_source = str(
+                live.get("display_source")
+                or live.get("input_protocol")
+                or live.get("source_protocol")
+                or live.get("last_source")
+                or live.get("current_source")
+                or live.get("source")
+                or live.get("original_source")
+                or ""
+            ).strip().lower()
+        if live_source in ADAPTER_TYPES:
+            return live_source
+        source = str(report.get("current_source") or "").strip().lower()
+        if source in ADAPTER_TYPES:
+            return source
+    except Exception:
+        pass
+    return "unbekannt"
+
+
+def _blank_object_draft(source_type: str = "mqtt") -> GatewayObject:
+    adapters = {}
+    for protocol in ("mqtt", "udp", "knx", "loxone", "influx"):
+        adapters[protocol] = ADAPTER_TYPES[protocol](enabled=False)
+    draft = GatewayObject(
+        id="",
+        name="",
+        datatype="auto",
+        unit="",
+        enabled=True,
+        meta={"adapters": adapters},
+    )
+    setattr(draft, "_selected_source_type", str(source_type or "mqtt").strip().lower() or "mqtt")
+    return draft
 
 
 def _reload_object_routes():
@@ -450,6 +504,14 @@ def _object_from_prefill():
         topic = _request_first("topic", "source_address", "source_topic")
         if topic:
             payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, _datatype_from_request(), True, "both", json_key=json_key).serialize()
+    elif explorer == "udp" or source_type == "udp":
+        adapter = _udp_adapter_from_request(datatype)
+        if str(getattr(adapter, "udp_topic", "") or "").strip() or str(getattr(adapter, "listen_port", "") or "").strip() or str(getattr(adapter, "source_host", "") or "").strip():
+            payload["udp"] = adapter.serialize()
+            if not payload["category"]:
+                payload["category"] = "UDP"
+            if not payload["unit"]:
+                payload["unit"] = _clean_prefill(request.args.get("unit", ""))
     elif source_type in ADAPTER_TYPES and source_address:
         payload[source_type] = _adapter_for_core_fields(source_type, source_address, _datatype_from_request(), True, "both").serialize()
     return payload
@@ -491,11 +553,47 @@ def _loxone_adapter_from_request(datatype: str):
     )
 
 
+def _udp_adapter_from_request(datatype: str):
+    source_host = _request_first("udp_source_host", "source_host", "udp_host", "sender_host")
+    source_port = _request_first("udp_source_port", "source_port", "udp_sender_port", "sender_port")
+    listen_port = _request_first("udp_listen_port", "listen_port", "udp_port", "port")
+    source_topic = _request_first("source_topic", "udp_source_topic", "topic", "udp_path", "path", "name")
+    source_json_path = _request_first("source_json_path", "udp_source_json_path", "json_key")
+    source_payload_mode = _request_first("source_payload_mode", "udp_source_payload_mode") or "value"
+    source_enabled = _request_bool("source_enabled", default=False)
+    target_enabled = _request_bool("target_enabled", default=False)
+    target_host = _request_first("target_host", "udp_target_host", "target_ip", "udp_target_ip")
+    target_port = _request_first("target_port", "udp_target_port")
+    target_topic = _request_first("udp_topic", "target_topic", "topic", "udp_path", "path", "name")
+    target_payload_mode = _request_first("target_payload_mode", "udp_target_payload_mode", "payload_mode") or "topic_value"
+    return ADAPTER_TYPES["udp"](
+        enabled=True,
+        direction="both" if source_enabled and target_enabled else ("in" if source_enabled else "out"),
+        datatype=datatype or "auto",
+        source_enabled=source_enabled,
+        source_host=source_host,
+        source_port=source_port,
+        listen_port=listen_port,
+        source_payload_mode=source_payload_mode,
+        source_topic=source_topic,
+        source_json_path=source_json_path,
+        target_enabled=target_enabled,
+        target_host=target_host,
+        target_ip=target_host,
+        target_port=target_port,
+        udp_topic=target_topic,
+        target_payload_mode=target_payload_mode,
+        payload_mode=target_payload_mode,
+        format="",
+    )
+
+
 def _object_payload_from_explorer() -> dict:
     explorer = _clean_prefill(request.args.get("explorer", "")).lower()
     source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "").lower()
     if not explorer:
         explorer = source_type or "mqtt"
+    mode = _clean_prefill(request.args.get("mode", request.args.get("payload_mode", request.args.get("source_payload_mode", "")))).lower()
 
     display_name = _clean_prefill(request.args.get("name", request.args.get("display_name", "")))
     fallback_name = (
@@ -533,6 +631,30 @@ def _object_payload_from_explorer() -> dict:
             payload["mqtt"] = _adapter_for_core_fields("mqtt", topic, datatype, True, "both", json_key=json_key).serialize()
             if not payload["category"]:
                 payload["category"] = "MQTT"
+    elif explorer == "udp" or source_type == "udp":
+        adapter = _udp_adapter_from_request(datatype)
+        if mode != "json":
+            if hasattr(adapter, "source_json_path"):
+                adapter.source_json_path = ""
+        if (
+            str(getattr(adapter, "source_topic", "") or "").strip()
+            or str(getattr(adapter, "source_json_path", "") or "").strip()
+            or str(getattr(adapter, "listen_port", "") or "").strip()
+            or str(getattr(adapter, "target_host", "") or "").strip()
+            or str(getattr(adapter, "target_port", "") or "").strip()
+            or str(getattr(adapter, "udp_topic", "") or "").strip()
+        ):
+            payload["udp"] = adapter.serialize()
+            payload["source_type"] = "udp"
+            payload["source_address"] = (
+                str(getattr(adapter, "source_topic", "") or "").strip()
+                or str(getattr(adapter, "listen_port", "") or "").strip()
+                or str(getattr(adapter, "source_json_path", "") or "").strip()
+            )
+            if not payload["category"]:
+                payload["category"] = "UDP"
+            if not payload["unit"]:
+                payload["unit"] = _clean_prefill(request.args.get("unit", ""))
 
     return payload
 
@@ -564,6 +686,9 @@ def _objects_index_redirect(object_id: str = "", tab: str = "general", notice: s
 
 
 def _detail_context(selected, selected_tab: str = "general", notice: str = "", errors=None, is_new: bool | None = None):
+    selected_source_type = _selected_source_type(selected) if selected else "unbekannt"
+    if selected is not None and hasattr(selected, "_selected_source_type"):
+        selected_source_type = str(getattr(selected, "_selected_source_type", "unbekannt") or "unbekannt").strip().lower() or "unbekannt"
     return {
         "selected": selected,
         "selected_adapters": _ensure_known_adapters(selected) if selected else [],
@@ -579,6 +704,7 @@ def _detail_context(selected, selected_tab: str = "general", notice: str = "", e
         "route_status": _route_status,
         "current_source_label": _current_source_label,
         "current_source_address": _current_source_address,
+        "selected_source_type": selected_source_type,
     }
 
 
@@ -611,13 +737,14 @@ def objects_v33_new():
         return redirect(url_for("objects_v33.objects_v33_create_from_explorer", **request.args.to_dict(flat=True)))
 
     objects = _filtered_objects("", "all")
+    source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or "mqtt").lower()
     return render_template(
         "objects_v33/list.html",
         objects=objects,
         visible_count=len(objects),
         query="",
         active_filter="all",
-        **_detail_context(None, "general", request.args.get("notice", ""), errors=[], is_new=True),
+        **_detail_context(_blank_object_draft(source_type), "general", request.args.get("notice", ""), errors=[], is_new=True),
     )
 
 
@@ -785,6 +912,7 @@ def objects_v33_edit(object_uuid):
 @bp.route("/objects_v33/save", methods=["POST"])
 def objects_v33_save():
     object_uuid = request.form.get("uuid", "").strip()
+    source_type = request.form.get("source_type", "").strip().lower()
     payload = {
         "id": object_uuid,
         "name": request.form.get("name", "").strip(),
@@ -796,7 +924,58 @@ def objects_v33_save():
         "category": request.form.get("category", "").strip(),
         "icon": request.form.get("icon", "").strip(),
         "scaling": request.form.get("scaling", "").strip(),
+        "source_type": request.form.get("source_type", "").strip(),
+        "source_address": request.form.get("source_address", "").strip(),
     }
+    if source_type == "udp" or any(
+        str(request.form.get(field, "") or "").strip()
+        for field in (
+            "udp_source_host",
+            "source_host",
+            "udp_host",
+            "sender_host",
+            "udp_source_port",
+            "source_port",
+            "udp_sender_port",
+            "sender_port",
+            "udp_listen_port",
+            "listen_port",
+            "udp_port",
+            "port",
+            "source_topic",
+            "udp_source_topic",
+            "topic",
+            "udp_path",
+            "path",
+            "source_json_path",
+            "udp_source_json_path",
+            "udp_topic",
+            "target_topic",
+            "target_host",
+            "udp_target_host",
+            "target_ip",
+            "udp_target_ip",
+            "target_port",
+            "udp_target_port",
+        )
+    ):
+        udp_adapter = _udp_adapter_from_request(payload["datatype"])
+        if (
+            str(getattr(udp_adapter, "source_topic", "") or "").strip()
+            or str(getattr(udp_adapter, "source_json_path", "") or "").strip()
+            or str(getattr(udp_adapter, "listen_port", "") or "").strip()
+            or str(getattr(udp_adapter, "target_host", "") or "").strip()
+            or str(getattr(udp_adapter, "target_port", "") or "").strip()
+            or str(getattr(udp_adapter, "udp_topic", "") or "").strip()
+        ):
+            payload["udp"] = udp_adapter.serialize()
+            payload["source_type"] = "udp"
+            payload["source_address"] = (
+                str(getattr(udp_adapter, "source_topic", "") or "").strip()
+                or str(getattr(udp_adapter, "listen_port", "") or "").strip()
+                or str(getattr(udp_adapter, "source_json_path", "") or "").strip()
+                or str(getattr(udp_adapter, "udp_topic", "") or "").strip()
+            )
     try:
         if object_uuid:
             object_def = object_service.update_object(object_uuid, payload)

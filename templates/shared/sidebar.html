@@ -19,6 +19,9 @@
     <a class="mp-nav-link {{ 'active' if active == 'objects_v33' else '' }}" href="/objects_v33" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Objektmanager V33</a>
     <a class="mp-nav-link {{ 'active' if active == 'knx' else '' }}" href="/knx" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>KNX</a>
     <a class="mp-nav-link {{ 'active' if active == 'knx_monitor' else '' }}" href="/knx_monitor" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>KNX Monitor</a>
+    <div class="mp-nav-group-title">UDP Hub</div>
+    <a class="mp-nav-link {{ 'active' if active == 'udp_explorer' else '' }}" href="/udp_explorer" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>UDP Explorer</a>
+    <a class="mp-nav-link {{ 'active' if active == 'udp_monitor' else '' }}" href="/udp_monitor" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>UDP Monitor</a>
     <a class="mp-nav-link {{ 'active' if active == 'global_search' else '' }}" href="{{ '/global_search' if iframe_shell else '/global_search_page' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Suche</a>
     <a class="mp-nav-link {{ 'active' if active == 'conflict_scanner' else '' }}" href="{{ '/conflicts' if iframe_shell else '/conflicts_page' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Konfig pr&uuml;fen</a>
     <a class="mp-nav-link {{ 'active' if active == 'influx_explorer' else '' }}" href="/influx_explorer" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Influx Explorer</a>

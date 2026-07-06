@@ -338,18 +338,41 @@ def _apply_udp_default_topic(item: GatewayObject, create_missing: bool = False) 
         if protocol:
             adapters[protocol] = adapter
     udp_adapter = adapters.get("udp")
-    if udp_adapter is not None and str(getattr(udp_adapter, "udp_topic", "") or "").strip():
+    if udp_adapter is not None and (
+        str(getattr(udp_adapter, "udp_topic", "") or "").strip()
+        or str(getattr(udp_adapter, "target_topic", "") or "").strip()
+    ):
         return
     default_topic = f"{str(item.name or '').strip()}/value" if str(item.name or "").strip() else ""
     if not default_topic:
         return
+    target_fields_present = bool(
+        udp_adapter is not None
+        and (
+            str(getattr(udp_adapter, "target_enabled", "") or "").strip()
+            or str(getattr(udp_adapter, "target_host", "") or "").strip()
+            or str(getattr(udp_adapter, "target_ip", "") or "").strip()
+            or str(getattr(udp_adapter, "target_port", "") or "").strip()
+        )
+    )
+    if not target_fields_present and udp_adapter is not None and any(
+        str(getattr(udp_adapter, field, "") or "").strip()
+        for field in ("source_enabled", "listen_port", "source_topic", "source_json_path", "source_host", "source_port")
+    ):
+        return
     if udp_adapter is None:
         if not create_missing:
             return
-        udp_adapter = ADAPTER_TYPES["udp"](enabled=False, direction="out", datatype=item.datatype or "auto")
+        udp_adapter = ADAPTER_TYPES["udp"](enabled=False, direction="out", datatype=item.datatype or "auto", target_enabled=True)
+    udp_adapter.target_enabled = True
     udp_adapter.udp_topic = default_topic
-    udp_adapter.payload_mode = str(getattr(udp_adapter, "payload_mode", "") or "topic_value") or "topic_value"
-    if str(getattr(udp_adapter, "format", "") or "").strip() not in {"text", "topic_value", "value_only", "json", "json_number"}:
+    udp_adapter.target_payload_mode = str(getattr(udp_adapter, "target_payload_mode", "") or "topic_value") or "topic_value"
+    udp_adapter.payload_mode = udp_adapter.target_payload_mode
+    if not str(getattr(udp_adapter, "target_host", "") or "").strip() and str(getattr(udp_adapter, "target_ip", "") or "").strip():
+        udp_adapter.target_host = str(getattr(udp_adapter, "target_ip", "") or "").strip()
+    if not str(getattr(udp_adapter, "target_ip", "") or "").strip() and str(getattr(udp_adapter, "target_host", "") or "").strip():
+        udp_adapter.target_ip = str(getattr(udp_adapter, "target_host", "") or "").strip()
+    if not str(getattr(udp_adapter, "format", "") or "").strip():
         udp_adapter.format = ""
     adapters["udp"] = udp_adapter
     item.adapters = [adapters[protocol] for protocol in ("mqtt", "udp", "knx", "loxone", "influx") if protocol in adapters]
@@ -447,7 +470,18 @@ def _legacy_adapter_payload(protocol: str, address: str, datatype: str, directio
         payload["uuid"] = address
         payload["io_address"] = address
     elif protocol == "udp":
-        payload["format"] = address
+        if direction == "in":
+            payload["source_enabled"] = True
+            payload["listen_port"] = address
+            payload["source_topic"] = address
+            payload["source_payload_mode"] = "value"
+        else:
+            payload["target_enabled"] = True
+            payload["udp_topic"] = address
+            payload["target_host"] = ""
+            payload["target_port"] = ""
+            payload["target_payload_mode"] = "topic_value"
+            payload["payload_mode"] = "topic_value"
     elif protocol == "influx":
         payload["measurement"] = address
     return payload
@@ -550,18 +584,41 @@ def _endpoint_index_key(protocol: str, value: Any) -> str:
 
 def _json_path_lookup(data: Any, key_path: str) -> Any:
     current = data
-    for part in [segment for segment in str(key_path or "").strip().split(".") if segment]:
-        if isinstance(current, dict):
-            if part not in current:
-                return None
-            current = current[part]
-            continue
-        if isinstance(current, list) and part.isdigit():
-            index = int(part)
-            if 0 <= index < len(current):
-                current = current[index]
+    path = str(key_path or "").strip().replace(".", "/")
+    if not path:
+        return current
+    segments = [segment for segment in path.split("/") if segment]
+    for segment in segments:
+        while segment:
+            if isinstance(current, dict):
+                match = re.match(r"^([^\[\]]+)(.*)$", segment)
+                if not match:
+                    return None
+                key = match.group(1)
+                remainder = match.group(2) or ""
+                if key not in current:
+                    return None
+                current = current[key]
+                segment = remainder
                 continue
-        return None
+            if isinstance(current, list):
+                match = re.match(r"^\[(\d+)\](.*)$", segment)
+                if not match:
+                    if segment.isdigit():
+                        index = int(segment)
+                        if 0 <= index < len(current):
+                            current = current[index]
+                            segment = ""
+                            continue
+                    return None
+                index = int(match.group(1))
+                remainder = match.group(2) or ""
+                if 0 <= index < len(current):
+                    current = current[index]
+                    segment = remainder
+                    continue
+                return None
+            return None
     return current
 
 
@@ -595,9 +652,25 @@ def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
             if ga:
                 keys.append(_endpoint_index_key("knx_ga", ga))
         elif protocol == "udp":
-            udp_topic = _normalize_match_value(_adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format"))
-            if udp_topic:
-                keys.append(_endpoint_index_key("udp_topic", udp_topic))
+            source_topic = _normalize_match_value(_adapter_value(adapter, "source_topic") or _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format"))
+            source_json_path = _normalize_match_value(_adapter_value(adapter, "source_json_path"))
+            listen_port = _normalize_match_value(_adapter_value(adapter, "listen_port"))
+            source_host = _normalize_match_value(_adapter_value(adapter, "source_host"))
+            source_port = _normalize_match_value(_adapter_value(adapter, "source_port"))
+            target_topic = _normalize_match_value(_adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "target_topic") or _adapter_value(adapter, "format"))
+            if source_topic:
+                keys.append(_endpoint_index_key("udp_source_topic", source_topic))
+                keys.append(_endpoint_index_key("udp_topic", source_topic))
+            if source_json_path:
+                keys.append(_endpoint_index_key("udp_source_json_path", source_json_path))
+            if listen_port:
+                keys.append(_endpoint_index_key("udp_listen_port", listen_port))
+            if source_host:
+                keys.append(_endpoint_index_key("udp_source_host", source_host))
+            if source_port:
+                keys.append(_endpoint_index_key("udp_source_port", source_port))
+            if target_topic:
+                keys.append(_endpoint_index_key("udp_topic", target_topic))
     return [key for key in keys if key]
 
 
@@ -729,8 +802,33 @@ def toggle_object(object_id: str, enabled: bool) -> GatewayObject | None:
 
 def serialize_object(item: GatewayObject) -> dict[str, Any]:
     payload = _object_to_dict(item)
-    payload["route_status"] = get_object_route_status(item)
-    payload["route_report"] = get_object_route_report(item)
+    route_report = get_object_route_report(item)
+    display_source = str(route_report.get("current_source") or "").strip().lower()
+    live = dict(get_object_live_status(item.id) or _live_empty(item))
+    payload["live"] = live
+    payload["live_value"] = live.get("live_value")
+    payload["last_value"] = live.get("last_value")
+    payload["last_source"] = live.get("last_source")
+    payload["source_protocol"] = live.get("source_protocol")
+    payload["input_protocol"] = live.get("input_protocol")
+    payload["last_target"] = live.get("last_target")
+    payload["target_protocol"] = live.get("target_protocol")
+    payload["output_protocol"] = live.get("output_protocol")
+    payload["last_update"] = live.get("last_update")
+    payload["display_source"] = display_source or "unbekannt"
+    payload["route_source"] = display_source or "unbekannt"
+    payload["route_sources"] = sorted({
+        str(route.get("source") or "").strip().lower()
+        for route in (route_report.get("main_routes") or [])
+        if isinstance(route, dict) and str(route.get("source") or "").strip()
+    })
+    payload["route_targets"] = sorted({
+        str(route.get("target") or "").strip().lower()
+        for route in (route_report.get("main_routes") or [])
+        if isinstance(route, dict) and str(route.get("target") or "").strip()
+    })
+    payload["route_status"] = route_report.get("status") or get_object_route_status(item)
+    payload["route_report"] = route_report
     return payload
 
 
@@ -738,17 +836,31 @@ def _live_empty(item: GatewayObject | None, object_id: str = "") -> dict[str, An
     resolved_id = str(getattr(item, "id", "") or object_id or "").strip()
     return {
         "object_id": resolved_id,
+        "live_value": None,
         "value": None,
+        "last_value": None,
         "unit": str(getattr(item, "unit", "") or ""),
         "source": "unbekannt",
+        "adapter": "unbekannt",
         "original_source": "unbekannt",
+        "source_protocol": "unbekannt",
+        "last_source": "unbekannt",
+        "current_source": "unbekannt",
+        "input_protocol": "unbekannt",
+        "last_target": "",
+        "target_protocol": "",
+        "output_protocol": "",
         "source_address": "",
         "recognized_endpoint": "",
+        "endpoint": "",
         "timestamp": "",
+        "updated_at": "",
+        "last_update": "",
         "targets": [],
         "last_target_adapter": "",
         "last_target_adapters": [],
         "status": "unbekannt",
+        "live_status": "unbekannt",
     }
 
 
@@ -761,6 +873,32 @@ def _live_targets(item: GatewayObject, source: str) -> list[str]:
         if _is_enabled_adapter(adapter):
             targets.append(protocol)
     return sorted(set(targets))
+
+
+def _configured_input_source(item: GatewayObject) -> tuple[str | None, Any | None, dict[str, Any]]:
+    adapters = _adapter_map(item)
+    for protocol in ("loxone", "udp", "mqtt", "knx"):
+        adapter = adapters.get(protocol)
+        if adapter is None or not _is_complete_endpoint(protocol, adapter):
+            continue
+        if protocol == "loxone" and not _loxone_source_route_active(adapter):
+            continue
+        if protocol == "udp" and not _udp_source_route_active(adapter):
+            continue
+        if protocol == "mqtt":
+            direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
+            if direction not in {"in", "both"}:
+                continue
+            if not _adapter_value(adapter, "topic"):
+                continue
+        if protocol == "knx":
+            direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
+            if direction not in {"in", "both"}:
+                continue
+            if not _adapter_value(adapter, "group_address"):
+                continue
+        return protocol, adapter, adapters
+    return None, None, adapters
 
 
 def _live_unit(item: GatewayObject, source: str = "") -> str:
@@ -804,8 +942,32 @@ def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: An
         ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
         return bool(ga and _normalize_match_value(_adapter_value(adapter, "group_address")) == ga)
     if source == "udp":
-        topic = _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
-        return bool(topic and _normalize_match_value(_adapter_value(adapter, "format")) == topic)
+        topic = _normalize_match_value(endpoint.get("source_topic") or endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
+        json_path = _normalize_match_value(endpoint.get("source_json_path") or endpoint.get("json_key") or endpoint.get("path"))
+        sender_host = _normalize_match_value(endpoint.get("udp_source_host") or endpoint.get("source_host"))
+        sender_port = _normalize_match_value(endpoint.get("udp_source_port") or endpoint.get("source_port"))
+        listen_port = _normalize_match_value(endpoint.get("udp_listen_port") or endpoint.get("listen_port"))
+        adapter_topic = _normalize_match_value(_udp_source_topic(adapter))
+        adapter_json_path = _normalize_match_value(_udp_source_json_path(adapter))
+        adapter_source_host = _normalize_match_value(_adapter_value(adapter, "source_host"))
+        adapter_source_port = _normalize_match_value(_adapter_value(adapter, "source_port"))
+        adapter_listen_port = _normalize_match_value(_adapter_value(adapter, "listen_port"))
+        topic_match = bool(topic and adapter_topic and adapter_topic == topic)
+        json_path_match = bool(json_path and adapter_json_path and adapter_json_path == json_path)
+        host_ok = bool(not adapter_source_host or (sender_host and sender_host == adapter_source_host))
+        sender_port_ok = bool(not adapter_source_port or (sender_port and sender_port == adapter_source_port))
+        listen_port_ok = bool(not adapter_listen_port or (listen_port and listen_port == adapter_listen_port))
+        if adapter_topic or adapter_json_path:
+            return bool((topic_match or json_path_match) and host_ok and sender_port_ok and listen_port_ok)
+        return bool(
+            host_ok
+            and sender_port_ok
+            and (
+                (listen_port and adapter_listen_port and listen_port == adapter_listen_port)
+                or (sender_host and adapter_source_host and sender_host == adapter_source_host)
+                or (sender_port and adapter_source_port and sender_port == adapter_source_port)
+            )
+        )
     return False
 
 
@@ -831,15 +993,31 @@ def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str
         ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
         return [("knx_ga", ga, "knx.group_address")]
     if source == "udp":
-        udp_topic = _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
-        return [("udp_topic", udp_topic, "udp.topic")]
+        udp_topic = _normalize_match_value(endpoint.get("source_topic") or endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
+        source_json_path = _normalize_match_value(endpoint.get("source_json_path") or endpoint.get("json_key") or endpoint.get("path"))
+        udp_source_host = _normalize_match_value(endpoint.get("udp_source_host") or endpoint.get("source_host"))
+        udp_source_port = _normalize_match_value(endpoint.get("udp_source_port") or endpoint.get("source_port"))
+        udp_listen_port = _normalize_match_value(endpoint.get("udp_listen_port") or endpoint.get("listen_port"))
+        candidates = [("udp_source_topic", udp_topic, "udp.source_topic")]
+        if udp_topic:
+            candidates.append(("udp_topic", udp_topic, "udp.topic"))
+        if source_json_path:
+            candidates.append(("udp_source_json_path", source_json_path, "udp.source_json_path"))
+        if udp_source_host:
+            candidates.append(("udp_source_host", udp_source_host, "udp.source_host"))
+        if udp_source_port:
+            candidates.append(("udp_source_port", udp_source_port, "udp.source_port"))
+        if udp_listen_port:
+            candidates.append(("udp_listen_port", udp_listen_port, "udp.listen_port"))
+        return candidates
     return [
         ("loxone_uuid", _normalize_uuid_value(endpoint.get("loxone_uuid") or endpoint.get("uuid") or endpoint.get("source_uuid")), "loxone.uuid"),
         ("loxone_io", _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name") or endpoint.get("source_name")), "loxone.io_address"),
         ("mqtt_topic", _normalize_match_value(endpoint.get("topic")), "mqtt.topic"),
         ("mqtt_json_key", _normalize_match_value(endpoint.get("topic") and endpoint.get("json_key") and f"{endpoint.get('topic')}/{endpoint.get('json_key')}"), "mqtt.topic/json_key"),
         ("knx_ga", _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga")), "knx.group_address"),
-        ("udp_topic", _normalize_match_value(endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format")), "udp.topic"),
+        ("udp_source_topic", _normalize_match_value(endpoint.get("source_topic") or endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format")), "udp.source_topic"),
+        ("udp_source_json_path", _normalize_match_value(endpoint.get("source_json_path") or endpoint.get("json_key") or endpoint.get("path")), "udp.source_json_path"),
     ]
 
 
@@ -873,6 +1051,15 @@ def _live_debug_snapshot(item: GatewayObject) -> dict[str, Any]:
         "udp": {
             "address": _endpoint_address("udp", udp) if udp else "",
             "format": _adapter_value(udp, "format") if udp else "",
+            "source_topic": _udp_source_topic(udp) if udp else "",
+            "source_json_path": _udp_source_json_path(udp) if udp else "",
+            "source_host": _adapter_value(udp, "source_host") if udp else "",
+            "source_port": _adapter_value(udp, "source_port") if udp else "",
+            "listen_port": _adapter_value(udp, "listen_port") if udp else "",
+            "target_topic": _udp_target_topic(udp) if udp else "",
+            "target_host": _adapter_value(udp, "target_host") if udp else "",
+            "target_ip": _adapter_value(udp, "target_ip") if udp else "",
+            "target_port": _adapter_value(udp, "target_port") if udp else "",
         },
     }
 
@@ -895,6 +1082,8 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
             continue
         for item in index.get(key, []):
             if item.id in seen_ids:
+                continue
+            if not _object_matches_live_source(item, incoming_source, **endpoint):
                 continue
             seen_ids.add(item.id)
             matched_items.append((item, raw_value, endpoint_name))
@@ -928,13 +1117,45 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
             item_value = extracted
             item_source_address = f"{source_address}/{mqtt_json_key}" if source_address else mqtt_json_key
             item_recognized_endpoint = f"{recognized_endpoint} / {mqtt_json_key}"
+        udp_adapter = adapters.get("udp")
+        udp_source_json_path = _normalize_match_value(_udp_source_json_path(udp_adapter)) if udp_adapter else ""
+        udp_source_mode = _normalize_match_value(_udp_source_payload_mode(udp_adapter)) if udp_adapter else ""
+        if incoming_source == "udp" and udp_source_mode == "json" and udp_source_json_path:
+            udp_payload = endpoint.get("json_data")
+            if udp_payload is None:
+                udp_payload = endpoint.get("payload_raw")
+            if udp_payload is None:
+                udp_payload = value
+            if isinstance(udp_payload, str):
+                try:
+                    udp_payload = json.loads(udp_payload)
+                except Exception:
+                    try:
+                        udp_payload = json.loads(udp_payload.strip())
+                    except Exception:
+                        pass
+            extracted = _json_path_lookup(udp_payload, udp_source_json_path)
+            if extracted is None:
+                LOGGER.warning(
+                    "JSON path not found object_id=%s source_json_path=%s value=%s payload_type=%s",
+                    item.id,
+                    udp_source_json_path,
+                    value,
+                    type(udp_payload).__name__,
+                )
+                continue
+            item_value = extracted
+            item_source_address = f"{source_address}/{udp_source_json_path}" if source_address else udp_source_json_path
+            item_recognized_endpoint = f"{recognized_endpoint} / {udp_source_json_path}"
+        previous_source = str(previous.get("source_protocol") or previous.get("last_source") or previous.get("original_source") or previous.get("source") or "").lower()
         if (
             incoming_source == "mqtt"
-            and str(previous.get("original_source") or previous.get("source") or "").lower() == "loxone"
+            and previous_source
+            and previous_source != "mqtt"
             and str(previous.get("value")) == str(item_value)
-            and "mqtt" in (previous.get("targets") or _live_targets(item, "loxone"))
+            and "mqtt" in (previous.get("targets") or _live_targets(item, previous_source))
         ):
-            stored_source = "loxone"
+            stored_source = previous_source
             ignored_echo = True
             skip_update = True
 
@@ -951,21 +1172,18 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
             updates.append(dict(previous))
             continue
 
-        payload = {
-            "object_id": item.id,
-            "value": item_value,
-            "unit": _live_unit(item, stored_source),
-            "source": stored_source,
-            "original_source": stored_source,
-            "source_address": item_source_address,
-            "recognized_endpoint": item_recognized_endpoint,
-            "timestamp": timestamp,
-            "targets": _live_targets(item, stored_source),
-            "last_target_adapter": target_adapter,
-            "last_target_adapters": [target_adapter] if target_adapter else [],
-            "status": "online",
-        }
-        OBJECT_LIVE_CACHE[item.id] = payload
+        payload = update_object_live_value(
+            item.id,
+            item_value,
+            source=stored_source,
+            endpoint=item_recognized_endpoint,
+            source_address=item_source_address,
+            timestamp=timestamp,
+            status="aktiv",
+            target_adapter=target_adapter,
+            targets=_live_targets(item, stored_source),
+            unit=_live_unit(item, stored_source),
+        )
         LOGGER.info(
             "Live value stored object_id=%s incoming_source=%s stored_source=%s target_adapter=%s value=%s ignored_echo=%s",
             item.id,
@@ -995,6 +1213,67 @@ def record_live_value(source: str, value: Any, timestamp: str = "", **endpoint: 
     return updates
 
 
+def update_object_live_value(
+    object_id: str,
+    value: Any,
+    source: str = "",
+    endpoint: str = "",
+    source_address: str = "",
+    timestamp: str = "",
+    status: str = "aktiv",
+    target_adapter: str = "",
+    targets: list[str] | None = None,
+    unit: str = "",
+) -> dict[str, Any]:
+    """Set the central runtime-only object live state for one object."""
+    object_id = str(object_id or "").strip()
+    if not object_id:
+        return {}
+    source = str(source or "unbekannt").strip().lower() or "unbekannt"
+    target_adapter = str(target_adapter or "").strip().lower()
+    timestamp = str(timestamp or "").strip() or _now_live_iso()
+    current = dict(OBJECT_LIVE_CACHE.get(object_id) or {})
+    item = get_object(object_id)
+    unit = str(unit or current.get("unit") or (getattr(item, "unit", "") if item else "") or "").strip()
+    live_status = str(status or "aktiv").strip() or "aktiv"
+    last_target_adapters = list(current.get("last_target_adapters") or [])
+    if target_adapter and target_adapter not in last_target_adapters:
+        last_target_adapters.append(target_adapter)
+    elif target_adapter and not last_target_adapters:
+        last_target_adapters = [target_adapter]
+    display_source = source.upper() if source and source != "unbekannt" else "unbekannt"
+    payload = {
+        "object_id": object_id,
+        "live_value": value,
+        "value": value,
+        "last_value": value,
+        "unit": unit,
+        "source": display_source,
+        "adapter": display_source,
+        "original_source": source,
+        "source_protocol": source,
+        "last_source": source,
+        "current_source": source,
+        "input_protocol": source,
+        "last_target": target_adapter,
+        "target_protocol": target_adapter,
+        "output_protocol": target_adapter,
+        "source_address": str(source_address or current.get("source_address") or "").strip(),
+        "recognized_endpoint": str(endpoint or current.get("recognized_endpoint") or "").strip(),
+        "endpoint": str(endpoint or current.get("endpoint") or current.get("recognized_endpoint") or "").strip(),
+        "timestamp": timestamp,
+        "updated_at": timestamp,
+        "last_update": timestamp,
+        "targets": list(targets if targets is not None else current.get("targets") or []),
+        "last_target_adapter": target_adapter,
+        "last_target_adapters": last_target_adapters,
+        "status": live_status,
+        "live_status": live_status,
+    }
+    OBJECT_LIVE_CACHE[object_id] = payload
+    return dict(payload)
+
+
 def record_live_target(object_id: str, target_adapter: str, value: Any = None, original_source: str = "loxone") -> None:
     object_id = str(object_id or "").strip()
     target_adapter = str(target_adapter or "").strip().lower()
@@ -1008,14 +1287,19 @@ def record_live_target(object_id: str, target_adapter: str, value: Any = None, o
         targets.append(target_adapter)
     current["last_target_adapter"] = target_adapter
     current["last_target_adapters"] = targets
-    current["original_source"] = str(current.get("original_source") or current.get("source") or original_source or "unbekannt").lower()
-    current["source"] = current["original_source"]
+    current["last_target"] = target_adapter
+    current["target_protocol"] = target_adapter
+    current["output_protocol"] = target_adapter
+    current["live_value"] = current.get("value") if value is None else value
+    current["last_value"] = current.get("value") if value is None else value
+    current["value"] = current.get("value") if value is None else value
+    current["last_update"] = current.get("last_update") or _now_live_iso()
     OBJECT_LIVE_CACHE[object_id] = current
     LOGGER.info(
         "Live target recorded object_id=%s incoming_source=%s stored_source=%s target_adapter=%s value=%s ignored_echo=%s",
         object_id,
         original_source,
-        current["source"],
+        current.get("source_protocol") or current.get("last_source") or current.get("source") or "unbekannt",
         target_adapter,
         current.get("value") if value is None else value,
         "false",
@@ -1026,14 +1310,89 @@ def get_object_live_status(object_id: str) -> dict[str, Any] | None:
     item = get_object(object_id)
     if item is None:
         return None
-    return dict(OBJECT_LIVE_CACHE.get(item.id) or _live_empty(item))
+    return dict(_resolved_live_status(item))
 
 
 def list_object_live_status() -> list[dict[str, Any]]:
     result = []
     for item in list_objects():
-        result.append(dict(OBJECT_LIVE_CACHE.get(item.id) or _live_empty(item)))
+        result.append(dict(_resolved_live_status(item)))
     return result
+
+
+def _resolved_live_status(item: GatewayObject) -> dict[str, Any]:
+    live = dict(_live_empty(item))
+    live.update(dict(OBJECT_LIVE_CACHE.get(item.id) or {}))
+    source = str(
+        live.get("source_protocol")
+        or live.get("last_source")
+        or live.get("current_source")
+        or live.get("source")
+        or live.get("original_source")
+        or ""
+    ).strip().lower()
+    if not source or source == "unbekannt":
+        configured_source, configured_adapter, _ = _configured_input_source(item)
+        if configured_source and configured_adapter is not None:
+            source = configured_source
+            live["source"] = configured_source
+            live["original_source"] = configured_source
+            live["source_protocol"] = configured_source
+            live["last_source"] = configured_source
+            live["current_source"] = configured_source
+            live["input_protocol"] = configured_source
+            live["source_address"] = _endpoint_address(configured_source, configured_adapter)
+            live["recognized_endpoint"] = live.get("recognized_endpoint") or live["source_address"] or ""
+    live.setdefault("input_protocol", source or "unbekannt")
+    live.setdefault("source_protocol", source or "unbekannt")
+    live.setdefault("last_source", source or "unbekannt")
+    live.setdefault("current_source", source or "unbekannt")
+    live.setdefault("source", source or "unbekannt")
+    live.setdefault("original_source", source or "unbekannt")
+    live.setdefault("last_target", str(live.get("last_target") or ""))
+    live.setdefault("target_protocol", str(live.get("target_protocol") or ""))
+    live.setdefault("output_protocol", str(live.get("output_protocol") or ""))
+    route_report = get_object_route_report(item)
+    route_source = str(route_report.get("current_source") or "").strip().lower()
+    live["route_source"] = route_source or ""
+    live["display_source"] = route_source or "unbekannt"
+    live["route_sources"] = sorted({
+        str(route.get("source") or "").strip().lower()
+        for route in (route_report.get("main_routes") or [])
+        if isinstance(route, dict) and str(route.get("source") or "").strip()
+    })
+    live["route_targets"] = sorted({
+        str(route.get("target") or "").strip().lower()
+        for route in (route_report.get("main_routes") or [])
+        if isinstance(route, dict) and str(route.get("target") or "").strip()
+    })
+    return live
+
+
+def get_udp_source_listen_ports() -> list[str]:
+    ports: list[str] = []
+    for item in list_objects():
+        for adapter in _adapter_map(item).values():
+            if str(getattr(adapter, "protocol", "") or "").strip().lower() != "udp":
+                continue
+            if not _udp_source_enabled(adapter):
+                continue
+            listen_port = _normalize_match_value(_adapter_value(adapter, "listen_port"))
+            if listen_port and listen_port not in ports:
+                ports.append(listen_port)
+    if not ports:
+        try:
+            from app.services.config import load_config as _load_config
+        except ModuleNotFoundError:
+            from services.config import load_config as _load_config
+        try:
+            cfg = _load_config() or {}
+            legacy_port = str((cfg.get("udp_input") or {}).get("port", "") or "").strip()
+            if legacy_port and legacy_port not in ports:
+                ports.append(legacy_port)
+        except Exception:
+            pass
+    return ports
 
 
 def _adapter_map(item: GatewayObject) -> dict[str, Any]:
@@ -1141,6 +1500,52 @@ def _loxone_target_route_active(adapter: Any) -> bool:
     return bool(_loxone_target_enabled(adapter) and _loxone_target_uuid_explicit(adapter) and _loxone_gateway_configured())
 
 
+def _udp_source_topic(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_topic") or _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format")
+
+
+def _udp_source_json_path(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_json_path")
+
+
+def _udp_source_payload_mode(adapter: Any) -> str:
+    return _adapter_value(adapter, "source_payload_mode") or _adapter_value(adapter, "payload_mode") or "value"
+
+
+def _udp_target_topic(adapter: Any) -> str:
+    return _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "target_topic") or _adapter_value(adapter, "format")
+
+
+def _udp_target_payload_mode(adapter: Any) -> str:
+    return _adapter_value(adapter, "target_payload_mode") or _adapter_value(adapter, "payload_mode") or "topic_value"
+
+
+def _udp_source_enabled(adapter: Any) -> bool:
+    value = getattr(adapter, "source_enabled", None)
+    if value is None:
+        value = getattr(adapter, "enabled", None)
+    if value is None and (_adapter_value(adapter, "listen_port") or _udp_source_topic(adapter) or _udp_source_json_path(adapter)):
+        value = True
+    return bool(value and (_adapter_value(adapter, "listen_port") or _udp_source_topic(adapter) or _udp_source_json_path(adapter)))
+
+
+def _udp_target_enabled(adapter: Any) -> bool:
+    value = getattr(adapter, "target_enabled", None)
+    if value is None:
+        value = getattr(adapter, "enabled", None)
+    if value is None and (_adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip") or _adapter_value(adapter, "target_port") or _udp_target_topic(adapter)):
+        value = True
+    return bool(value and (_adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip") or _adapter_value(adapter, "target_port") or _udp_target_topic(adapter)))
+
+
+def _udp_source_route_active(adapter: Any) -> bool:
+    return bool(_udp_source_enabled(adapter) and _adapter_value(adapter, "listen_port"))
+
+
+def _udp_target_route_active(adapter: Any) -> bool:
+    return bool(_udp_target_enabled(adapter) and (_adapter_value(adapter, "target_port") or _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")))
+
+
 def _loxone_display_label(adapter: Any, role: str = "source") -> str:
     role = str(role or "").strip().lower()
     if role == "target":
@@ -1159,6 +1564,21 @@ def _loxone_display_label(adapter: Any, role: str = "source") -> str:
         fallback = _loxone_source_uuid(adapter) or _loxone_source_io(adapter)
     parts = [part for part in parts if part]
     return " · ".join(parts) if parts else fallback
+
+
+def _udp_display_label(adapter: Any, role: str = "source") -> str:
+    role = str(role or "").strip().lower()
+    if role == "target":
+        topic = _udp_target_topic(adapter)
+        host = _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")
+        port = _adapter_value(adapter, "target_port")
+        parts = [part for part in (topic, f"{host}:{port}" if host and port else "", f"port {port}" if port and not (host and port) else "") if part]
+        return " · ".join(parts) if parts else (topic or host or port)
+    topic = _udp_source_topic(adapter)
+    listen_port = _adapter_value(adapter, "listen_port")
+    sender = " @ ".join([part for part in (_adapter_value(adapter, "source_host"), _adapter_value(adapter, "source_port")) if part])
+    parts = [part for part in (topic, f"listen {listen_port}" if listen_port else "", sender) if part]
+    return " · ".join(parts) if parts else (topic or listen_port or sender)
 
 
 def _normalize_match_value(value: Any) -> str:
@@ -1252,12 +1672,13 @@ def _endpoint_address(protocol: str, adapter: Any) -> str:
             return f"{group_address} · DPT {dpt}"
         return group_address
     if protocol == "udp":
-        topic = _adapter_value(adapter, "udp_topic") or _adapter_value(adapter, "format")
-        host = _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")
-        port = _adapter_value(adapter, "target_port")
-        if host and port:
-            return f"{topic}@{host}:{port}" if topic else f"{host}:{port}"
-        return ""
+        source_label = _udp_display_label(adapter, "source")
+        target_label = _udp_display_label(adapter, "target")
+        if _udp_source_route_active(adapter) and not _udp_target_route_active(adapter):
+            return source_label
+        if _udp_target_route_active(adapter) and not _udp_source_route_active(adapter):
+            return target_label
+        return source_label or target_label
     if protocol == "influx":
         measurement = _adapter_value(adapter, "measurement")
         field = _adapter_value(adapter, "field") or "value"
@@ -1278,8 +1699,20 @@ def _endpoint_missing_fields(protocol: str, adapter: Any) -> list[str]:
     if protocol == "loxone":
         return [] if (_loxone_source_uuid(adapter) or _loxone_source_io(adapter) or _loxone_source_name(adapter) or _loxone_target_uuid_explicit(adapter)) else ["UUID oder IO-Adresse"]
     if protocol == "udp":
-        host = _adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")
-        return [label for field, label in required if not (host if field == "target_ip" else _adapter_value(adapter, field))]
+        missing = []
+        if _udp_source_enabled(adapter):
+            if not _adapter_value(adapter, "listen_port"):
+                missing.append("Listen-Port")
+        if _udp_target_enabled(adapter):
+            if not (_adapter_value(adapter, "target_host") or _adapter_value(adapter, "target_ip")):
+                missing.append("Ziel-IP")
+            if not _adapter_value(adapter, "target_port"):
+                missing.append("Ziel-Port")
+        if missing:
+            return missing
+        if _udp_source_enabled(adapter) or _udp_target_enabled(adapter):
+            return []
+        return ["UDP-Quelle oder UDP-Ziel"]
     return [label for field, label in required if not _adapter_value(adapter, field)]
 
 
@@ -1295,6 +1728,8 @@ def _is_complete_endpoint(protocol: str, adapter: Any) -> bool:
         has_source = _loxone_source_route_active(adapter)
         has_target = _loxone_target_route_active(adapter)
         return bool(has_endpoint and (has_source or has_target))
+    if protocol == "udp":
+        return _is_enabled_adapter(adapter) and (bool(_udp_source_route_active(adapter)) or bool(_udp_target_route_active(adapter)))
     return _is_enabled_adapter(adapter) and not _endpoint_missing_fields(protocol, adapter)
 
 
@@ -1319,6 +1754,8 @@ def _adapter_config_errors(protocol: str, adapter: Any) -> list[str]:
 def _can_source(adapter: Any) -> bool:
     protocol = str(getattr(adapter, "protocol", "") or "").strip().lower()
     direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
+    if protocol == "udp":
+        return bool(_udp_source_route_active(adapter) or direction in {"in", "both"} and _udp_source_enabled(adapter))
     return protocol != "influx" and direction in {"in", "both"}
 
 
@@ -1328,6 +1765,8 @@ def _can_target(adapter: Any) -> bool:
         return False
     if protocol == "loxone":
         return _loxone_target_route_active(adapter)
+    if protocol == "udp":
+        return bool(_udp_target_route_active(adapter) or (str(getattr(adapter, "direction", "both") or "both").strip().lower() in {"out", "both"} and _udp_target_enabled(adapter)))
     direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
     return direction in {"out", "both"}
 
@@ -1378,15 +1817,11 @@ def get_object_route_status(item: GatewayObject) -> str:
 
 
 def _route_source_for_report(item: GatewayObject) -> tuple[str | None, Any | None, dict[str, Any]]:
+    configured_source, configured_adapter, configured_adapters = _configured_input_source(item)
+    if configured_source is not None and configured_adapter is not None:
+        return configured_source, configured_adapter, configured_adapters
     adapters = _adapter_map(item)
-    live = OBJECT_LIVE_CACHE.get(item.id) or {}
-    live_source = str(live.get("source") or live.get("original_source") or "").strip().lower()
-    live_adapter = adapters.get(live_source)
-    if live_adapter is not None and _can_source(live_adapter):
-        if live_source == "loxone" and not _loxone_source_enabled(live_adapter):
-            return _primary_route_source(item)
-        return live_source, live_adapter, adapters
-    return _primary_route_source(item)
+    return None, None, adapters
 
 
 def route_object_value(object_id: str, original_source: str, source_ref: str, value: Any, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1414,7 +1849,12 @@ def route_object_value(object_id: str, original_source: str, source_ref: str, va
         source_kwargs["loxone_io"] = metadata.get("loxone_io") or source_ref
         source_kwargs["name"] = metadata.get("name") or source_ref
     elif source == "udp":
-        source_kwargs["udp_topic"] = metadata.get("udp_topic") or source_ref
+        source_kwargs["udp_topic"] = metadata.get("udp_topic") or metadata.get("source_topic") or source_ref
+        source_kwargs["source_topic"] = metadata.get("source_topic") or metadata.get("udp_topic") or source_ref
+        source_kwargs["source_json_path"] = metadata.get("source_json_path") or metadata.get("json_key") or ""
+        source_kwargs["udp_source_host"] = metadata.get("udp_source_host") or metadata.get("source_host") or ""
+        source_kwargs["udp_source_port"] = metadata.get("udp_source_port") or metadata.get("source_port") or ""
+        source_kwargs["udp_listen_port"] = metadata.get("udp_listen_port") or metadata.get("listen_port") or ""
     elif source == "knx":
         source_kwargs["group_address"] = metadata.get("group_address") or source_ref
     else:
@@ -1455,8 +1895,8 @@ def build_generated_route_entries(item: GatewayObject, source_protocol: str | No
             continue
         if (source_protocol, target) not in SUPPORTED_ROUTE_PAIRS:
             continue
-        source_address = _loxone_display_label(source_adapter, "source") if source_protocol == "loxone" else _endpoint_address(source_protocol, source_adapter)
-        target_address = _loxone_display_label(target_adapter, "target") if target == "loxone" else _endpoint_address(target, target_adapter)
+        source_address = _loxone_display_label(source_adapter, "source") if source_protocol == "loxone" else (_udp_display_label(source_adapter, "source") if source_protocol == "udp" else _endpoint_address(source_protocol, source_adapter))
+        target_address = _loxone_display_label(target_adapter, "target") if target == "loxone" else (_udp_display_label(target_adapter, "target") if target == "udp" else _endpoint_address(target, target_adapter))
         entries.append(
             {
                 "source": source_protocol.upper(),
@@ -1495,8 +1935,8 @@ def build_return_route_entries(item: GatewayObject, source_protocol: str | None 
             {
                 "source": candidate_protocol.upper(),
                 "target": source_protocol.upper(),
-                "source_address": _endpoint_address(candidate_protocol, candidate_adapter),
-                "target_address": _endpoint_address(source_protocol, source_adapter),
+                "source_address": _loxone_display_label(candidate_adapter, "source") if candidate_protocol == "loxone" else (_udp_display_label(candidate_adapter, "source") if candidate_protocol == "udp" else _endpoint_address(candidate_protocol, candidate_adapter)),
+                "target_address": _loxone_display_label(source_adapter, "target") if source_protocol == "loxone" else (_udp_display_label(source_adapter, "target") if source_protocol == "udp" else _endpoint_address(source_protocol, source_adapter)),
                 "direction": f"{candidate_protocol.upper()} -> {source_protocol.upper()}",
                 "status": "konfiguriert",
             }

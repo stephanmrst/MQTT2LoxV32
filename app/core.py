@@ -15,7 +15,7 @@ import shutil
 import paho.mqtt.client as mqtt
 import zipfile
 import io
-from flask import Flask, request, render_template_string, redirect, send_file, jsonify
+from flask import Flask, request, render_template, render_template_string, redirect, send_file, jsonify
 from markupsafe import escape
 from loxwebsocket.lox_ws_api import LoxWs
 from collections import deque
@@ -45,6 +45,7 @@ LOGGER = logging.getLogger(__name__)
 _OBJECT_ROUTE_RELOAD_LOCK = threading.Lock()
 _OBJECT_ROUTE_RELOAD_PENDING = False
 _RECENT_OBJECT_ROUTER_PUBLISHES = {}
+_RECENT_OBJECT_ROUTER_PUBLISH_TOPICS = {}
 _RECENT_OBJECT_ROUTER_PUBLISH_LOCK = threading.Lock()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -255,6 +256,252 @@ def clear_udp_last_seen(kind=None):
             bucket.clear()
 
 
+def get_udp_monitor_log():
+    with runtime_context.udp.lock:
+        aggregated = {}
+        order = []
+        for current in list(runtime_context.udp.monitor_log):
+            normalized = _udp_monitor_normalize_entry(current)
+            key = normalized.get("entry_key", "") or _udp_monitor_entry_key(normalized)
+            normalized["entry_key"] = key
+            normalized["packet_count"] = int(normalized.get("packet_count") or 1)
+            normalized["history"] = list(normalized.get("history") or [])
+            if isinstance(normalized.get("json_data"), (dict, list)):
+                _udp_update_json_leaf_state(normalized, normalized.get("json_data"))
+            if key in aggregated:
+                existing = aggregated[key]
+                existing["packet_count"] = int(existing.get("packet_count") or 0) + int(normalized.get("packet_count") or 0)
+                existing["last_time"] = normalized.get("last_time") or existing.get("last_time")
+                existing["time"] = normalized.get("time") or existing.get("time")
+                existing["payload_raw"] = normalized.get("payload_raw") or existing.get("payload_raw")
+                existing_history = list(existing.get("history") or [])
+                history_item = {
+                    "time": normalized.get("time") or normalized.get("last_time") or "",
+                    "value": normalized.get("value"),
+                }
+                if not existing_history or existing_history[-1] != history_item:
+                    existing_history.append(history_item)
+                existing["history"] = existing_history[-50:]
+                if normalized.get("value") not in (None, ""):
+                    existing["value"] = normalized.get("value")
+                if normalized.get("json_data") is not None:
+                    existing["json_data"] = normalized.get("json_data")
+                    if isinstance(normalized.get("json_data"), (dict, list)):
+                        _udp_update_json_leaf_state(existing, normalized.get("json_data"))
+                if normalized.get("topic"):
+                    existing["topic"] = normalized.get("topic")
+                if normalized.get("key"):
+                    existing["key"] = normalized.get("key")
+                continue
+            aggregated[key] = dict(normalized)
+            order.append(key)
+        return [aggregated[key] for key in order]
+
+
+def _udp_monitor_entry_key(entry):
+    entry = dict(entry or {})
+    sender_ip = str(entry.get("sender_ip") or "").strip()
+    sender_port = str(entry.get("sender_port") or "").strip()
+    listen_port = str(entry.get("listen_port") or "").strip()
+    mode = str(entry.get("mode") or "Wert").strip().lower()
+    topic = str(entry.get("topic") or "").strip()
+    key = str(entry.get("key") or "").strip()
+    json_key = str(entry.get("json_key") or "").strip()
+    if mode == "json":
+        # JSON-Pakete ohne Topic werden als ein Discovery-Eintrag pro Sender-IP/Listen-Port geführt.
+        # Der Absender-Port ist bei UDP oft dynamisch und darf hier keine neuen Baumknoten erzeugen.
+        topic_or_key = key or json_key or topic or "json"
+        return "|".join([sender_ip, listen_port, mode, topic_or_key]).strip("|")
+    elif mode == "topic:wert":
+        topic_or_key = topic or key or "topic"
+    else:
+        topic_or_key = key or topic or "wert"
+    return "|".join([sender_ip, sender_port, listen_port, mode, topic_or_key]).strip("|")
+
+
+def _udp_monitor_normalize_entry(entry):
+    entry = dict(entry or {})
+    entry["time"] = str(entry.get("time") or "").strip()
+    entry["first_time"] = str(entry.get("first_time") or entry["time"] or "").strip()
+    entry["last_time"] = str(entry.get("last_time") or entry["time"] or "").strip()
+    entry["sender_ip"] = str(entry.get("sender_ip") or "").strip()
+    entry["sender_port"] = str(entry.get("sender_port") or "").strip()
+    entry["listen_port"] = str(entry.get("listen_port") or "").strip()
+    entry["mode"] = str(entry.get("mode") or "Wert").strip() or "Wert"
+    entry["topic"] = str(entry.get("topic") or "").strip()
+    entry["key"] = str(entry.get("key") or "").strip()
+    entry["value"] = entry.get("value")
+    payload_raw = entry.get("payload_raw")
+    if payload_raw in (None, ""):
+        payload_raw = entry.get("raw")
+    if isinstance(payload_raw, (dict, list)):
+        try:
+            payload_raw = json.dumps(payload_raw, ensure_ascii=False)
+        except Exception:
+            payload_raw = str(payload_raw)
+    else:
+        payload_raw = str(payload_raw or "")
+    entry["payload_raw"] = payload_raw.strip()
+    raw_payload = str(entry.get("payload_raw") or "").strip()
+    if raw_payload:
+        parsed_json = None
+        try:
+            parsed_json = json.loads(raw_payload)
+        except Exception:
+            parsed_json = None
+        if isinstance(parsed_json, str):
+            try:
+                parsed_json_2 = json.loads(parsed_json.strip())
+            except Exception:
+                parsed_json_2 = None
+            if isinstance(parsed_json_2, (dict, list)):
+                parsed_json = parsed_json_2
+        if isinstance(parsed_json, (dict, list)):
+            entry["mode"] = "JSON"
+            entry["json_data"] = parsed_json
+            entry["key"] = entry.get("key") or "JSON"
+            if entry.get("value") in (None, "", raw_payload):
+                entry["value"] = "JSON"
+    json_data = entry.get("json_data")
+    if isinstance(json_data, str):
+        try:
+            parsed_json = json.loads(json_data)
+        except Exception:
+            parsed_json = None
+        json_data = parsed_json if isinstance(parsed_json, (dict, list)) else json_data
+    if json_data is None:
+        for candidate in (entry.get("payload_raw"), entry.get("raw")):
+            raw = str(candidate or "").strip()
+            if not raw:
+                continue
+            if not (raw.startswith("{") or raw.startswith("[")):
+                first_candidates = [idx for idx in (raw.find("{"), raw.find("[")) if idx >= 0]
+                if not first_candidates:
+                    continue
+                first_start = min(first_candidates)
+                last_end = max(raw.rfind("}"), raw.rfind("]"))
+                if last_end <= first_start:
+                    continue
+                raw = raw[first_start:last_end + 1]
+            try:
+                parsed_json = json.loads(raw)
+            except Exception:
+                parsed_json = None
+            if isinstance(parsed_json, (dict, list)):
+                json_data = parsed_json
+                break
+    if isinstance(json_data, (dict, list)) and str(entry.get("payload_raw") or "").strip() in ("", "[object Object]"):
+        try:
+            entry["payload_raw"] = json.dumps(json_data, ensure_ascii=False)
+        except Exception:
+            entry["payload_raw"] = str(json_data)
+    entry["json_data"] = json_data
+    json_leaf_values = entry.get("json_leaf_values") or {}
+    entry["json_leaf_values"] = dict(json_leaf_values) if isinstance(json_leaf_values, dict) else {}
+    json_leaf_history = entry.get("json_leaf_history") or {}
+    entry["json_leaf_history"] = dict(json_leaf_history) if isinstance(json_leaf_history, dict) else {}
+    if isinstance(json_data, (dict, list)):
+        _udp_update_json_leaf_state(entry, json_data)
+    entry["packet_count"] = int(entry.get("packet_count") or 0)
+    history = entry.get("history") or []
+    if not isinstance(history, list):
+        history = []
+    entry["history"] = history
+    entry["entry_key"] = str(entry.get("entry_key") or _udp_monitor_entry_key(entry))
+    return entry
+
+
+def _udp_flatten_json_leafs(data, prefix=""):
+    result = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            next_prefix = f"{prefix}/{key}" if prefix else str(key)
+            result.update(_udp_flatten_json_leafs(value, next_prefix))
+        return result
+    if isinstance(data, list):
+        for index, value in enumerate(data):
+            next_prefix = f"{prefix}[{index}]" if prefix else f"[{index}]"
+            result.update(_udp_flatten_json_leafs(value, next_prefix))
+        return result
+    result[prefix or "Wert"] = data
+    return result
+
+
+def _udp_update_json_leaf_state(entry, json_data):
+    if not isinstance(json_data, (dict, list)):
+        return
+    flattened = _udp_flatten_json_leafs(json_data)
+    current_time = str(entry.get("time") or entry.get("last_time") or "").strip()
+    leaf_values = {}
+    leaf_history = dict(entry.get("json_leaf_history") or {})
+    for path, value in flattened.items():
+        leaf_values[path] = value
+        history = list(leaf_history.get(path) or [])
+        history_item = {"time": current_time, "value": value}
+        if not history or history[-1] != history_item:
+            history.append(history_item)
+        leaf_history[path] = history[-50:]
+    entry["json_leaf_values"] = leaf_values
+    entry["json_leaf_history"] = leaf_history
+    entry["json_leaf_paths"] = list(flattened.keys())
+
+
+def add_udp_monitor_log_entry(entry):
+    with runtime_context.udp.lock:
+        normalized = _udp_monitor_normalize_entry(entry)
+        entry_key = normalized.get("entry_key", "")
+        if not entry_key:
+            entry_key = _udp_monitor_entry_key(normalized)
+            normalized["entry_key"] = entry_key
+        existing_index = None
+        existing_entry = None
+        for idx, current in enumerate(runtime_context.udp.monitor_log):
+            if str(current.get("entry_key") or "") == entry_key:
+                existing_index = idx
+                existing_entry = dict(current)
+                break
+        if existing_entry is not None:
+            packet_count = int(existing_entry.get("packet_count") or 0) + 1
+            merged = dict(existing_entry)
+            merged.update({k: v for k, v in normalized.items() if v not in (None, "") or k in {"key", "topic", "value", "json_data"}})
+            merged["first_time"] = existing_entry.get("first_time") or normalized.get("first_time") or normalized.get("time")
+            merged["last_time"] = normalized.get("time") or merged.get("last_time") or merged.get("first_time")
+            merged["packet_count"] = packet_count
+            history = list(existing_entry.get("history") or [])
+            history_item = {
+                "time": normalized.get("time") or normalized.get("last_time") or "",
+                "value": normalized.get("value"),
+            }
+            if not history or history[-1] != history_item:
+                history.append(history_item)
+            merged["history"] = history[-50:]
+            merged["entry_key"] = entry_key
+            if isinstance(normalized.get("json_data"), (dict, list)):
+                _udp_update_json_leaf_state(merged, normalized.get("json_data"))
+            try:
+                if existing_index is not None:
+                    del runtime_context.udp.monitor_log[existing_index]
+            except Exception:
+                pass
+            runtime_context.udp.monitor_log.appendleft(merged)
+        else:
+            normalized["packet_count"] = 1
+            normalized["history"] = [{
+                "time": normalized.get("time") or normalized.get("last_time") or "",
+                "value": normalized.get("value"),
+            }]
+            if isinstance(normalized.get("json_data"), (dict, list)):
+                _udp_update_json_leaf_state(normalized, normalized.get("json_data"))
+            runtime_context.udp.monitor_log.appendleft(normalized)
+        runtime_context.udp.packet_count = int(runtime_context.udp.packet_count or 0) + 1
+
+
+def clear_udp_monitor_log():
+    with runtime_context.udp.lock:
+        runtime_context.udp.monitor_log.clear()
+        runtime_context.udp.packet_count = 0
+
+
 def get_broker_process():
     with runtime_context.broker.lock:
         return runtime_context.broker.process
@@ -428,10 +675,141 @@ def set_udp_listener_running(running):
         return runtime_context.udp.listener_running
 
 
+def set_udp_explorer_listen_port(port):
+    with runtime_context.udp.lock:
+        runtime_context.udp.explorer_listen_port = str(port or "").strip()
+        return runtime_context.udp.explorer_listen_port
+
+
+def get_udp_explorer_listen_port():
+    with runtime_context.udp.lock:
+        return str(runtime_context.udp.explorer_listen_port or "").strip()
+
+
+def get_udp_explorer_status():
+    with runtime_context.udp.lock:
+        return {
+            "status": str(runtime_context.udp.status or "stopped"),
+            "listener_running": bool(runtime_context.udp.listener_running),
+            "explorer_listen_port": str(runtime_context.udp.explorer_listen_port or "").strip(),
+            "packet_count": int(runtime_context.udp.packet_count or 0),
+        }
+
+
+def _udp_listener_ports():
+    ports = []
+    try:
+        ports = list(object_core_service.get_udp_source_listen_ports() or [])
+    except Exception as exc:
+        add_log_entry(f"UDP Listener Ports Fehler: {exc}")
+    explorer_port = get_udp_explorer_listen_port()
+    if explorer_port and explorer_port not in ports:
+        ports.append(explorer_port)
+    return [str(port).strip() for port in ports if str(port).strip()]
+
+
+def _stop_udp_listener_threads():
+    try:
+        with runtime_context.udp.lock:
+            events = list((runtime_context.udp.listener_stop_events or {}).items())
+        for port, stop_event in events:
+            try:
+                stop_event.set()
+            except Exception:
+                pass
+        with runtime_context.udp.lock:
+            threads = dict(runtime_context.udp.listener_threads or {})
+        for port, thread in threads.items():
+            try:
+                if thread and thread.is_alive():
+                    thread.join(timeout=1.5)
+            except Exception:
+                pass
+    finally:
+        with runtime_context.udp.lock:
+            runtime_context.udp.listener_threads = {}
+            runtime_context.udp.listener_stop_events = {}
+
+
+def _sync_udp_listener_threads(config, handle_udp_to_knx_with_object_routes):
+    ports = _udp_listener_ports()
+    if not ports:
+        try:
+            legacy_port = str((load_config().get("udp_input") or {}).get("port", "") or "").strip()
+            if legacy_port:
+                ports = [legacy_port]
+        except Exception:
+            pass
+    active_ports = []
+    with runtime_context.udp.lock:
+        existing_threads = dict(runtime_context.udp.listener_threads or {})
+        existing_events = dict(runtime_context.udp.listener_stop_events or {})
+    for port, thread in list(existing_threads.items()):
+        if port in ports:
+            continue
+        stop_event = existing_events.get(port)
+        if stop_event is not None:
+            try:
+                stop_event.set()
+            except Exception:
+                pass
+        try:
+            if thread and thread.is_alive():
+                thread.join(timeout=1.5)
+        except Exception:
+            pass
+        with runtime_context.udp.lock:
+            runtime_context.udp.listener_threads.pop(port, None)
+            runtime_context.udp.listener_stop_events.pop(port, None)
+    for port in ports:
+        thread = existing_threads.get(port)
+        if thread and thread.is_alive():
+            active_ports.append(port)
+            continue
+        stop_event = threading.Event()
+        with runtime_context.udp.lock:
+            runtime_context.udp.listener_stop_events[port] = stop_event
+
+        def worker(listen_port=port, port_stop_event=stop_event):
+            try:
+                udp.udp_input_listener(
+                    config,
+                    load_config,
+                    handle_udp_to_knx_with_object_routes,
+                    handle_udp_to_mqtt,
+                    add_log_entry,
+                    update_udp_last_seen,
+                    add_udp_monitor_log_entry,
+                    listen_port=listen_port,
+                    stop_event=port_stop_event,
+                )
+            finally:
+                with runtime_context.udp.lock:
+                    runtime_context.udp.listener_threads.pop(listen_port, None)
+                    runtime_context.udp.listener_stop_events.pop(listen_port, None)
+
+        thread = threading.Thread(target=worker, name=f"udp-listener-{port}", daemon=True)
+        with runtime_context.udp.lock:
+            runtime_context.udp.listener_threads[port] = thread
+        thread.start()
+        active_ports.append(port)
+        add_log_entry(f"Starte UDP Listener Port {port}")
+    with runtime_context.udp.lock:
+        runtime_context.udp.listener_running = bool(active_ports)
+        runtime_context.udp.status = "läuft" if active_ports else "stopped"
+    return active_ports
+
+
 def request_udp_stop():
     with runtime_context.udp.lock:
         runtime_context.udp.stop_requested = True
         runtime_context.udp.status = "stopping"
+        runtime_context.udp.explorer_listen_port = ""
+        for stop_event in list((runtime_context.udp.listener_stop_events or {}).values()):
+            try:
+                stop_event.set()
+            except Exception:
+                pass
     try:
         udp.request_udp_stop()
     except Exception:
@@ -1504,17 +1882,31 @@ def _mark_object_router_publish(topic, payload, object_id="", source="loxone", t
     key = _object_router_publish_key(topic, payload)
     if not key:
         return
+    topic_key = str(topic or "").strip().lower()
     with _RECENT_OBJECT_ROUTER_PUBLISH_LOCK:
         _RECENT_OBJECT_ROUTER_PUBLISHES[key] = {
             "time": time.time(),
             "object_id": str(object_id or "").strip(),
             "source": str(source or "").strip() or "loxone",
             "target_adapter": str(target_adapter or "").strip() or "mqtt",
+            "topic": str(topic or "").strip(),
+            "payload": str(payload or "").strip(),
         }
+        if topic_key:
+            _RECENT_OBJECT_ROUTER_PUBLISH_TOPICS.setdefault(topic_key, []).append(
+                {
+                    "time": time.time(),
+                    "object_id": str(object_id or "").strip(),
+                    "source": str(source or "").strip() or "loxone",
+                    "target_adapter": str(target_adapter or "").strip() or "mqtt",
+                    "payload": str(payload or "").strip(),
+                }
+            )
 
 
 def _consume_object_router_publish(topic, payload):
     key = _object_router_publish_key(topic, payload)
+    topic_key = str(topic or "").strip().lower()
     if not key:
         return None
     now = time.time()
@@ -1523,6 +1915,14 @@ def _consume_object_router_publish(topic, payload):
         if recent and now - float(recent.get("time", 0) or 0) <= 1.5:
             _RECENT_OBJECT_ROUTER_PUBLISHES.pop(key, None)
             return dict(recent)
+        if topic_key:
+            topic_entries = list(_RECENT_OBJECT_ROUTER_PUBLISH_TOPICS.get(topic_key) or [])
+            fresh = [entry for entry in topic_entries if now - float(entry.get("time", 0) or 0) <= 3.0]
+            _RECENT_OBJECT_ROUTER_PUBLISH_TOPICS[topic_key] = fresh
+            if fresh:
+                recent_topic = fresh[-1]
+                if recent_topic.get("target_adapter") == "mqtt":
+                    return dict(recent_topic)
     return None
 
 
@@ -1765,27 +2165,90 @@ def restart_bridge_async():
 def udp_input_listener(config):
     global mqtt_client, udp_input_last_seen
     request_udp_start()
-    def _handle_udp_to_knx_with_object_routes(topic, value):
+
+    def _record_udp_object_live_values(topic, value, metadata=None):
+        metadata = dict(metadata or {})
+        topic = str(topic or "").strip()
+        base_metadata = dict(metadata)
+        base_metadata.setdefault("udp_topic", topic)
+        base_metadata.setdefault("source_topic", topic)
+        live_by_object_id = {}
+
+        def debug_repr(payload, limit=900):
+            try:
+                text = json.dumps(payload, ensure_ascii=False, default=str, sort_keys=True)
+            except Exception:
+                text = repr(payload)
+            if len(text) > limit:
+                return text[:limit] + "...<truncated>"
+            return text
+
+        def collect(current_value, current_metadata):
+            before_cache = dict(getattr(object_core_service, "OBJECT_LIVE_CACHE", {}) or {})
+            try:
+                live_items = object_core_service.record_live_value(
+                    "udp",
+                    current_value,
+                    udp_topic=current_metadata.get("udp_topic", topic),
+                    source_topic=current_metadata.get("source_topic") or current_metadata.get("udp_topic") or topic,
+                    source_json_path=current_metadata.get("source_json_path") or current_metadata.get("json_key", ""),
+                    payload_raw=current_metadata.get("payload_raw", current_value),
+                    json_data=current_metadata.get("json_data"),
+                    udp_source_host=current_metadata.get("udp_source_host", ""),
+                    udp_source_port=current_metadata.get("udp_source_port", ""),
+                    udp_listen_port=current_metadata.get("udp_listen_port", ""),
+                )
+            except Exception as exc:
+                add_log_entry(f"UDP Live-State Fehler: {exc}")
+                return
+            for live_item in live_items or []:
+                object_id = str((live_item or {}).get("object_id", "") or "").strip()
+                if object_id:
+                    after_state = dict(getattr(object_core_service, "OBJECT_LIVE_CACHE", {}).get(object_id) or {})
+                    before_state = dict(before_cache.get(object_id) or {})
+                    add_log_entry(
+                        "UDP LIVE UPDATE DEBUG "
+                        f"object_id={object_id} "
+                        f"value={current_value} "
+                        f"mode={current_metadata.get('mode') or base_metadata.get('mode') or '-'} "
+                        f"endpoint={(live_item or {}).get('endpoint') or (live_item or {}).get('recognized_endpoint') or current_metadata.get('source_json_path') or current_metadata.get('source_topic') or current_metadata.get('udp_topic') or topic} "
+                        f"before_memory_state={debug_repr(before_state)} "
+                        f"after_memory_state={debug_repr(after_state)}"
+                    )
+                    live_by_object_id[object_id] = dict(live_item)
+
+        collect(value, base_metadata)
+
+        json_data = base_metadata.get("json_data")
+        if isinstance(json_data, (dict, list)) and not str(base_metadata.get("source_json_path") or base_metadata.get("json_key") or "").strip():
+            for json_path, json_value in _udp_flatten_json_leafs(json_data).items():
+                leaf_metadata = dict(base_metadata)
+                leaf_metadata["source_json_path"] = json_path
+                leaf_metadata["json_key"] = json_path
+                collect(json_value, leaf_metadata)
+
+        return list(live_by_object_id.values())
+
+    def _handle_udp_to_knx_with_object_routes(topic, value, metadata=None):
         if runtime_context.bridge.stop_requested:
             return True
-        live_items = object_core_service.record_live_value("udp", value, udp_topic=topic)
-        if _dispatch_object_routes(live_items, "udp", topic, value, metadata={"udp_topic": topic}):
+        metadata = dict(metadata or {})
+        metadata.setdefault("udp_topic", topic)
+        live_items = _record_udp_object_live_values(topic, value, metadata)
+        if _dispatch_object_routes(live_items, "udp", topic, value, metadata=metadata):
             return True
         return _handle_udp_to_knx_service(topic, value)
     try:
         with runtime_context.udp.lock:
             runtime_context.udp.listener_thread = threading.current_thread()
         set_udp_listener_running(True)
-        result = udp.udp_input_listener(
-            config,
-            load_config,
-            _handle_udp_to_knx_with_object_routes,
-            handle_udp_to_mqtt,
-            add_log_entry,
-            update_udp_last_seen,
-        )
-        return result
+        _sync_udp_listener_threads(config, _handle_udp_to_knx_with_object_routes)
+        while not runtime_context.udp.stop_requested and not runtime_context.bridge.stop_requested:
+            _sync_udp_listener_threads(load_config(), _handle_udp_to_knx_with_object_routes)
+            time.sleep(1)
+        return True
     finally:
+        _stop_udp_listener_threads()
         set_udp_listener_running(False)
         with runtime_context.udp.lock:
             runtime_context.udp.status = "stopped"
@@ -2066,7 +2529,14 @@ def _route_source_kwargs(original_source, source_ref, metadata=None):
             "name": metadata.get("name") or source_ref,
         }
     if original_source == "udp":
-        return {"udp_topic": metadata.get("udp_topic") or source_ref}
+        return {
+            "udp_topic": metadata.get("udp_topic") or metadata.get("source_topic") or source_ref,
+            "source_topic": metadata.get("source_topic") or metadata.get("udp_topic") or source_ref,
+            "source_json_path": metadata.get("source_json_path") or metadata.get("json_key") or "",
+            "udp_source_host": metadata.get("udp_source_host") or metadata.get("source_host") or "",
+            "udp_source_port": metadata.get("udp_source_port") or metadata.get("source_port") or "",
+            "udp_listen_port": metadata.get("udp_listen_port") or metadata.get("listen_port") or "",
+        }
     if original_source == "knx":
         return {"group_address": metadata.get("group_address") or source_ref}
     return {"topic": metadata.get("topic") or source_ref}
@@ -2152,16 +2622,20 @@ def _dispatch_object_routes(live_items, original_source, source_ref, value, meta
         route_info = object_core_service.route_object_value(object_id, original_source, source_ref, value, metadata)
         routes = list(route_info.get("routes") or [])
         route_report = route_info.get("route_report") or {}
+        live_status = object_core_service.get_object_live_status(object_id) or {}
+        route_value = live_status.get("value")
+        if route_value in (None, ""):
+            route_value = value
         available_routes = ",".join(sorted({str(entry.get("target", "")).lower() for entry in routes if entry.get("target")})) or "-"
         add_log_entry(
-            f"Object input object_id={object_id} original_source={original_source} source_ref={source_ref} value={value}"
+            f"Object input object_id={object_id} original_source={original_source} source_ref={source_ref} value={route_value}"
         )
         add_log_entry(
-            f"ENTER object routing object_id={object_id} original_source={original_source} target_adapter=all value={value} available_routes={available_routes}"
+            f"ENTER object routing object_id={object_id} original_source={original_source} target_adapter=all value={route_value} available_routes={available_routes}"
         )
         if not routes:
             add_log_entry(
-                f"Object routing object_id={object_id} original_source={original_source} target_adapter=none value={value} skipped_echo=no reason=no_active_routes"
+                f"Object routing object_id={object_id} original_source={original_source} target_adapter=none value={route_value} skipped_echo=no reason=no_active_routes"
             )
             continue
         route_available = True
@@ -2172,25 +2646,25 @@ def _dispatch_object_routes(live_items, original_source, source_ref, value, meta
             gateway_origin = str(metadata.get("gateway_origin") or "").strip().lower()
             skipped_echo = target == original_source or (gateway_origin and gateway_origin == target)
             add_log_entry(
-                f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={value} skipped_echo={'yes' if skipped_echo else 'no'}"
+                f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo={'yes' if skipped_echo else 'no'}"
             )
             if skipped_echo:
                 continue
             try:
-                ok = _route_object_target(item, target, value, original_source, source_ref, entry, metadata)
+                ok = _route_object_target(item, target, route_value, original_source, source_ref, entry, metadata)
                 if ok:
                     any_sent = True
-                    object_core_service.record_live_target(object_id, target, value=value, original_source=original_source)
+                    object_core_service.record_live_target(object_id, target, value=route_value, original_source=original_source)
                     add_log_entry(
                         f"Object route OK object_id={object_id} original_source={original_source} target_adapter={target}"
                     )
                 else:
                     add_log_entry(
-                        f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={value} skipped_echo=yes reason=send_failed"
+                        f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo=yes reason=send_failed"
                     )
             except Exception as exc:
                 add_log_entry(
-                    f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={value} skipped_echo=no error={exc}"
+                    f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo=no error={exc}"
                 )
     return any_sent
 
@@ -11219,7 +11693,7 @@ def udp_input_page():
 <!doctype html>
 <html>
 <head>
-    <title>UDP → MQTT Input</title>
+<title>UDP Monitor</title>
     <style>
         body {{
             font-family: Arial;
@@ -11271,7 +11745,7 @@ def udp_input_page():
 </head>
 <body>
 
-<h1>UDP → MQTT Input</h1>
+<h1>UDP Monitor</h1>
 
 <form method="post" action="/udp_input/save">
 
@@ -11355,7 +11829,108 @@ def udp_input_page():
     </tr>
 </table>
 
+<hr>
+
+<div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+    <h2>UDP Monitor</h2>
+    <button type="button" class="testbtn" onclick="clearUdpMonitor()">Monitor leeren</button>
+</div>
+
+<table style="width:100%; margin-top:10px;">
+    <thead>
+        <tr>
+            <th>Zeit</th>
+            <th>Richtung</th>
+            <th>Absender-IP</th>
+            <th>Absender-Port</th>
+            <th>Ziel-Port</th>
+            <th>Payload roh</th>
+            <th>Modus</th>
+            <th>Topic/Key</th>
+            <th>Wert</th>
+            <th>Aktionen</th>
+        </tr>
+    </thead>
+    <tbody id="udpMonitorRows">
+        <tr><td colspan="10" style="color:#aeb8c4;">Noch keine UDP Pakete empfangen.</td></tr>
+    </tbody>
+</table>
+
 <script>
+function escapeUdpHtml(value) {{
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}}
+
+function udpMonitorObjectUrl(entry) {{
+    const params = new URLSearchParams({{
+        explorer: "udp",
+        source_type: "udp",
+        name: entry.topic || entry.key || "UDP Objekt",
+        udp_topic: entry.topic || entry.key || "",
+        udp_source_host: entry.sender_ip || "",
+        udp_source_port: entry.sender_port || "",
+        udp_listen_port: entry.listen_port || "",
+        value: entry.value == null ? "" : String(entry.value),
+        datatype: "auto",
+        unit: "",
+    }});
+    return "/objects_v33/create_from_explorer?" + params.toString();
+}}
+
+function udpMonitorCopy(entry) {{
+    const text = entry && entry.payload_raw ? String(entry.payload_raw) : "";
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(text).catch(() => {{}});
+    }}
+}}
+
+function udpMonitorCreateMapping(entry) {{
+    const params = new URLSearchParams({{
+        udp_topic: entry.topic || entry.key || "",
+        source_topic: entry.topic || entry.key || "",
+        payload: entry.value == null ? "" : String(entry.value),
+    }});
+    window.location.href = "/udp2mqtt?" + params.toString();
+}}
+
+function udpMonitorRenderRows(entries) {{
+    const tbody = document.getElementById("udpMonitorRows");
+    if (!tbody) return;
+    const rows = Array.isArray(entries) ? entries : [];
+    if (!rows.length) {{
+        tbody.innerHTML = '<tr><td colspan="10" style="color:#aeb8c4;">Noch keine UDP Pakete empfangen.</td></tr>';
+        return;
+    }}
+    tbody.innerHTML = rows.map(entry => `
+        <tr>
+            <td>${{escapeUdpHtml(entry.time || "-")}}</td>
+            <td>${{escapeUdpHtml(entry.direction || "RX")}}</td>
+            <td>${{escapeUdpHtml(entry.sender_ip || "-")}}</td>
+            <td>${{escapeUdpHtml(entry.sender_port || "-")}}</td>
+            <td>${{escapeUdpHtml(entry.listen_port || "-")}}</td>
+            <td>${{escapeUdpHtml(entry.payload_raw || "-")}}</td>
+            <td>${{escapeUdpHtml(entry.mode || "-")}}</td>
+            <td>${{escapeUdpHtml([entry.topic, entry.key].filter(Boolean).join(" / ") || "-")}}</td>
+            <td>${{escapeUdpHtml(entry.value === null || entry.value === undefined || entry.value === "" ? "-" : entry.value)}}</td>
+            <td>
+                <button type="button" class="testbtn" onclick='window.location.href="${{udpMonitorObjectUrl(entry)}}"'>+ Objekt</button>
+                <button type="button" class="testbtn" onclick='udpMonitorCreateMapping(${{
+                    JSON.stringify(entry).replace(/'/g, "\\'")
+                }})'>+ Mapping/Route</button>
+                <button type="button" class="testbtn" onclick='udpMonitorCopy(${{
+                    JSON.stringify(entry).replace(/'/g, "\\'")
+                }})'>Kopieren</button>
+            </td>
+        </tr>
+    `).join("");
+}}
+
 function refreshUdpInputData() {{
     fetch("/udp_input_data")
         .then(r => r.json())
@@ -11366,8 +11941,15 @@ function refreshUdpInputData() {{
                 document.getElementById("udp_raw").innerText = data.last.raw || "-";
                 document.getElementById("udp_time").innerText = data.last.time || "-";
             }}
+            udpMonitorRenderRows(data.entries || []);
         }})
         .catch(err => console.log(err));
+}}
+
+function clearUdpMonitor() {{
+    fetch("/udp_monitor_clear", {{method:"POST"}})
+        .then(() => refreshUdpInputData())
+        .catch(() => {{}});
 }}
 
 setInterval(refreshUdpInputData, 2000);
@@ -11379,6 +11961,46 @@ refreshUdpInputData();
 """
 
     return html
+
+
+def udp_explorer_page():
+    config = load_config()
+    udp_cfg = config.get("udp_input", {})
+    status = get_udp_explorer_status()
+    listen_port = status.get("explorer_listen_port") or str(udp_cfg.get("port", 7002))
+    return render_template(
+        "udp_explorer.html",
+        udp_cfg=udp_cfg,
+        listen_port=listen_port,
+        status=status,
+        monitor_entries=get_udp_monitor_log(),
+        last_seen=get_udp_last_seen("udp_input"),
+        enabled=udp_cfg.get("enabled", False),
+        prefix=udp_cfg.get("prefix", ""),
+        retain=udp_cfg.get("retain", False),
+        legacy_fallback=udp_cfg.get("legacy_fallback", False),
+    )
+
+
+def udp_explorer_start():
+    port = str(request.form.get("port", "") or "").strip()
+    if port:
+        set_udp_explorer_listen_port(port)
+    request_udp_start()
+    return {
+        "ok": True,
+        "status": get_udp_explorer_status(),
+    }
+
+
+def udp_explorer_stop():
+    set_udp_explorer_listen_port("")
+    with runtime_context.udp.lock:
+        runtime_context.udp.status = "stopped"
+    return {
+        "ok": True,
+        "status": get_udp_explorer_status(),
+    }
 
 
 def udp_input_save():
@@ -11414,7 +12036,20 @@ def udp_input_test():
 
 
 def udp_input_data():
-    return get_udp_last_seen("udp_input")
+    status = get_udp_explorer_status()
+    return {
+        "last": get_udp_last_seen("udp_input"),
+        "entries": get_udp_monitor_log(),
+        "status": status,
+        "packet_count": status.get("packet_count", 0),
+        "explorer_listen_port": status.get("explorer_listen_port", ""),
+    }
+
+
+def udp_monitor_clear():
+    clear_udp_monitor_log()
+    clear_udp_last_seen("udp_input")
+    return {"ok": True}
 
 
 def mqtt_brokers_page():

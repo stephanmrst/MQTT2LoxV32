@@ -1,9 +1,9 @@
 import json
+import json
 import os
 import socket
 import threading
 from datetime import datetime
-import json
 
 from services import config
 
@@ -37,23 +37,121 @@ def is_udp_stop_requested():
     return _UDP_STOP_EVENT.is_set()
 
 
-def parse_udp_input_message(text):
-    text = str(text).strip()
+def parse_udp_input_details(text):
+    text = str(text or "").strip()
+    details = {
+        "raw": text,
+        "mode": "Wert",
+        "topic": "",
+        "value": None,
+        "json_key": "",
+        "json_data": None,
+    }
+
+    if not text:
+        return details
+
+    def _parse_json_candidate(raw_text, _depth=0):
+        raw_text = str(raw_text or "").strip()
+        if not raw_text:
+            return None
+
+        # 1) Direktes JSON
+        try:
+            parsed = json.loads(raw_text)
+            # Doppelt kodiertes JSON: "{\"a\":1}"
+            if isinstance(parsed, str) and _depth < 2:
+                nested = _parse_json_candidate(parsed, _depth + 1)
+                if isinstance(nested, (dict, list)):
+                    return nested
+            if isinstance(parsed, (dict, list)):
+                return parsed
+        except Exception:
+            pass
+
+        # 2) JSON aus Text extrahieren: "UDP: { ... }"
+        first_candidates = [idx for idx in (raw_text.find("{"), raw_text.find("[")) if idx >= 0]
+        if not first_candidates:
+            return None
+        first_start = min(first_candidates)
+        last_end = max(raw_text.rfind("}"), raw_text.rfind("]"))
+        if last_end <= first_start:
+            return None
+        candidate = raw_text[first_start:last_end + 1]
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, str) and _depth < 2:
+                nested = _parse_json_candidate(parsed, _depth + 1)
+                if isinstance(nested, (dict, list)):
+                    return nested
+            if isinstance(parsed, (dict, list)):
+                return parsed
+        except Exception:
+            return None
+        return None
+
+    # JSON IMMER zuerst prüfen. Ein JSON ohne topic/value ist trotzdem gültig.
+    parsed = _parse_json_candidate(text)
+    if isinstance(parsed, (dict, list)):
+        topic = ""
+        value = None
+        json_key = ""
+        if isinstance(parsed, dict):
+            topic = str(
+                parsed.get("topic")
+                or parsed.get("udp_topic")
+                or parsed.get("source_topic")
+                or parsed.get("name")
+                or ""
+            ).strip()
+            if not topic and isinstance(parsed.get("source"), dict):
+                source_block = parsed.get("source") or {}
+                topic = str(
+                    source_block.get("topic")
+                    or source_block.get("udp_topic")
+                    or source_block.get("name")
+                    or ""
+                ).strip()
+            value = parsed.get("value")
+            if value is None:
+                value = parsed.get("payload")
+            if value is None:
+                value = parsed.get("data")
+            if value is None:
+                value = parsed.get("val")
+            if value is None:
+                value = parsed.get("message")
+            json_key = str(parsed.get("json_key") or parsed.get("key") or parsed.get("path") or "").strip()
+
+        details.update({
+            "mode": "JSON",
+            "topic": topic,
+            "value": value if value is not None else "JSON",
+            "json_key": json_key,
+            "json_data": parsed,
+        })
+        return details
 
     if ":" in text:
         topic, value = text.split(":", 1)
+        details["mode"] = "Topic:Wert"
     elif "=" in text:
         topic, value = text.split("=", 1)
+        details["mode"] = "Topic:Wert"
     else:
-        return None, None
+        details["value"] = text
+        return details
 
-    topic = topic.strip()
-    value = value.strip()
+    details["topic"] = str(topic).strip()
+    details["value"] = str(value).strip()
+    return details
 
+def parse_udp_input_message(text):
+    details = parse_udp_input_details(text)
+    topic = str(details.get("topic") or "").strip()
     if not topic:
         return None, None
-
-    return topic, value
+    return topic, details.get("value")
 
 
 def build_udp_message(udp_topic, value, udp_format):
@@ -243,16 +341,17 @@ def handle_udp_to_mqtt(
     return False
 
 
-def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqtt_func, add_log_entry=None, update_last_seen=None):
+def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqtt_func, add_log_entry=None, update_last_seen=None, add_monitor_entry=None, listen_port=None, stop_event=None):
     _log(add_log_entry, "UDP Input Funktion wurde aufgerufen")
     sock = None
+    stop_event = stop_event or _UDP_STOP_EVENT
 
     try:
         udp_config = config.get("udp_input", {})
         _log(add_log_entry, f"UDP Input Config: {udp_config}")
 
-        enabled = udp_config.get("enabled", False)
-        port = int(udp_config.get("port", 7002))
+        enabled = bool(listen_port is not None or udp_config.get("enabled", False))
+        port = int(listen_port if listen_port is not None else udp_config.get("port", 7002))
         prefix = udp_config.get("prefix", "").strip().strip("/")
         retain = bool(udp_config.get("retain", False))
         legacy_fallback = bool(udp_config.get("legacy_fallback", False))
@@ -267,18 +366,20 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
 
         _log(add_log_entry, f"UDP Input lauscht auf Port {port}")
 
-        while not _UDP_STOP_EVENT.is_set():
+        while not stop_event.is_set():
             try:
                 data, addr = sock.recvfrom(4096)
             except socket.timeout:
                 continue
             except OSError as exc:
-                if _UDP_STOP_EVENT.is_set():
+                if stop_event.is_set():
                     break
                 raise
 
             text = data.decode("utf-8", errors="ignore").strip()
             _log(add_log_entry, f"UDP RX roh von {addr[0]}:{addr[1]} | {text}")
+            _log(add_log_entry, "UDP RAW BYTES: " + repr(data))
+            _log(add_log_entry, "UDP TEXT REPR: " + repr(text))
 
             udp_input_last_seen["last"] = {
                 "ip": addr[0],
@@ -289,10 +390,39 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
             if update_last_seen:
                 update_last_seen("udp_input", "last", udp_input_last_seen["last"])
 
+            details = parse_udp_input_details(text)
+            _log(add_log_entry, "UDP DETAILS: " + repr(parse_udp_input_details(text)))
             topic, value = parse_udp_input_message(text)
+            if details.get("mode") == "JSON":
+                topic = str(details.get("topic") or "").strip()
+                value = details.get("value")
 
-            if not topic:
+            if not topic and details.get("mode") != "JSON":
                 _log(add_log_entry, f"UDP Input ungueltig: {text}")
+
+            if add_monitor_entry:
+                try:
+                    add_monitor_entry(
+                        {
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                            "direction": "RX",
+                            "sender_ip": addr[0],
+                            "sender_port": addr[1],
+                            "listen_port": port,
+                            "payload_raw": text,
+                            "mode": details.get("mode", "Wert"),
+                            "topic": topic or "",
+                            "key": details.get("json_key", "") or ("JSON" if details.get("mode") == "JSON" else ""),
+                            "value": value,
+                            "json_data": details.get("json_data"),
+                        }
+                    )
+                except Exception as exc:
+                    _log(add_log_entry, f"UDP Monitor Log Fehler: {exc}")
+
+            _log(add_log_entry, f"UDP RX parsed topic={topic} value={value}")
+
+            if not topic and details.get("mode") != "JSON":
                 continue
 
             try:
@@ -303,7 +433,23 @@ def udp_input_listener(config, load_config, handle_udp_to_knx, handle_udp_to_mqt
             except Exception as exc:
                 _log(add_log_entry, f"UDP Input Live-Config Fehler: {exc}")
 
-            handled_object_routes = bool(handle_udp_to_knx(topic, value))
+            handled_object_routes = bool(
+                handle_udp_to_knx(
+                    topic,
+                    value,
+                    {
+                        "udp_topic": topic,
+                        "payload_raw": text,
+                        "json_data": details.get("json_data"),
+                        "udp_source_host": addr[0],
+                        "udp_source_port": addr[1],
+                        "udp_listen_port": port,
+                        "mode": details.get("mode", "Wert"),
+                        "json_key": details.get("json_key", ""),
+                        "source_json_path": details.get("json_key", ""),
+                    },
+                )
+            )
             if not handled_object_routes:
                 handle_udp_to_mqtt_func(topic, value, prefix, retain, legacy_fallback)
 

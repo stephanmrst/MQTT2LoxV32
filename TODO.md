@@ -2,6 +2,50 @@
 
 ## 33.0.x
 
+- Live-API Debug 33.4.27 pruefen: `LIVE TAB DEBUG` muss Memory-State und API-Return fuer das ausgewaehlte Objekt zeigen.
+- UDP Live Debug 33.4.27 pruefen: `UDP LIVE UPDATE DEBUG` muss before/after Memory-State mit dem extrahierten UDP-Wert zeigen.
+- Live-API Store 33.4.27 pruefen: UDP-Update und `/api/objects/live` muessen denselben Objekt-Service-Store verwenden.
+- Object-Live-State 33.4.26 pruefen: MQTT, Loxone, KNX und UDP muessen denselben zentralen Updater nutzen und `status=aktiv` liefern.
+- UDP Live-Tab 33.4.26 pruefen: nach UDP-Empfang muessen Wert, Zeitstempel, Endpoint und Status `aktiv` ohne Seitenreload erscheinen.
+- UDP Live-State 33.4.25 pruefen: `Victron/Netz/Leistung:-30` muss in der Objektkarte als Wert `-30` erscheinen und UDP->MQTT weiter routen.
+- UDP JSON Live-State 33.4.25 pruefen: `params/pm1:0/apower` muss den Leaf-Wert `4` in der Objektkarte anzeigen.
+- UDP Match 33.4.25 pruefen: JSON-Pakete duerfen keine anderen UDP-Objekte auf demselben Listen-Port mit dem Platzhalter `JSON` ueberschreiben.
+- Objektkarten Quelle 33.4.24 pruefen: `display_source` muss nach Reload immer Routing-Quelle zeigen und niemals Live-Echo.
+- API 33.4.24 pruefen: `display_source` muessen Karten, Detailansicht und Live-Polling erhalten.
+- UDP->MQTT 33.4.23 pruefen: Target-MQTT darf die Eingangsquelle nicht mehr ueberschreiben, auch nicht bei internen Ruecklaeufen.
+- MQTT-Echo-Schutz 33.4.23 pruefen: topic-basierte Objekt-Routings sollen interne Publishes sicher ignorieren.
+- Objektkarten Quelle 33.4.22 pruefen: Browser-Reload darf nicht mehr auf MQTT-Zielinfos oder Badges zurueckfallen.
+- Objekt-API 33.4.22 pruefen: `route_source` und `input_protocol` muessen fuer Karten und Routing sichtbar bleiben.
+- Objektkarten Quelle 33.4.21 pruefen: wenn kein Livecache vorhanden ist, muss die Anzeige aus der konfigurierten Eingangsseite kommen und nicht aus MQTT-Zielen.
+- Objektliste 33.4.21 pruefen: Scrollposition und Auswahl sollen beim Refresh erhalten bleiben.
+- UDP Live-Cache 33.4.20 pruefen: UDP muss live_value, last_value und source_protocol direkt setzen, bevor MQTT-Weiterleitung laeuft.
+- Objektkarte Quelle 33.4.19 pruefen: bei Loxone/UDP/KNX/MQTT muss immer die letzte Livequelle angezeigt werden, nicht ein Route-Badge.
+- UDP Topic:Wert 33.4.18 pruefen: `Victron/Netz/Leistung:-30` darf niemals durch einen JSON-Path laufen oder `JSON path not found` ausloesen.
+- UDP Livequelle 33.4.17 pruefen: Objektkarte und Live-Tab muessen die echte Eingangsquelle aus dem Live-Cache anzeigen, nicht die letzte Route.
+- UDP Topic:Wert 33.4.17 pruefen: Ein Payload wie `Victron/Netz/Leistung:-17` muss als UDP-Wert erkannt, im Objekt aktualisiert und an MQTT weitergereicht werden.
+
+- UDP JSON Debug 33.4.16 pruefen: der volle JSON-Pfad muss live auf den Leaf-Wert aufgeloest werden, damit MQTT nicht `JSON` sendet.
+
+- UDP JSON Debug 33.4.15 pruefen: `[object Object]` muss im Monitor wieder zu JSON-Text normalisiert werden, wenn JSON-Daten vorhanden sind.
+
+- UDP JSON Debug 33.4.14 pruefen: Rohpayload soll im Explorer und beim Kopieren konsistent als Text auftauchen, nicht als `[object Object]`.
+
+- UDP JSON Debug 33.4.13 pruefen: JSON soll auch dann im Explorer auftauchen, wenn `payload_raw` im Monitor bereits als Objekt ankommt.
+
+- UDP JSON Debug 33.4.12 pruefen: `payload_raw` darf im Explorer nicht mehr als `[object Object]` landen, wenn der Monitor ein JSON-Objekt normalisiert.
+
+- UDP JSON Debug 33.4.11 pruefen: Listener muss Rohbytes, Text-Repr und geparste Details loggen, damit der Explorer nicht mehr mit einem unsichtbar geaenderten Payload verwechselt wird.
+
+- UDP Explorer 33.4.10 pruefen: JSON ohne Topic muss als stabiler Monitor-Eintrag mit Leaf-Werten erscheinen und die Tabelle rechts darf nicht leer bleiben.
+- UDP Explorer 33.4.6 pruefen: JSON-Payloads muessen auch bei eingebetteten oder anders formatierten Rohdaten wie im MQTT Explorer rechts als Keys erscheinen.
+- UDP Explorer 33.4.5 pruefen: Der Baum muss links stabil bleiben, JSON-Keys muessen rechts sichtbar sein und der Expertenbereich darf standardmaessig eingeklappt bleiben.
+- UDP Explorer 33.4.4 pruefen: Die linke Baumansicht soll MQTT-Discover aehnlich wirken, Auswahl darf beim Update nicht springen und Experteninfos muessen eingeklappt bleiben.
+- UDP Explorer 33.4.3 pruefen: Die linke Liste muss kompakt bleiben, die rechte Detailkarte soll JSON-, Topic- und Wertdaten getrennt anzeigen und die Einstellungen duerfen den Explorer nicht dominieren.
+- UDP Explorer 33.4.2 pruefen: Live-Quellen muessen als stabiler Eintrag aktualisiert werden, Auswahl und Scroll-Verhalten duerfen bei Folgepaketen nicht springen.
+- UDP Explorer 33.4.1 pruefen: Seitenleiste muss UDP Hub mit Explorer und Monitor zeigen, Start/Stop muss denselben Shared Listener nutzen und JSON/Topic/Wert-Matches sollen Objektanlage ausloesen.
+
+- UDP-Basis 33.4.0 pruefen: "+ Neu" darf kein Leerformular-Fehler mehr sein, Quellenwahl muss LOXONE/MQTT/UDP/KNX anbieten und der UDP-Monitor muss RX-Eintraege liefern.
+- UDP-Quelle 33.4.0 pruefen: UDP Input muss Topic/Wert oder JSON sauber zerlegen und denselben Object-Router wie MQTT und Loxone nutzen.
 - MQTT externe Broker 33.3.89 pruefen: Queue-voll-Meldungen muessen gedrosselt werden und der Gateway-Stop muss MQTT/UDP/KNX wirklich beenden.
 - MQTT externe Broker 33.3.88 pruefen: Pro Broker muss ein eigener Client mit Queue-Worker, Auto-Reconnect, Healthcheck und Statusanzeige laufen.
 - Loxone-Zielroute 33.3.87 pruefen: Der Routing-Tab und die linke Infokachel muessen Loxone-Ziele wieder als aktiv anzeigen, wenn Zielhaken, Ziel-UUID und Gateway-Konfiguration vorhanden sind.
@@ -23,7 +67,7 @@
 - MQTT->UDP 33.3.68 pruefen: MQTT-Quellen mit `in`/`both` muessen den Objektmanager-UDP-Dispatch ausloesen und die Herkunft darf in der Objektkachel nicht mehr auf alte Monitorwerte kippen.
 - MQTT->UDP 33.3.67 pruefen: direkte Sendung ueber den bestehenden UDP-Ausgang muss mit JSON-Key-Werten ankommen.
 - MQTT->UDP 33.3.66 pruefen: MQTT-JSON-Key-Werte muessen denselben UDP-Ausgang wie Loxone->UDP verwenden.
-- MQTT→UDP 33.3.65 pruefen: MQTT-Eingang, objektbasierter UDP-Dispatch und UDP-Start/OK-Logs muessen bei JSON-Key-Objekten sichtbar sein.
+- MQTT->UDP 33.3.65 pruefen: MQTT-Eingang, objektbasierter UDP-Dispatch und UDP-Start/OK-Logs muessen bei JSON-Key-Objekten sichtbar sein.
 - MQTT JSON-Key "+ Objekt" 33.3.64 pruefen: Split-Key-Buttons muessen Topic, JSON-Key, Typ und Name an den Objektmanager uebergeben und den Live-Match auf `topic / json_key` aufloesen.
 - KNX-Testcenter 33.3.63 pruefen: Zeitstempel-Fallback, JSON-Fehlerantwort und getrennte Buttons fuer Senden/Wiederholen/Monitor leeren muessen stabil bleiben.
 - KNX-Testcenter 33.3.62 pruefen: Backend liefert bei Fehlern JSON statt HTML-500 und `Auto` wird vor dem Senden auf einen konkreten DPT aufgeloest.
@@ -172,9 +216,5 @@
 - Interne Broker-Prozessverwaltung aus dem Legacy-Core herausloesen.
 - Runtime-/Bridge-Logik erst nach weiterer Port-Stabilisierung modularisieren.
 - Objektmanager nur nach ausdruecklicher Freigabe umbauen.
-
-
-
-
 
 

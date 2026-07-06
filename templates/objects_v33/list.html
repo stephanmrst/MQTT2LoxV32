@@ -355,8 +355,13 @@ function loxoneTargetSummary(item) {
 }
 
 function configuredSourceLabel(item) {
-  const route = item && item.route_report ? item.route_report : {};
-  const source = String(route.current_source || "").trim().toLowerCase();
+  const routeReport = item && item.route_report ? item.route_report : {};
+  const source = String(
+    item && item.display_source
+    || item && item.route_source
+    || routeReport.current_source
+    || ""
+  ).trim().toLowerCase();
   if (source === "loxone") return "Loxone";
   if (source === "mqtt") return "MQTT";
   if (source === "udp") return "UDP";
@@ -593,11 +598,84 @@ window.clearLoxoneTarget = function(prefix) {
   }
 };
 
+function sourceAddressForType(sourceType) {
+  const type = String(sourceType || "").trim().toLowerCase();
+  if (type === "mqtt") {
+    return document.getElementById("mqtt_topic")?.value || "";
+  }
+  if (type === "udp") {
+    return document.getElementById("udp_source_topic")?.value || document.getElementById("udp_listen_port")?.value || "";
+  }
+  if (type === "knx") {
+    return document.getElementById("knx_group_address")?.value || "";
+  }
+  if (type === "loxone") {
+    return document.getElementById("loxone_source_io")?.value || document.getElementById("loxone_source_uuid")?.value || "";
+  }
+  return "";
+}
+
+function syncObjectSourceAddress() {
+  const sourceType = document.getElementById("source_type");
+  const sourceAddress = document.getElementById("objectSourceAddress");
+  if (!sourceType || !sourceAddress) return;
+  sourceAddress.value = sourceAddressForType(sourceType.value);
+}
+
+function syncObjectSourceTab() {
+  const sourceType = document.getElementById("source_type");
+  if (!sourceType) return;
+  const tab = document.getElementById("tab-" + String(sourceType.value || "").toLowerCase());
+  if (tab) tab.checked = true;
+  syncObjectSourceAddress();
+}
+
+function bindObjectSourceSelector() {
+  const sourceType = document.getElementById("source_type");
+  if (!sourceType || sourceType.dataset.bound === "1") return;
+  sourceType.dataset.bound = "1";
+  sourceType.addEventListener("change", syncObjectSourceTab);
+  ["mqtt_topic", "udp_source_topic", "udp_listen_port", "knx_group_address", "loxone_source_io", "loxone_source_uuid"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("input", () => {
+        if (String(sourceType.value || "").toLowerCase() === id.split("_")[0]) {
+          syncObjectSourceAddress();
+        }
+      });
+    }
+  });
+  const form = document.getElementById("objectGeneralForm");
+  if (form && form.dataset.sourceBound !== "1") {
+    form.dataset.sourceBound = "1";
+    form.addEventListener("submit", syncObjectSourceAddress);
+  }
+  document.querySelectorAll(".tabs input[name='tabs']").forEach(tab => {
+    if (tab.dataset.sourceBound === "1") return;
+    tab.dataset.sourceBound = "1";
+    tab.addEventListener("change", () => {
+      const tabName = String(tab.id || "").replace(/^tab-/, "");
+      if (["mqtt", "loxone", "udp", "knx"].includes(tabName) && sourceType.value !== tabName) {
+        sourceType.value = tabName;
+      }
+      syncObjectSourceAddress();
+    });
+  });
+  syncObjectSourceAddress();
+}
+
 function setObjectListHtml(html) {
   const list = document.getElementById("objectList");
   if (list) {
+    const scrollTop = list.scrollTop;
+    const scrollLeft = list.scrollLeft;
     list.innerHTML = html;
     list.setAttribute("data-selected", selectedObjectId || "");
+    requestAnimationFrame(() => {
+      if (!list.isConnected) return;
+      list.scrollTop = scrollTop;
+      list.scrollLeft = scrollLeft;
+    });
   }
 }
 
@@ -752,7 +830,7 @@ function applyObjectLiveData(items) {
     const sourceEl = card.querySelector('[data-live-field="source"]');
     const configuredSource = String(card.getAttribute("data-configured-source") || "").trim();
     if (valueEl) valueEl.textContent = formatObjectLiveValue(item);
-    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && (item.original_source || item.source), configuredSource);
+    if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && (item.display_source || item.route_source || item.source_protocol || item.last_source || item.original_source || item.source), configuredSource);
   });
   const selected = byId.get(String(selectedObjectId || ""));
   if (selected) {
@@ -761,7 +839,7 @@ function applyObjectLiveData(items) {
     setObjectLiveText("objectLiveValue", formatObjectLiveValue(selected));
     setObjectLiveText("objectLiveUnit", selected.unit || "-");
     setObjectLiveText("objectLiveTimestamp", selected.timestamp || "-");
-    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.original_source || selected.source, configuredSource));
+    setObjectLiveText("objectLiveSource", formatObjectLiveSource(selected.display_source || selected.route_source || selected.input_protocol || selected.source_protocol || selected.last_source || selected.original_source || selected.source, configuredSource));
     setObjectLiveText("objectLiveEndpoint", formatObjectLiveEndpoint(selected));
     const targetAdapters = (selected.last_target_adapters || []).length ? selected.last_target_adapters : (selected.targets || []);
     setObjectLiveText("objectLiveTargets", targetAdapters.length ? targetAdapters.join(", ") : "-");
@@ -782,6 +860,7 @@ async function refreshObjectLiveData() {
 refreshObjectLiveData();
 setInterval(refreshObjectLiveData, 3000);
 initLoxoneTargetPickers();
+bindObjectSourceSelector();
 </script>
 {% endblock %}
 

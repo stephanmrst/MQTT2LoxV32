@@ -13,8 +13,8 @@
   },
   "udp_input": {
     "enabled": true,
-    "port": 7002,
-    "prefix": "",
+    "port": 7012,
+    "prefix": "UDP",
     "retain": false,
     "legacy_fallback": false
   },

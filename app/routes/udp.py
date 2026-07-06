@@ -70,7 +70,17 @@ def udp2mqtt_data():
 
 @bp.route("/udp_input")
 def udp_input_page():
-    return _core().udp_input_page()
+    return _core().udp_explorer_page()
+
+
+@bp.route("/udp_explorer")
+def udp_explorer_page():
+    return _core().udp_explorer_page()
+
+
+@bp.route("/udp_monitor")
+def udp_monitor_page():
+    return _core().udp_explorer_page()
 
 
 @bp.route("/udp_input/save", methods=["POST"])
@@ -83,9 +93,29 @@ def udp_input_test():
     return _core().udp_input_test()
 
 
+@bp.route("/udp_explorer/start", methods=["POST"])
+def udp_explorer_start():
+    return _core().udp_explorer_start()
+
+
+@bp.route("/udp_explorer/stop", methods=["POST"])
+def udp_explorer_stop():
+    return _core().udp_explorer_stop()
+
+
 @bp.route("/udp_input_data")
 def udp_input_data():
     return _core().udp_input_data()
+
+
+@bp.route("/udp_monitor_data")
+def udp_monitor_data():
+    return _core().udp_input_data()
+
+
+@bp.route("/udp_monitor_clear", methods=["POST"])
+def udp_monitor_clear():
+    return _core().udp_monitor_clear()
 
 
 @bp.route("/udp_discovery_status")

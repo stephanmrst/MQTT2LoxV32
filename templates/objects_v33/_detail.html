@@ -57,8 +57,17 @@
         <div class="tab-panel general-panel">
           <form id="objectGeneralForm" method="post" action="{{ url_for('objects_v33.objects_v33_save') }}">
             <input type="hidden" name="uuid" value="{{ object_def.id }}">
+            <input type="hidden" name="source_address" id="objectSourceAddress" value="">
             <div class="grid">
               <div class="field"><label for="name">Name</label><input id="name" name="name" value="{{ object_def.name }}" required></div>
+              <div class="field">
+                <label for="source_type">Quelle</label>
+                <select id="source_type" name="source_type">
+                  {% for value, label in [('loxone', 'LOXONE'), ('mqtt', 'MQTT'), ('udp', 'UDP'), ('knx', 'KNX')] %}
+                    <option value="{{ value }}" {% if selected_source_type == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
               <div class="field"><label for="datatype">Datentyp</label><input id="datatype" name="datatype" value="{{ object_def.datatype }}"></div>
               <div class="field"><label for="category">Kategorie</label><input id="category" name="category" value="{{ object_def.category }}"></div>
               <div class="field"><label for="room">Raum</label><input id="room" name="room" value="{{ object_def.room }}"></div>
@@ -77,7 +86,11 @@
 
         {% for adapter in selected_adapters %}
           <div class="tab-panel {{ adapter.protocol }}-panel">
-            <form class="adapter-form" method="post" action="{{ url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.id, protocol=adapter.protocol) }}">
+            {% set adapter_action = url_for('objects_v33.objects_v33_adapter_save', object_uuid=object_def.id, protocol=adapter.protocol) if object_def.id else url_for('objects_v33.objects_v33_save') %}
+            <form class="adapter-form" method="post" action="{{ adapter_action }}">
+              {% if not object_def.id %}
+                <input type="hidden" name="source_type" value="{{ adapter.protocol }}">
+              {% endif %}
               {% include adapter_template_name(adapter.protocol) %}
               <div class="toolbar" style="margin-top:14px;">
                 <button type="submit" class="primary">Adapter speichern</button>
@@ -88,11 +101,11 @@
 
         <div class="tab-panel routing-panel">
           {% set route_report = selected_route_report or {'routes': selected_preview, 'main_routes': selected_preview, 'return_routes': [], 'missing_endpoints': [], 'errors': [], 'status': detail_status, 'current_source': '', 'current_source_address': ''} %}
-          {% if route_report.current_source %}
-            <div class="empty" style="margin-bottom:12px;">Aktuelle Quelle: {{ route_report.current_source }}{% if route_report.current_source_address %} <span class="count">{{ route_report.current_source_address }}</span>{% endif %}</div>
-          {% else %}
-            <div class="empty" style="margin-bottom:12px;">Aktuelle Quelle: unbekannt</div>
-          {% endif %}
+          {% set live_source_label = current_source_label(selected) if selected else 'unbekannt' %}
+          {% set live_source_address = current_source_address(selected) if selected else '' %}
+          {% set current_source_display = live_source_label if live_source_label and live_source_label != 'unbekannt' else (route_report.current_source or 'unbekannt') %}
+          {% set current_source_address_display = live_source_address if live_source_address else route_report.current_source_address %}
+          <div class="empty" style="margin-bottom:12px;">Aktuelle Quelle: {{ current_source_display }}{% if current_source_address_display %} <span class="count">{{ current_source_address_display }}</span>{% endif %}</div>
 
           <div class="empty" style="margin-bottom:8px;">Haupt-Routen</div>
           {% if route_report.main_routes %}
@@ -148,7 +161,7 @@
         </div>
 
         <div class="tab-panel live-panel">
-          <div class="live-grid" data-selected-live="{{ object_def.id }}" data-configured-source="{{ selected_route_report.current_source if selected_route_report else '' }}" data-configured-source-address="{{ selected_route_report.current_source_address if selected_route_report else '' }}">
+          <div class="live-grid" data-selected-live="{{ object_def.id }}" data-configured-source="{{ live_source_label }}" data-configured-source-address="{{ live_source_address }}">
             <div class="live-field">
               <div class="live-label">Letzter Wert</div>
               <div class="live-value" id="objectLiveValue">-</div>
@@ -163,11 +176,11 @@
             </div>
             <div class="live-field">
               <div class="live-label">Quelle / Adapter</div>
-              <div class="live-value" id="objectLiveSource">{{ selected_route_report.current_source if selected_route_report and selected_route_report.current_source else 'unbekannt' }}</div>
+              <div class="live-value" id="objectLiveSource">{{ live_source_label }}</div>
             </div>
             <div class="live-field">
               <div class="live-label">Erkannter Endpunkt</div>
-              <div class="live-value" id="objectLiveEndpoint">{{ selected_route_report.current_source_address if selected_route_report and selected_route_report.current_source_address else '-' }}</div>
+              <div class="live-value" id="objectLiveEndpoint">{{ live_source_address if live_source_address else '-' }}</div>
             </div>
             <div class="live-field">
               <div class="live-label">Letzte Ziel-Adapter</div>

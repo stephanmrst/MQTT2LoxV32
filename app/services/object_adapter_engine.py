@@ -161,20 +161,90 @@ class LoxoneAdapter(BaseAdapter):
 @dataclass
 class UDPAdapter(BaseAdapter):
     protocol: ClassVar[str] = "udp"
+    source_enabled: bool = False
+    source_host: str = ""
+    source_port: str = ""
+    listen_port: str = ""
+    source_payload_mode: str = "value"
+    source_topic: str = ""
+    source_json_path: str = ""
+    target_enabled: bool = False
+    target_host: str = ""
     target_ip: str = ""
     target_port: str = ""
-    format: str = "text"
+    target_payload_mode: str = "topic_value"
     udp_topic: str = ""
+    format: str = ""
     payload_mode: str = "topic_value"
 
     @classmethod
     def deserialize(cls, data: dict[str, Any]) -> "UDPAdapter":
         payload = dict(data or {})
+        direction = str(payload.get("direction", "both") or "both").strip().lower()
+        if "source_enabled" not in payload:
+            payload["source_enabled"] = direction in {"in", "both"} and any(
+                str(payload.get(field, "") or "").strip()
+                for field in ("listen_port", "source_topic", "source_json_path", "source_host", "source_port")
+            )
+        if "target_enabled" not in payload:
+            payload["target_enabled"] = direction in {"out", "both"} and any(
+                str(payload.get(field, "") or "").strip()
+                for field in ("target_host", "target_ip", "target_port", "udp_topic", "format")
+            )
+        if "source_payload_mode" not in payload:
+            payload["source_payload_mode"] = payload.get("source_payload_mode") or payload.get("payload_mode") or "value"
+        if "target_payload_mode" not in payload:
+            payload["target_payload_mode"] = payload.get("target_payload_mode") or payload.get("payload_mode") or "topic_value"
         if "udp_topic" not in payload:
             legacy_format = str(payload.get("format", "") or "").strip()
-            if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number"}:
+            if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number", "value"}:
                 payload["udp_topic"] = legacy_format
-        return super().deserialize(payload)
+        if not payload.get("udp_topic") and payload.get("target_topic"):
+            payload["udp_topic"] = payload.get("target_topic")
+        if not payload.get("target_host") and payload.get("target_ip"):
+            payload["target_host"] = payload.get("target_ip")
+        if not payload.get("target_ip") and payload.get("target_host"):
+            payload["target_ip"] = payload.get("target_host")
+        if not payload.get("payload_mode") and payload.get("target_payload_mode"):
+            payload["payload_mode"] = payload.get("target_payload_mode")
+        adapter = super().deserialize(payload)
+        if not str(adapter.target_host or "").strip() and str(adapter.target_ip or "").strip():
+            adapter.target_host = str(adapter.target_ip or "").strip()
+        if not str(adapter.target_ip or "").strip() and str(adapter.target_host or "").strip():
+            adapter.target_ip = str(adapter.target_host or "").strip()
+        if not str(adapter.target_payload_mode or "").strip():
+            adapter.target_payload_mode = str(adapter.payload_mode or "topic_value").strip() or "topic_value"
+        if not str(adapter.payload_mode or "").strip():
+            adapter.payload_mode = str(adapter.target_payload_mode or "topic_value").strip() or "topic_value"
+        if not str(adapter.source_payload_mode or "").strip():
+            adapter.source_payload_mode = "value"
+        if not str(adapter.source_topic or "").strip() and str(adapter.udp_topic or "").strip():
+            adapter.target_enabled = True
+        if not str(adapter.source_topic or "").strip() and str(adapter.format or "").strip():
+            legacy_format = str(adapter.format or "").strip()
+            if legacy_format not in {"text", "topic_value", "value_only", "json", "json_number", "value"}:
+                adapter.source_topic = legacy_format
+        if not str(adapter.udp_topic or "").strip() and str(adapter.format or "").strip():
+            legacy_format = str(adapter.format or "").strip()
+            if legacy_format not in {"text", "topic_value", "value_only", "json", "json_number", "value"}:
+                adapter.udp_topic = legacy_format
+        if direction == "in" and not adapter.source_enabled:
+            adapter.source_enabled = True
+        if direction == "out" and not adapter.target_enabled:
+            adapter.target_enabled = True
+        if direction == "both":
+            if any(str(getattr(adapter, field, "") or "").strip() for field in ("listen_port", "source_topic", "source_json_path", "source_host", "source_port")):
+                adapter.source_enabled = True
+            if any(str(getattr(adapter, field, "") or "").strip() for field in ("target_host", "target_ip", "target_port", "udp_topic")):
+                adapter.target_enabled = True
+        if adapter.source_enabled and adapter.target_enabled:
+            adapter.direction = "both"
+        elif adapter.source_enabled:
+            adapter.direction = "in"
+        elif adapter.target_enabled:
+            adapter.direction = "out"
+        adapter.active = bool(adapter.source_enabled or adapter.target_enabled or adapter.enabled)
+        return adapter
 
 
 @dataclass

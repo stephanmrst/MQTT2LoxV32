@@ -1,5 +1,163 @@
 # Changelog
 
+## 33.4.27
+
+- Die Live-API nutzt fuer Objekt-Livewerte jetzt explizit denselben Objekt-Service wie `app_core`, damit UDP-Updates und Live-Tab denselben Runtime-Store lesen.
+- Die Live-API loggt pro Objekt `LIVE TAB DEBUG` mit Memory-State, Objektfeldern und Rueckgabe-Payload.
+- UDP-Objektmatches loggen `UDP LIVE UPDATE DEBUG` mit Objekt-ID, Wert, Modus, Endpoint sowie before/after Memory-State.
+- Das Live-State-Feld `source` wird fuer die API als Anzeigequelle wie `UDP` geliefert, waehrend interne Protokollfelder kleingeschrieben bleiben.
+
+## 33.4.26
+
+- Der Objekt-Service besitzt jetzt `update_object_live_value(...)` als zentralen Runtime-Livewert-Updater fuer einzelne Objekte.
+- `record_live_value(...)` nutzt diesen Updater fuer MQTT, Loxone, KNX und UDP gemeinsam und setzt `value`, `last_value`, `live_value`, `timestamp`, `updated_at`, `endpoint`, `adapter` und `status=aktiv`.
+- UDP-Livewerte fuellen damit Live-Tab und Objektkarte direkt nach dem UDP-Match, ohne Aenderung an Quelle oder Routing.
+
+## 33.4.25
+
+- UDP-Objektmatches schreiben den Livewert jetzt ueber denselben gemeinsamen `record_live_value`-Pfad wie MQTT, KNX und Loxone.
+- UDP-JSON-Pakete ohne eigenes Topic pruefen zusaetzlich die JSON-Leaf-Pfade, damit Objekte wie `params/pm1:0/apower` den extrahierten Wert im Objekt-Live-State erhalten.
+- Der UDP-Live-Matcher bevorzugt konfigurierte Topic- und JSON-Pfad-Quellen gegenueber reinem Listen-Port-Match, damit JSON-Pakete keine anderen UDP-Objekte auf demselben Port ueberschreiben.
+
+## 33.4.24
+
+- Objektkarten lesen Quelle jetzt konsequent aus der Routing-Konfiguration bzw. `display_source` und nicht mehr aus dem Live-State.
+- UDP->MQTT und andere Zielrouten koennen die Source-Anzeige nicht mehr auf MQTT kippen.
+- Objektkarten und Detailansicht bleiben nach Reload auf der konfigurierten Eingangsquelle.
+
+## 33.4.23
+
+- UDP->MQTT-Routings behalten die echte Eingangsquelle im Live-Cache und schreiben MQTT nur noch als Ziel in `last_target`/`target_protocol`/`output_protocol`.
+- Der MQTT-Echo-Guard erkennt interne Objekt-Routings robuster auch bei topic-basierten Ruecklaeufen.
+- Objektkarten lesen Quelle weiterhin zuerst aus dem echten Eingang statt aus MQTT-Zielinfos.
+
+## 33.4.22
+
+- Objektkarten verwenden nach Browser-Reload jetzt zuerst den echten Eingangs-Cache bzw. die konfigurierte Eingangsseite und fallen nicht mehr auf MQTT-Zielinformationen zurueck.
+- Die Objekt-API liefert dafuer `input_protocol`, `route_source`, `route_sources` und `route_targets` explizit mit.
+- Die Objektliste behaelt beim Refresh ihre Scrollposition.
+
+## 33.4.21
+
+- Objektkarten und Live-API zeigen die echte Eingangsquelle jetzt auch nach einem Neustart aus dem konfigurierten Input statt aus Routing-Badges oder Zielprotokollen.
+- Der Objekt-Live-Status traegt dazu live, source_protocol, last_source, input_protocol, route_sources und route_targets konsistent mit.
+- Die Objektliste behaelt beim Refresh ihre Scrollposition besser bei.
+
+## 33.4.20
+
+- UDP-Eingaenge schreiben jetzt live_value, last_value, source_protocol, last_source und last_update direkt in den Objekt-Live-Cache, bevor die Weiterleitung startet.
+- UDP Topic:Wert und UDP JSON zeigen damit in der Objektkarte wieder Wert und Quelle UDP, ohne dass die Weiterleitung die Quelle auf MQTT umbiegt.
+- Versionsstand auf `33.4.20` gesetzt.
+
+## 33.4.19
+
+- Objektkarten und Live-Tab zeigen die Quelle jetzt strikt aus dem Live-Cache an und fallen nicht mehr auf Routing-Badges oder das erste Mapping zurueck.
+- Wenn kein Livewert vorliegt, bleibt die Quelle bewusst `unbekannt`, statt implizit MQTT anzuzeigen.
+- Versionsstand auf `33.4.19` gesetzt.
+
+## 33.4.18
+
+- UDP Topic:Wert wird im Live-Matcher nicht mehr wie JSON behandelt; JSON-Extraktion laeuft nur noch bei echtem JSON-Eingang und JSON-Objekt-Konfiguration.
+- UDP-Objektanlage uebernimmt `source_json_path` nur noch fuer JSON-Objekte, damit Topic:Wert kein JSON-Path-Erbe mehr mitbringt.
+- Versionsstand auf `33.4.18` gesetzt.
+
+## 33.4.17
+
+- UDP-Livewerte tragen jetzt ihre echte Eingangsquelle in der Live-Map mit, damit Objektkarten und Live-Tab nicht mehr aus Routing-Badges eine falsche Quelle ableiten.
+- UDP Topic:Wert bleibt im Live-Match stabil und nutzt denselben Wertpfad fuer Anzeige und Weiterleitung.
+- Versionsstand auf `33.4.17` gesetzt.
+
+## 33.4.16
+
+- UDP-JSON-Objekte verwenden jetzt den vollstaendigen JSON-Pfad als Live-Extraktionsquelle und geben den extrahierten Leaf-Wert an den Object-Router weiter.
+- Der Router sendet bei UDP JSON nicht mehr den Platzhalter `JSON`, sondern den per JSON-Pfad gefundenen Wert; fehlende Pfade werden mit einer Warnung protokolliert.
+- Versionsstand auf `33.4.16` gesetzt.
+
+## 33.4.15
+
+- UDP-Monitor-Eintraege werden im Normalizer wieder auf JSON-Text zurueckgesetzt, wenn `payload_raw` als `[object Object]` ankommt und JSON-Daten vorhanden sind.
+- Der UDP-Explorer verwendet fuer Rohpayloads jetzt einen robusten Serializer mit JSON-Fallback, damit Rohpayload und Copy-Flow nicht mehr auf `[object Object]` fallen.
+- Versionsstand auf `33.4.15` gesetzt.
+
+## 33.4.14
+
+- Der UDP-Explorer zeigt Rohpayloads jetzt konsistent als Text an, auch wenn der Monitor ein Objekt in `payload_raw` liefert.
+- Die Detailansicht und der Copy-/Objekt-Flow verwenden dafuer dieselbe Payload-Textfunktion, damit nicht mehr `[object Object]` auftaucht.
+- Versionsstand auf `33.4.14` gesetzt.
+
+## 33.4.13
+
+- Der UDP-Explorer behandelt `payload_raw` jetzt auch dann als JSON, wenn der Monitor bereits ein Objekt statt eines Rohstrings liefert.
+- Die JSON-Key-Ansicht kann damit wieder direkt auf die vorhandene Struktur zugreifen, statt an `[object Object]` hängenzubleiben.
+- Versionsstand auf `33.4.13` gesetzt.
+
+## 33.4.12
+
+- UDP-Monitor-Eintraege werden beim Normalisieren jetzt auch dann wieder als echter Rohtext behandelt, wenn `payload_raw` als Objekt statt als String ankommt.
+- Damit kann der UDP Explorer JSON wieder als Text erkennen und die JSON-Keys korrekt anzeigen, statt nur `[object Object]` zu sehen.
+- Versionsstand auf `33.4.12` gesetzt.
+
+## 33.4.11
+
+- Der UDP-Listener loggt jetzt direkt nach dem Empfang Rohbytes, Text-Repräsentation und geparste Details, damit JSON-Diagnosen bis zur Monitor-Kette sauber nachvollziehbar sind.
+- Der UDP-Explorer zeigt zusaetzliche Payload-Debugfelder fuer Rohpayload, Repr, Laenge und erstes Zeichen, damit falsch dekodierte Eingaben sofort sichtbar werden.
+- Versionsstand auf `33.4.11` gesetzt.
+
+## 33.4.10
+
+- JSON-UDP-Payloads gewinnen jetzt im Backend immer gegen vorherige `mode=Wert`-Zustaende, wenn `payload_raw` gueltiges JSON enthaelt.
+- Der UDP-Listener loggt Rohtext und Details direkt nach dem Parsen, damit falsche Payload-Zustaende sofort sichtbar sind.
+- Versionsstand auf `33.4.10` gesetzt.
+
+## 33.4.9
+
+- JSON-UDP-Payloads ohne Topic werden jetzt im Monitor stabil als JSON-Eintraege mit Leaf-Werten gefuehrt.
+- `json_data` und `json_leaf_values` werden beim Normalisieren und Aggregieren zwangsweise aufgebaut, damit der UDP Explorer rechts die Keys anzeigen kann.
+- Versionsstand auf `33.4.9` gesetzt.
+
+## 33.4.6
+
+- Die UDP-JSON-Erkennung ist jetzt toleranter und parst auch eingebettete oder anders formatierte JSON-Payloads wie im MQTT Explorer.
+- Der UDP Explorer nutzt fuer JSON wieder den gemeinsamen Parse-Pfad fuer Rohpayload, `json_data` und daraus abgeleitete Leaf-Werte.
+- Versionsstand auf `33.4.6` gesetzt.
+
+## 33.4.5
+
+- Der UDP Explorer orientiert sich jetzt noch enger am MQTT Discover Mode: links ein echter Baum, rechts die Topic-Detailansicht und der Expertenbereich bleibt eingeklappt.
+- JSON-Keys und Verlauf sind in der rechten Detailansicht sichtbar, waehrend die linke Seite kompakt bleibt.
+- Die Update-Logik bleibt stabil: bekannte UDP-Quellen werden nur aktualisiert, nicht neu angehaengt.
+
+## 33.4.4
+
+- Der UDP Explorer orientiert sich optisch und in der Bedienung enger am MQTT Discover Mode: Baum links, Detailansicht rechts, Expertenbereich einklappbar.
+- Die linke Live-Liste bleibt kompakt und die Auswahl bleibt beim Update stabil.
+- Empfangs- und Listen-Port-Details sind in den Expertenbereich gewandert, damit die Standardansicht ruhiger wirkt.
+
+## 33.4.3
+
+- Der UDP Explorer wurde optisch in eine kompakte Explorer-Ansicht umgebaut: links Live-Quellen, rechts Detailkarte mit Objektanlage.
+- Die linke Liste bleibt klein und stabil, waehrend JSON-, Topic- und Wert-Details nur noch rechts im ausgewählten Eintrag angezeigt werden.
+- Die UDP-Einstellungen sind nun nach unten verlagert und stören den Explorer nicht mehr im Hauptbereich.
+
+## 33.4.2
+
+- Der UDP Explorer arbeitet jetzt als Live-Explorer mit stabilen Quellen-Eintraegen statt als endlos wachsender Paket-Log.
+- Wiederholte UDP-Pakete aktualisieren denselben Eintrag inklusive Zaehler, letzter Werte und JSON-Baum, sodass Auswahl und Scrollen erhalten bleiben.
+- Die Explorer-Ansicht nutzt weiterhin denselben UDP-Listener wie der produktive Eingang und bleibt nur Beobachter.
+
+## 33.4.1
+
+- Der UDP-Bereich hat jetzt einen eigenen UDP Explorer in der Seitenleiste, der denselben Listener wie der produktive UDP-Eingang nutzt.
+- Der UDP Explorer zeigt eingehende Pakete mit Filter, JSON-Ansicht und Objektanlage direkt aus RX-Daten an.
+- UDP-Listener und Objektanlage bleiben an dieselbe Routing- und Runtime-Schiene angeschlossen, ohne einen zweiten Socket einzufuehren.
+
+## 33.4.0
+
+- UDP wird jetzt auch als Eingangsquelle sauber in die protokollneutrale Object-Routing-Schiene aufgenommen und kann JSON-Payloads mit Topic/Wert direkt zerlegen.
+- Der UDP-Input loggt den geparsten Topic-/Wert-Satz jetzt vor dem Routing, damit Quellen- und Zuordnungsfehler schneller sichtbar werden.
+- Der Objektmanager-Dialog "+ Neu" oeffnet jetzt ein leeres Formular mit Quellenwahl fuer LOXONE, MQTT, UDP und KNX; ausserdem gibt es einen neuen UDP-Monitor fuer eingehende Pakete.
+- UDP-Objekte koennen im Objektmanager direkt als Quelle angelegt werden und der UDP-Input speichert RX-Metadaten fuer Monitor und Objekt-Match.
+
 ## 33.3.89
 
 - Externe MQTT-Broker bekommen jetzt eine entlastete Queue-Verarbeitung mit Rate-Limit fuer Queue-voll-Meldungen, plus Diagnosewerte fuer Queue, Drops, Verarbeitung und Worker-Status.
@@ -1193,6 +1351,8 @@
 - Config-, Mapping-, Monitor-, Backup-, MQTT-, UDP-, KNX-, Loxone-, Influx- und Objektmanager-Logik bleibt erhalten.
 - v32 Startpunkt `app/main.py` delegiert an den Legacy-Core.
 - Persistente Pfade werden auf `config/`, `data/` und `backups/` im v32-Projekt gesetzt.
+
+
 
 
 
