@@ -5,7 +5,7 @@ from threading import RLock
 
 @dataclass
 class KNXState:
-    monitor_log: deque = field(default_factory=lambda: deque(maxlen=15))
+    monitor_log: deque = field(default_factory=lambda: deque(maxlen=250))
     monitor_values: dict = field(default_factory=dict)
     mqtt2knx_last_seen: dict = field(default_factory=dict)
     knx2mqtt_last_seen: dict = field(default_factory=dict)

@@ -9,8 +9,8 @@
     "updated_at": "2026-07-06T10:06:18+00:00",
     "room": "",
     "scaling": "",
-    "notes": "",
     "category": "MQTT",
+    "notes": "",
     "icon": "",
     "mqtt": {
       "protocol": "mqtt",
@@ -97,8 +97,8 @@
     "created_at": "2026-07-03T09:47:51+00:00",
     "updated_at": "2026-07-06T10:06:09+00:00",
     "room": "Wertr von NodeRed",
-    "notes": "",
     "category": "Loxone",
+    "notes": "",
     "mqtt": {
       "protocol": "mqtt",
       "enabled": true,
@@ -185,8 +185,8 @@
     "updated_at": "2026-07-05T19:28:01+00:00",
     "room": "",
     "scaling": "",
-    "notes": "",
     "category": "UDP",
+    "notes": "",
     "icon": "",
     "mqtt": {
       "protocol": "mqtt",
@@ -240,8 +240,8 @@
     "created_at": "2026-07-05T20:30:05+00:00",
     "updated_at": "2026-07-05T20:30:29+00:00",
     "room": "",
-    "notes": "",
     "category": "UDP",
+    "notes": "",
     "mqtt": {
       "protocol": "mqtt",
       "enabled": true,
@@ -295,8 +295,8 @@
     "updated_at": "2026-07-13T04:13:58+00:00",
     "room": "",
     "scaling": "",
-    "notes": "",
     "category": "KNX",
+    "notes": "",
     "icon": "",
     "mqtt": {
       "protocol": "mqtt",
@@ -358,8 +358,8 @@
     "created_at": "2026-07-13T17:45:50+00:00",
     "updated_at": "2026-07-13T17:45:50+00:00",
     "room": "",
-    "notes": "",
     "category": "KNX",
+    "notes": "",
     "udp": {
       "protocol": "udp",
       "enabled": false,
@@ -410,8 +410,10 @@
     "created_at": "2026-07-13T17:45:50+00:00",
     "updated_at": "2026-07-13T17:47:10+00:00",
     "room": "",
-    "notes": "",
+    "scaling": "",
     "category": "KNX",
+    "notes": "",
+    "icon": "",
     "mqtt": {
       "protocol": "mqtt",
       "enabled": true,
@@ -461,8 +463,68 @@
       "field": "value",
       "topic": "0/0/9/value",
       "tags": ""
+    }
+  },
+  {
+    "id": "obj_02aebf67afca419ba4a62842d98fca04",
+    "name": "0/2/2",
+    "datatype": "number",
+    "unit": "",
+    "enabled": true,
+    "created_at": "2026-07-15T11:04:32+00:00",
+    "updated_at": "2026-07-15T11:05:04+00:00",
+    "room": "",
+    "category": "KNX",
+    "notes": "",
+    "mqtt": {
+      "protocol": "mqtt",
+      "enabled": true,
+      "direction": "both",
+      "datatype": "auto",
+      "topic": "MPGateway/KNX/022/Temp",
+      "qos": 0,
+      "retain": false,
+      "json_key": ""
     },
-    "scaling": "",
-    "icon": ""
+    "udp": {
+      "protocol": "udp",
+      "enabled": false,
+      "direction": "out",
+      "datatype": "number",
+      "source_enabled": false,
+      "source_host": "",
+      "source_port": "",
+      "listen_port": "",
+      "source_payload_mode": "value",
+      "source_topic": "",
+      "source_json_path": "",
+      "target_enabled": true,
+      "target_host": "",
+      "target_ip": "",
+      "target_port": "",
+      "target_payload_mode": "topic_value",
+      "udp_topic": "0/2/2/value",
+      "format": "",
+      "payload_mode": "topic_value"
+    },
+    "knx": {
+      "protocol": "knx",
+      "enabled": true,
+      "direction": "in",
+      "datatype": "number",
+      "group_address": "0/2/2",
+      "dpt": "9.001"
+    },
+    "influx": {
+      "protocol": "influx",
+      "enabled": false,
+      "direction": "out",
+      "datatype": "number",
+      "bucket": "",
+      "measurement": "0_2_2",
+      "field": "value",
+      "topic": "0/2/2/value",
+      "tags": ""
+    }
   }
 ]

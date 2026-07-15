@@ -632,7 +632,7 @@ def log_knx_history_change(action, reason, before, after):
 
 def get_knx_history_snapshot():
     with runtime_context.knx.lock:
-        snapshot = list(runtime_context.knx.monitor_log)[:15]
+        snapshot = list(runtime_context.knx.monitor_log)[:250]
         history_id = id(runtime_context.knx.monitor_log)
     try:
         add_log_entry(f"KNX HISTORY API object_id={history_id} size={len(snapshot)}")
@@ -11482,14 +11482,14 @@ const KNX_HISTORY_STORAGE_KEY = "mp_gateway_knx_history_v1";
 function loadStoredKnxHistory() {
     try {
         const stored = JSON.parse(window.localStorage.getItem(KNX_HISTORY_STORAGE_KEY) || "[]");
-        return Array.isArray(stored) ? stored.slice(0, 15) : [];
+        return Array.isArray(stored) ? stored.slice(0, 250) : [];
     } catch (e) {
         return [];
     }
 }
 function storeKnxHistory() {
     try {
-        window.localStorage.setItem(KNX_HISTORY_STORAGE_KEY, JSON.stringify((knxHistoryEntries || []).slice(0, 15)));
+        window.localStorage.setItem(KNX_HISTORY_STORAGE_KEY, JSON.stringify((knxHistoryEntries || []).slice(0, 250)));
     } catch (e) {
         // Browser storage is only a resilience layer; backend history remains authoritative.
     }
@@ -11801,7 +11801,7 @@ function renderKnxExpertActions(ga) {
 function prependKnxHistoryEntry(entry, source) {
     if (!entry || typeof entry !== "object") return;
     const before = knxHistoryEntries.length;
-    knxHistoryEntries = [entry].concat(knxHistoryEntries).slice(0, 15);
+    knxHistoryEntries = [entry].concat(knxHistoryEntries).slice(0, 250);
     storeKnxHistory();
     console.warn("KNX HISTORY UPDATE", {
         action: "prepend",
@@ -11823,7 +11823,7 @@ function applyKnxSnapshot(data, source) {
     }
 
     if (data.snapshot === true && Array.isArray(data.history)) {
-        const nextLog = data.history.slice(0, 15);
+        const nextLog = data.history.slice(0, 250);
 
         if (nextLog.length > 0) {
             knxHistoryEntries = nextLog;
@@ -11899,17 +11899,20 @@ function renderLast(data, source) {
     document.getElementById("treeBox").innerHTML = treeHtml || '<div class="small">Keine sichtbaren Gruppenadressen.</div>';
     document.getElementById("treeCount").textContent = `${gas.length} Gruppenadressen`;
 
+    // Der Backend-Puffer behaelt mehr Telegramme, damit bei ausgewaehlter
+    // Gruppenadresse deren letzte 15 Ereignisse angezeigt werden koennen.
+    // Ohne Auswahl zeigt der Verlauf die letzten 15 Ereignisse insgesamt.
     let filtered = log.filter(e => {
         const entryDirection = String(e.direction || "RX").toUpperCase();
         if (dir === "RX" && entryDirection !== "RX") return false;
         if (dir === "OUT" && entryDirection !== "OUT" && entryDirection !== "WRITE") return false;
-        if (selectedGa && e.ga !== selectedGa) return false;
+        if (selectedGa && String(e.ga || "") !== selectedGa) return false;
         if (search) {
             const hay = [e.time, e.ga, knxPrimaryValue(e), e.value, e.raw_value, e.direction, e.status, knxMonitorBadgeLabel(e), knxMonitorTypeLabel(e), e.dpt, e.apdu].join(" ").toLowerCase();
             if (!hay.includes(search)) return false;
         }
         return true;
-    });
+    }).slice(0, 15);
 
     document.getElementById("summary").textContent =
         `${filtered.length} angezeigt · max. 15 im Verlauf · ${gas.length} Gruppenadressen`;

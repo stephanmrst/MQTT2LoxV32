@@ -1,3 +1,16 @@
+## 33.4.54
+
+- KNX-Verlaufspuffer auf 250 Ereignisse erweitert; die UI zeigt weiterhin maximal 15 Zeilen.
+- Ohne Auswahl werden die letzten 15 Telegramme insgesamt angezeigt.
+- Bei ausgewaehlter Gruppenadresse werden deren letzte bis zu 15 Telegramme angezeigt, statt nur Treffer aus dem globalen 15er-Puffer.
+- KNX-DPT-Decodierung, Routing und Performancepfad unveraendert gelassen.
+
+## 33.4.53
+
+- KNX Explorer: Die Auswahl einer Gruppenadresse in der linken Liste filtert den Verlauf nicht mehr. Die Auswahl bleibt ausschließlich für die Detailansicht aktiv.
+- Dadurch zeigt der Verlauf wieder unabhängig von der markierten Gruppenadresse die letzten maximal 15 Telegramme.
+- KNX-DPT-Decodierung, Routing und Performance bleiben unverändert.
+
 # Changelog
 
 ## 33.4.52
