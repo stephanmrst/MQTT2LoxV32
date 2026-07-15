@@ -258,7 +258,7 @@
     </div>
 
     <div class="chips">
-      {% for value, label in [('all', 'Alle'), ('active', 'Aktiv'), ('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
+      {% for value, label in [('all', 'Alle'), ('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX')] %}
         <a class="chip {% if active_filter == value %}active{% endif %}" href="{{ url_for('objects_v33.objects_v33_index', q=query, filter=value) }}">{{ label }}</a>
       {% endfor %}
     </div>

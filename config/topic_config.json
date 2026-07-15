@@ -20,12 +20,14 @@
   "knx/0/2/5": {
     "enabled": true,
     "source": "knx",
-    "group_address": "0/2/5"
+    "group_address": "0/2/5",
+    "dpt": "9.007"
   },
   "knx/0/2/0": {
     "enabled": true,
     "source": "knx",
-    "group_address": "0/2/0"
+    "group_address": "0/2/0",
+    "dpt": "9.001"
   },
   "KNX\\Schlafzimmer\\BettRechts": {
     "enabled": true
@@ -33,14 +35,16 @@
   "knx/0/2/2": {
     "enabled": true,
     "source": "knx",
-    "group_address": "0/2/2"
+    "group_address": "0/2/2",
+    "dpt": "9.001"
   },
   "knx/0/2/4": {
     "enabled": true,
     "source": "knx",
     "group_address": "0/2/4",
     "influx": true,
-    "influx_topic": "knx/0/2/4"
+    "influx_topic": "knx/0/2/4",
+    "dpt": "9.001"
   },
   "stromzaehler/leistung/Gesamt": {
     "influx": true,
@@ -48,5 +52,17 @@
   },
   "KNX/Schlafzimmer/BettRechts/temperatur": {
     "enabled": true
+  },
+  "knx/0/2/1": {
+    "enabled": true,
+    "source": "knx",
+    "group_address": "0/2/1",
+    "dpt": "9.007"
+  },
+  "knx/0/2/3": {
+    "enabled": true,
+    "source": "knx",
+    "group_address": "0/2/3",
+    "dpt": "9.007"
   }
 }

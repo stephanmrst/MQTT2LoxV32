@@ -648,7 +648,7 @@ def _collect_object_endpoint_keys(item: GatewayObject) -> list[str]:
             if topic and json_key:
                 keys.append(_endpoint_index_key("mqtt_json_key", f"{topic}/{json_key}"))
         elif protocol == "knx":
-            ga = _normalize_match_value(_adapter_value(adapter, "group_address"))
+            ga = _normalize_knx_group_address_value(_adapter_value(adapter, "group_address"))
             if ga:
                 keys.append(_endpoint_index_key("knx_ga", ga))
         elif protocol == "udp":
@@ -689,6 +689,56 @@ def _get_object_endpoint_index() -> dict[str, list[GatewayObject]]:
         if OBJECT_ENDPOINT_INDEX and OBJECT_ENDPOINT_INDEX_MTIME == mtime:
             return OBJECT_ENDPOINT_INDEX
     return _rebuild_object_endpoint_index()
+
+
+def lookup_knx_dpt(group_address: Any) -> str:
+    """Return the configured object DPT for a KNX group address from the endpoint cache."""
+    ga = _normalize_knx_group_address_value(group_address)
+    if not ga:
+        return ""
+    index = _get_object_endpoint_index()
+    candidates = index.get(_endpoint_index_key("knx_ga", ga), [])
+    for item in sorted(candidates, key=lambda obj: str(getattr(obj, "id", "") or "")):
+        adapter = _adapter_map(item).get("knx")
+        if not adapter or not _is_enabled_adapter(adapter):
+            continue
+        if _normalize_knx_group_address_value(_adapter_value(adapter, "group_address")) != ga:
+            continue
+        dpt = _normalize_knx_dpt(_adapter_value(adapter, "dpt"))
+        if dpt:
+            return dpt
+    return ""
+
+
+def lookup_knx_dpt_details(group_address: Any) -> dict[str, Any]:
+    """Return KNX object lookup details for focused runtime tracing."""
+    ga = _normalize_knx_group_address_value(group_address)
+    details: dict[str, Any] = {"group_address": ga, "dpt": "", "object": None, "candidates": 0}
+    if not ga:
+        return details
+    index = _get_object_endpoint_index()
+    candidates = index.get(_endpoint_index_key("knx_ga", ga), [])
+    details["candidates"] = len(candidates)
+    for item in sorted(candidates, key=lambda obj: str(getattr(obj, "id", "") or "")):
+        adapter = _adapter_map(item).get("knx")
+        if not adapter or not _is_enabled_adapter(adapter):
+            continue
+        if _normalize_knx_group_address_value(_adapter_value(adapter, "group_address")) != ga:
+            continue
+        dpt = _normalize_knx_dpt(_adapter_value(adapter, "dpt"))
+        details["dpt"] = dpt
+        details["object"] = {
+            "id": str(getattr(item, "id", "") or ""),
+            "name": str(getattr(item, "name", "") or ""),
+            "datatype": str(getattr(item, "datatype", "") or ""),
+            "knx": {
+                "group_address": _adapter_value(adapter, "group_address"),
+                "dpt": _adapter_value(adapter, "dpt"),
+                "enabled": _is_enabled_adapter(adapter),
+            },
+        }
+        return details
+    return details
 
 
 def build_object(data: dict[str, Any]) -> GatewayObject:
@@ -939,8 +989,8 @@ def _object_matches_live_source(item: GatewayObject, source: str, **endpoint: An
             or (io_value and adapter_source_name and io_value == adapter_source_name)
         )
     if source == "knx":
-        ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
-        return bool(ga and _normalize_match_value(_adapter_value(adapter, "group_address")) == ga)
+        ga = _normalize_knx_group_address_value(endpoint.get("group_address") or endpoint.get("ga"))
+        return bool(ga and _normalize_knx_group_address_value(_adapter_value(adapter, "group_address")) == ga)
     if source == "udp":
         topic = _normalize_match_value(endpoint.get("source_topic") or endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
         json_path = _normalize_match_value(endpoint.get("source_json_path") or endpoint.get("json_key") or endpoint.get("path"))
@@ -990,7 +1040,7 @@ def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str
             candidates.append(("mqtt_json_key", f"{topic}/{json_key}", "mqtt.topic/json_key"))
         return candidates
     if source == "knx":
-        ga = _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga"))
+        ga = _normalize_knx_group_address_value(endpoint.get("group_address") or endpoint.get("ga"))
         return [("knx_ga", ga, "knx.group_address")]
     if source == "udp":
         udp_topic = _normalize_match_value(endpoint.get("source_topic") or endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format"))
@@ -1015,7 +1065,7 @@ def _live_lookup_candidates(source: str, **endpoint: Any) -> list[tuple[str, str
         ("loxone_io", _normalize_match_value(endpoint.get("loxone_io") or endpoint.get("io_address") or endpoint.get("io") or endpoint.get("name") or endpoint.get("source_name")), "loxone.io_address"),
         ("mqtt_topic", _normalize_match_value(endpoint.get("topic")), "mqtt.topic"),
         ("mqtt_json_key", _normalize_match_value(endpoint.get("topic") and endpoint.get("json_key") and f"{endpoint.get('topic')}/{endpoint.get('json_key')}"), "mqtt.topic/json_key"),
-        ("knx_ga", _normalize_match_value(endpoint.get("group_address") or endpoint.get("ga")), "knx.group_address"),
+        ("knx_ga", _normalize_knx_group_address_value(endpoint.get("group_address") or endpoint.get("ga")), "knx.group_address"),
         ("udp_source_topic", _normalize_match_value(endpoint.get("source_topic") or endpoint.get("udp_topic") or endpoint.get("topic") or endpoint.get("format")), "udp.source_topic"),
         ("udp_source_json_path", _normalize_match_value(endpoint.get("source_json_path") or endpoint.get("json_key") or endpoint.get("path")), "udp.source_json_path"),
     ]
@@ -1583,6 +1633,21 @@ def _udp_display_label(adapter: Any, role: str = "source") -> str:
 
 def _normalize_match_value(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _normalize_knx_group_address_value(value: Any) -> str:
+    text = str(value or "").strip().replace(" ", "")
+    if not text:
+        return ""
+    if "/" not in text:
+        return text.lower()
+    parts = [part for part in text.split("/") if part != ""]
+    if len(parts) != 3:
+        return text.lower()
+    try:
+        return "/".join(str(int(part)) for part in parts)
+    except Exception:
+        return text.lower()
 
 
 def _normalize_uuid_value(value: Any) -> str:

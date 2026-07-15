@@ -30,6 +30,7 @@ except ModuleNotFoundError:
 
 bp = Blueprint("objects_v33", __name__, template_folder="../../templates")
 _EXPLORER_CREATE_LOCK = threading.Lock()
+SOURCE_FILTER_TYPES = {"mqtt", "loxone", "udp", "knx"}
 
 
 def _slugify(value: str) -> str:
@@ -153,6 +154,41 @@ def _current_source_address(object_def):
     if not live_source or live_source == "unbekannt":
         return ""
     return ""
+
+
+def _object_filter_source(object_def) -> str:
+    try:
+        report = object_service.get_object_route_report(object_def) or {}
+        source = str(report.get("current_source") or "").strip().lower()
+        if source in ADAPTER_TYPES and source != "influx":
+            return source
+    except Exception:
+        pass
+    adapters = _adapter_map(object_def)
+    for protocol in ("mqtt", "loxone", "udp", "knx"):
+        adapter = adapters.get(protocol)
+        if adapter is None:
+            continue
+        direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
+        if direction not in {"in", "both"}:
+            continue
+        if protocol == "mqtt" and str(getattr(adapter, "topic", "") or "").strip():
+            return protocol
+        if protocol == "knx" and str(getattr(adapter, "group_address", "") or "").strip():
+            return protocol
+        if protocol == "udp" and (
+            str(getattr(adapter, "source_topic", "") or "").strip()
+            or str(getattr(adapter, "source_json_path", "") or "").strip()
+            or str(getattr(adapter, "listen_port", "") or "").strip()
+        ):
+            return protocol
+        if protocol == "loxone" and (
+            str(getattr(adapter, "source_uuid", "") or getattr(adapter, "uuid", "") or "").strip()
+            or str(getattr(adapter, "source_io", "") or getattr(adapter, "io_address", "") or "").strip()
+            or str(getattr(adapter, "source_name", "") or getattr(adapter, "visu_name", "") or "").strip()
+        ):
+            return protocol
+    return "unbekannt"
 
 
 def _selected_source_type(object_def) -> str:
@@ -292,10 +328,8 @@ def _filtered_objects(query: str, active_filter: str = "all"):
             [item.id, item.uuid, item.key, item.name, item.category, item.type, item.unit, item.room]
         ).lower()
     ]
-    if active_filter == "active":
-        return [item for item in filtered if item.enabled]
-    if active_filter in ADAPTER_TYPES:
-        return [item for item in filtered if active_filter in _adapter_protocols(item)]
+    if active_filter in SOURCE_FILTER_TYPES:
+        return [item for item in filtered if _object_filter_source(item) == active_filter]
     return filtered
 
 
@@ -473,7 +507,7 @@ def _adapter_for_core_fields(protocol, address, datatype="auto", enabled=True, d
 def _object_from_prefill():
     explorer = _clean_prefill(request.args.get("explorer", "")).lower()
     source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "mqtt").lower()
-    source_address = _request_first("source_address", "source_topic", "topic", "loxone_io", "io_address", "name", "value")
+    source_address = _request_first("source_address", "source_topic", "topic", "group_address", "knx_ga", "loxone_io", "io_address", "name", "value")
     json_key = _request_first("mqtt_json_key", "json_key")
     name = request.args.get("name", "").strip()
     if not name:
@@ -512,6 +546,12 @@ def _object_from_prefill():
                 payload["category"] = "UDP"
             if not payload["unit"]:
                 payload["unit"] = _clean_prefill(request.args.get("unit", ""))
+    elif explorer == "knx" or source_type == "knx":
+        adapter = _knx_adapter_from_request(_datatype_from_request())
+        if adapter.group_address:
+            payload["knx"] = adapter.serialize()
+            if not payload["category"]:
+                payload["category"] = "KNX"
     elif source_type in ADAPTER_TYPES and source_address:
         payload[source_type] = _adapter_for_core_fields(source_type, source_address, _datatype_from_request(), True, "both").serialize()
     return payload
@@ -588,6 +628,18 @@ def _udp_adapter_from_request(datatype: str):
     )
 
 
+def _knx_adapter_from_request(datatype: str):
+    group_address = _request_first("group_address", "knx_ga", "source_address", "topic", "value")
+    dpt = _request_first("dpt", "knx_dpt", "detected_dpt", "configured_dpt")
+    return ADAPTER_TYPES["knx"](
+        enabled=True,
+        direction="in",
+        datatype=datatype or "auto",
+        group_address=group_address,
+        dpt=dpt,
+    )
+
+
 def _object_payload_from_explorer() -> dict:
     explorer = _clean_prefill(request.args.get("explorer", "")).lower()
     source_type = _clean_prefill(request.args.get("source_type") or request.args.get("source") or explorer or "").lower()
@@ -600,6 +652,7 @@ def _object_payload_from_explorer() -> dict:
         _clean_prefill(request.args.get("visu_name", ""))
         or _clean_prefill(request.args.get("loxone_io", ""))
         or _clean_prefill(request.args.get("topic", request.args.get("source_address", "")))
+        or _clean_prefill(request.args.get("group_address", request.args.get("knx_ga", "")))
         or _clean_prefill(request.args.get("mqtt_json_key", request.args.get("json_key", "")))
     )
     name = display_name or fallback_name or "Neues Objekt"
@@ -655,6 +708,14 @@ def _object_payload_from_explorer() -> dict:
                 payload["category"] = "UDP"
             if not payload["unit"]:
                 payload["unit"] = _clean_prefill(request.args.get("unit", ""))
+    elif explorer == "knx" or source_type == "knx":
+        adapter = _knx_adapter_from_request(datatype)
+        if str(getattr(adapter, "group_address", "") or "").strip():
+            payload["knx"] = adapter.serialize()
+            payload["source_type"] = "knx"
+            payload["source_address"] = adapter.group_address
+            if not payload["category"]:
+                payload["category"] = "KNX"
 
     return payload
 

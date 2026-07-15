@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import re
 import sys
 import threading
@@ -19,6 +20,7 @@ from flask import Flask, request, render_template, render_template_string, redir
 from markupsafe import escape
 from loxwebsocket.lox_ws_api import LoxWs
 from collections import deque
+from itertools import count
 from urllib.parse import quote
 from urllib.parse import quote
 from services import config
@@ -47,6 +49,12 @@ _OBJECT_ROUTE_RELOAD_PENDING = False
 _RECENT_OBJECT_ROUTER_PUBLISHES = {}
 _RECENT_OBJECT_ROUTER_PUBLISH_TOPICS = {}
 _RECENT_OBJECT_ROUTER_PUBLISH_LOCK = threading.Lock()
+_KNX_ROUTING_QUEUE = queue.Queue(maxsize=1000)
+_KNX_ROUTING_WORKER_STARTED = False
+_KNX_ROUTING_WORKER_LOCK = threading.Lock()
+_KNX_GA_RUNTIME_INDEX = {}
+_KNX_GA_RUNTIME_INDEX_LOCK = threading.RLock()
+_KNX_MONITOR_EVENT_COUNTER = count(1)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -597,18 +605,69 @@ def clear_knx_monitor_values():
 
 
 def get_knx_monitor_log():
+    return get_knx_history_snapshot()
+
+
+def log_knx_history_instance(prefix="KNX HISTORY INSTANCE"):
     with runtime_context.knx.lock:
-        return list(runtime_context.knx.monitor_log)[:15]
+        history_id = id(runtime_context.knx.monitor_log)
+        size = len(runtime_context.knx.monitor_log)
+    try:
+        add_log_entry(f"{prefix} object_id={history_id} module={__name__} size={size}")
+    except Exception:
+        pass
+    return history_id, size
+
+
+def log_knx_history_change(action, reason, before, after):
+    with runtime_context.knx.lock:
+        history_id = id(runtime_context.knx.monitor_log)
+    try:
+        add_log_entry(
+            f"KNX HISTORY CHANGE action={action} reason={reason} before={before} after={after} object_id={history_id}"
+        )
+    except Exception:
+        pass
+
+
+def get_knx_history_snapshot():
+    with runtime_context.knx.lock:
+        snapshot = list(runtime_context.knx.monitor_log)[:15]
+        history_id = id(runtime_context.knx.monitor_log)
+    try:
+        add_log_entry(f"KNX HISTORY API object_id={history_id} size={len(snapshot)}")
+    except Exception:
+        pass
+    return snapshot
+
+
+def append_knx_history(entry):
+    with runtime_context.knx.lock:
+        history_id = id(runtime_context.knx.monitor_log)
+        before = len(runtime_context.knx.monitor_log)
+        runtime_context.knx.monitor_log.appendleft(dict(entry or {}))
+        after = len(runtime_context.knx.monitor_log)
+    try:
+        add_log_entry(f"KNX HISTORY INSTANCE object_id={history_id} module={__name__} size={after} source=telegram")
+    except Exception:
+        pass
+    log_knx_history_change("append", "telegram_received", before, after)
 
 
 def add_knx_monitor_log_entry(entry):
+    append_knx_history(entry)
+
+
+def clear_knx_history_manual(reason="manual_user_command"):
     with runtime_context.knx.lock:
-        runtime_context.knx.monitor_log.appendleft(dict(entry or {}))
+        before = len(runtime_context.knx.monitor_log)
+        runtime_context.knx.monitor_log.clear()
+        after = len(runtime_context.knx.monitor_log)
+    log_knx_history_change("clear", reason, before, after)
 
 
 def clear_knx_monitor_log():
-    with runtime_context.knx.lock:
-        runtime_context.knx.monitor_log.clear()
+    clear_knx_history_manual("explicit_clear")
 
 
 def get_knx_test_state():
@@ -926,37 +985,68 @@ def submit_knx_runtime_coro(coro, timeout=5):
         return None
 
 
-def add_knx_monitor_entry(group_address, value, direction="RX", dpt="", status="", update_live=True, source=None):
+def add_knx_monitor_entry(group_address, value, direction="RX", dpt="", status="", update_live=True, source=None, telegram_type="", apdu="", **extra):
     """Add a KNX telegram to the live KNX monitor."""
     from datetime import datetime
 
+    now = datetime.now()
     ga = knx_service.normalize_knx_ga(group_address)
     if not ga:
         ga = str(group_address or "").strip()
     direction_text = str(direction or "RX").upper()
-    status_text = str(status or "").upper()
+    status_text = str(status or "").strip()
+    status_key = status_text.upper()
+    existing = get_knx_monitor_values().get(ga, {}) if ga else {}
+    receive_count = int((existing or {}).get("receive_count") or 0)
+    if direction_text not in {"OUT", "WRITE"} and not status_key.startswith("OUT_"):
+        receive_count += 1
 
     entry = {
-        "time": datetime.now().strftime("%H:%M:%S"),
+        "id": str(extra.get("id") or next(_KNX_MONITOR_EVENT_COUNTER)),
+        "time": now.strftime("%H:%M:%S"),
+        "timestamp": str(extra.get("timestamp") or now.isoformat()),
         "ga": ga,
-        "value": str(value),
+        "group_address": ga,
+        "value": extra.get("value_data") if "value_data" in extra else str(value),
+        "last_value": extra.get("value_data") if "value_data" in extra else str(value),
+        "display_value": str(extra.get("display_value") if extra.get("display_value") is not None else value),
+        "raw_value": str(extra.get("raw_value") or apdu or ""),
         "direction": direction_text,
         "dpt": str(dpt or ""),
+        "dpt_source": str(extra.get("dpt_source") or ""),
         "status": status_text,
-        "source": str(source or ("Objektmanager" if direction_text in {"OUT", "WRITE"} or status_text.startswith("OUT_") else "KNX Bus")),
+        "telegram_type": str(telegram_type or ("GroupValueWrite" if direction_text in {"RX", "OUT", "WRITE"} else "")),
+        "apdu": str(apdu or ""),
+        "source_address": str(extra.get("source_address") or ""),
+        "decoded": bool(extra.get("decoded", False)),
+        "value_type": str(extra.get("value_type") or ""),
+        "receive_count": receive_count,
+        "source": str(source or ("Objektmanager" if direction_text in {"OUT", "WRITE"} or status_key.startswith("OUT_") else "KNX Bus")),
     }
 
     print("[KNX MONITOR ADD]", entry)
     add_knx_monitor_log_entry(entry)
     if ga:
-        set_knx_monitor_value(ga, entry)
-        if update_live and direction_text not in {"OUT", "WRITE"} and not status_text.startswith("OUT_"):
+        existing_direction = str((existing or {}).get("direction") or "").upper()
+        is_output = direction_text in {"OUT", "WRITE"} or status_key.startswith("OUT_")
+        if not is_output or not existing or existing_direction not in {"RX", "READ", "RESPONSE"}:
+            set_knx_monitor_value(ga, entry)
+        if update_live and direction_text not in {"OUT", "WRITE"} and not status_key.startswith("OUT_"):
             try:
                 object_core_service.record_live_value("knx", entry.get("value", value), group_address=ga)
             except Exception:
                 pass
             write_knx_monitor_influx(ga, entry.get("value", value), entry.get("dpt", dpt), entry.get("direction", direction))
     bump_sse("knx")
+
+
+def _knx_mqtt_payload_value(value, dpt="", value_type=""):
+    if knx_service.get_dpt_main(dpt) == 1 or str(value_type or "").strip().lower() in {"integer", "boolean"}:
+        try:
+            return "1" if int(value) else "0"
+        except Exception:
+            return "1" if str(value).strip().lower() in {"1", "true", "on", "yes", "ein"} else "0"
+    return value
 
 def load_topic_config():
     if not os.path.exists(TOPIC_CONFIG_FILE):
@@ -1926,6 +2016,214 @@ def _consume_object_router_publish(topic, payload):
     return None
 
 
+def _knx_ga_index_set(ga, **updates):
+    ga = knx_service.normalize_knx_ga(ga)
+    if not ga:
+        return
+    current = _KNX_GA_RUNTIME_INDEX.setdefault(ga, {"group_address": ga})
+    for key, value in updates.items():
+        if value not in (None, ""):
+            current[key] = value
+
+
+def rebuild_knx_ga_runtime_index():
+    """Build a RAM-only KNX lookup for the listener fast path."""
+    index = {}
+    try:
+        for item in object_core_service.list_objects():
+            adapters = object_core_service._adapter_map(item)
+            knx_adapter = adapters.get("knx")
+            if not knx_adapter:
+                continue
+            ga = knx_service.normalize_knx_ga(object_core_service._adapter_value(knx_adapter, "group_address"))
+            if not ga:
+                continue
+            dpt = knx_service.normalize_dpt(object_core_service._adapter_value(knx_adapter, "dpt"))
+            mqtt_adapter = adapters.get("mqtt")
+            mqtt_topic = ""
+            mqtt_retain = False
+            targets = []
+            if _mqtt_adapter_complete(mqtt_adapter):
+                mqtt_topic = str(object_core_service._adapter_value(mqtt_adapter, "topic") or "").strip()
+                mqtt_retain = bool(getattr(mqtt_adapter, "retain", False))
+                targets.append("mqtt")
+            if _loxone_adapter_complete(adapters.get("loxone")):
+                targets.append("loxone")
+            if _udp_adapter_complete(adapters.get("udp")):
+                targets.append("udp")
+            if _influx_adapter_complete(adapters.get("influx")):
+                targets.append("influx")
+            if _knx_adapter_complete(adapters.get("knx")):
+                targets.append("knx")
+            index[ga] = {
+                "group_address": ga,
+                "dpt": dpt,
+                "dpt_source": "object" if dpt else "",
+                "object_id": str(getattr(item, "id", "") or ""),
+                "object_name": str(getattr(item, "name", "") or ""),
+                "mqtt_topic": mqtt_topic,
+                "mqtt_retain": mqtt_retain,
+                "targets": sorted(set(targets)),
+            }
+    except Exception as exc:
+        add_log_entry(f"KNX Runtime Index Objekt Fehler: {exc}")
+
+    for loader, label in [
+        (load_knx2mqtt_config, "knx2mqtt"),
+        (load_knx2lox_config, "knx2lox"),
+        (load_mqtt2knx_config, "mqtt2knx"),
+        (load_udp2knx_config, "udp2knx"),
+    ]:
+        try:
+            for item in loader():
+                ga = knx_service.normalize_knx_ga((item or {}).get("group_address", ""))
+                dpt = knx_service.normalize_dpt((item or {}).get("dpt", ""))
+                if ga and dpt and not index.get(ga, {}).get("dpt"):
+                    index[ga] = {"group_address": ga, "dpt": dpt, "dpt_source": label}
+        except Exception as exc:
+            add_log_entry(f"KNX Runtime Index {label} Fehler: {exc}")
+
+    try:
+        for topic, item in (load_topic_config() or {}).items():
+            if not isinstance(item, dict) or str(item.get("source") or "").strip().lower() != "knx":
+                continue
+            ga = knx_service.normalize_knx_ga(item.get("group_address") or str(topic).replace("knx/", "", 1))
+            dpt = knx_service.normalize_dpt(item.get("dpt", ""))
+            if ga and dpt and not index.get(ga, {}).get("dpt"):
+                current = dict(index.get(ga) or {"group_address": ga})
+                current.update({"dpt": dpt, "dpt_source": "topic_config"})
+                index[ga] = current
+    except Exception as exc:
+        add_log_entry(f"KNX Runtime Index topic_config Fehler: {exc}")
+
+    with _KNX_GA_RUNTIME_INDEX_LOCK:
+        _KNX_GA_RUNTIME_INDEX.clear()
+        _KNX_GA_RUNTIME_INDEX.update(index)
+    add_log_entry(f"KNX Runtime Index aufgebaut: {len(index)} Gruppenadressen")
+    return dict(index)
+
+
+def get_knx_runtime_metadata(ga):
+    ga = knx_service.normalize_knx_ga(ga)
+    if not ga:
+        return {}
+    with _KNX_GA_RUNTIME_INDEX_LOCK:
+        return dict(_KNX_GA_RUNTIME_INDEX.get(ga) or {})
+
+
+def _safe_qsize(q):
+    try:
+        return q.qsize()
+    except Exception:
+        return -1
+
+
+def ensure_knx_routing_worker():
+    global _KNX_ROUTING_WORKER_STARTED
+    with _KNX_ROUTING_WORKER_LOCK:
+        if _KNX_ROUTING_WORKER_STARTED:
+            return
+        thread = threading.Thread(target=_knx_routing_worker, name="knx-routing-worker", daemon=True)
+        thread.start()
+        _KNX_ROUTING_WORKER_STARTED = True
+        add_log_entry("KNX Routing Worker gestartet")
+
+
+def enqueue_knx_routing_event(event):
+    ensure_knx_routing_worker()
+    ga = str((event or {}).get("group_address") or "")
+    try:
+        _KNX_ROUTING_QUEUE.put_nowait(dict(event or {}))
+        add_log_entry(f"ROUTING QUEUE size={_safe_qsize(_KNX_ROUTING_QUEUE)} ga={ga}")
+        return True
+    except queue.Full:
+        add_log_entry(f"ROUTING QUEUE full ga={ga} dropped=yes")
+        return False
+
+
+def _knx_routing_worker():
+    while True:
+        event = _KNX_ROUTING_QUEUE.get()
+        try:
+            _process_knx_routing_event(event)
+        except Exception as exc:
+            add_log_entry(f"KNX Routing Worker Fehler ga={(event or {}).get('group_address', '-')}: {exc}")
+        finally:
+            try:
+                _KNX_ROUTING_QUEUE.task_done()
+            except Exception:
+                pass
+
+
+def _process_knx_routing_event(event):
+    event = dict(event or {})
+    ga = str(event.get("group_address") or "")
+    payload = event.get("payload")
+    value = event.get("value")
+    value_text = event.get("display_value") if event.get("display_value") is not None else value
+    received_perf = float(event.get("received_perf") or time.perf_counter())
+    received_wall = float(event.get("received_wall") or time.time())
+    wait_ms = (time.perf_counter() - received_perf) * 1000
+    add_log_entry(f"ROUTING WORKER ga={ga} queue_wait_ms={wait_ms:.2f}")
+
+    if event.get("value_type") == "read":
+        add_log_entry(f"KNX PERF ROUTING_SKIP_READ ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+        return
+
+    live_items = list(event.get("live_items") or [])
+    if not live_items:
+        live_start = time.perf_counter()
+        live_items = object_core_service.record_live_value("knx", value, group_address=ga)
+        add_log_entry(f"KNX PERF LIVE ga={ga} step_ms={(time.perf_counter() - live_start) * 1000:.2f} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+    runtime_meta = get_knx_runtime_metadata(ga)
+    fast_mqtt_sent = False
+    mqtt_topic = str(runtime_meta.get("mqtt_topic") or "").strip()
+    if mqtt_topic and mqtt_client:
+        mqtt_value = _knx_mqtt_payload_value(value, dpt=event.get("dpt") or runtime_meta.get("dpt", ""), value_type=event.get("value_type", ""))
+        result = mqtt_client.publish(mqtt_topic, mqtt_value, retain=bool(runtime_meta.get("mqtt_retain", False)))
+        add_log_entry(f"MQTT PUBLISH topic={mqtt_topic} rc={getattr(result, 'rc', '')} mid={getattr(result, 'mid', '')}")
+        add_log_entry(f"KNX PERF MQTT_PUBLISH ga={ga} topic={mqtt_topic} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+        add_log_entry(f"KNX TO MQTT ga={ga} topic={mqtt_topic} delay_ms={(time.time() - received_wall) * 1000:.2f}")
+        try:
+            object_id = str(runtime_meta.get("object_id") or "")
+            if object_id:
+                object_core_service.record_live_target(object_id, "mqtt", value=mqtt_value, original_source="knx")
+        except Exception:
+            pass
+        fast_mqtt_sent = True
+    non_mqtt_targets = [target for target in (runtime_meta.get("targets") or []) if target != "mqtt"]
+    if fast_mqtt_sent and not non_mqtt_targets:
+        add_log_entry(f"KNX PERF ROUTING ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f} routed=true fast_mqtt_only=true")
+        return
+    routed = _dispatch_object_routes(
+        live_items,
+        "knx",
+        ga,
+        value,
+        metadata={"group_address": ga, "received_perf": received_perf, "received_wall": received_wall, "gateway_origin": "mqtt" if fast_mqtt_sent else "", "dpt": event.get("dpt") or runtime_meta.get("dpt", ""), "value_type": event.get("value_type", "")},
+    )
+    add_log_entry(f"KNX PERF ROUTING ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f} routed={str(bool(routed)).lower()}")
+
+    if routed:
+        return
+
+    add_log_entry(f"KNX RX vor publish_knx_to_mqtt GA={ga} DPT={event.get('dpt') or '-'} Value={value_text}")
+    knx_service.publish_knx_to_mqtt(
+        ga,
+        payload,
+        load_knx2mqtt_config,
+        lambda: mqtt_client,
+        runtime_context.knx.knx2mqtt_last_seen,
+        add_log_entry,
+        update_knx_last_seen,
+        received_perf=received_perf,
+        received_wall=received_wall,
+    )
+    add_log_entry(f"KNX PERF MQTT_CALL ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+
+    add_log_entry(f"KNX RX vor publish_knx_to_loxone GA={ga} DPT={event.get('dpt') or '-'} Value={value_text}")
+    knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
+
 
 async def _knx_listener_async(knx_cfg):
     try:
@@ -1942,6 +2240,97 @@ async def _knx_listener_async(knx_cfg):
     local_ip = str(knx_cfg.get("local_ip", "")).strip()
     if local_ip:
         kwargs["local_ip"] = local_ip
+    ensure_knx_routing_worker()
+    rebuild_knx_ga_runtime_index()
+    def telegram_received_cb(telegram):
+        try:
+            received_perf = time.perf_counter()
+            received_wall = time.time()
+            if runtime_context.bridge.stop_requested:
+                return
+            ga = str(getattr(telegram, "destination_address", ""))
+            source_address = str(getattr(telegram, "source_address", "") or "")
+            payload = getattr(telegram, "payload", None)
+            telegram_type = payload.__class__.__name__ if payload is not None else "Telegram"
+            add_log_entry(f"KNX PERF RX ga={ga or '-'} t={received_perf:.6f}")
+            apdu_hex = ""
+            try:
+                apdu_hex = knx_service.format_knx_raw_value(telegram)
+            except Exception:
+                apdu_hex = ""
+            add_log_entry(f"KNX RX source={source_address or '-'} destination={ga or '-'} payload={payload!r} telegram_type={telegram_type}")
+            trace_knx_009 = knx_service.normalize_knx_ga(ga) == "0/0/9"
+            if trace_knx_009:
+                add_log_entry(
+                    f"KNX TRACE RX ga={ga} source={source_address or '-'} type={telegram_type} "
+                    f"payload_type={type(payload).__name__ if payload is not None else '-'} payload={payload!r} raw={apdu_hex or '-'}"
+                )
+            if ga:
+                metadata = get_knx_runtime_metadata(ga)
+                detected_dpt = str(metadata.get("dpt") or "")
+                dpt_source = str(metadata.get("dpt_source") or "")
+                if trace_knx_009:
+                    add_log_entry(
+                        f"KNX TRACE LOOKUP ga={ga} metadata={metadata!r} configured_dpt={detected_dpt!r}"
+                    )
+                decoded = knx_service.decode_knx_value(telegram, ga, detected_dpt)
+                add_log_entry(f"KNX PERF DECODE ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+                if trace_knx_009:
+                    add_log_entry(f"KNX TRACE DECODE ga={ga} result={decoded!r}")
+                monitor_dpt = decoded.get("dpt") or ("unbekannt" if not detected_dpt else detected_dpt)
+                value_text = decoded.get("display_value")
+                if value_text is None:
+                    value_text = f"Raw: {decoded.get('raw_value') or apdu_hex or ''}".strip()
+                unit = str(decoded.get("unit") or "").strip()
+                if unit and value_text and not str(value_text).endswith(unit):
+                    value_text = f"{value_text} {unit}"
+                monitor_status = "" if decoded.get("decoded") else "Raw"
+                if decoded.get("value_type") == "read":
+                    monitor_status = "Read"
+                apdu_hex = decoded.get("raw_value") or apdu_hex
+                add_log_entry(
+                    f"KNX DECODE destination={ga} dpt={monitor_dpt or '-'} decoded={decoded.get('decoded')} "
+                    f"value={decoded.get('value')!r} display={value_text!r} raw={apdu_hex or '-'}"
+                )
+                add_knx_monitor_entry(
+                    ga,
+                    value_text,
+                    "RX",
+                    monitor_dpt,
+                    status=monitor_status,
+                    telegram_type=decoded.get("telegram_type") or telegram_type,
+                    apdu=apdu_hex,
+                    source_address=decoded.get("source_address") or source_address,
+                    display_value=value_text,
+                    raw_value=decoded.get("raw_value") or apdu_hex,
+                    decoded=decoded.get("decoded"),
+                    value_type=decoded.get("value_type"),
+                    value_data=decoded.get("value") if decoded.get("value") is not None else value_text,
+                    dpt_source=decoded.get("dpt_source") or dpt_source,
+                    update_live=False,
+                )
+                add_log_entry(f"KNX PERF EXPLORER ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+                if trace_knx_009:
+                    explorer_entry = get_knx_monitor_values().get(knx_service.normalize_knx_ga(ga), {})
+                    add_log_entry(f"KNX TRACE EXPLORER ga={ga} entry={explorer_entry!r}")
+                route_value = decoded.get("value") if decoded.get("value") is not None else value_text
+                enqueue_knx_routing_event({
+                    "source_protocol": "knx",
+                    "source_address": source_address,
+                    "group_address": knx_service.normalize_knx_ga(ga),
+                    "object_id": metadata.get("object_id") or "",
+                    "dpt": monitor_dpt,
+                    "value": route_value,
+                    "display_value": value_text,
+                    "raw_value": decoded.get("raw_value") or apdu_hex,
+                    "value_type": decoded.get("value_type"),
+                    "payload": payload,
+                    "received_perf": received_perf,
+                    "received_wall": received_wall,
+                })
+                add_log_entry(f"KNX PERF CALLBACK_DONE ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
+        except Exception as e:
+            add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
     xknx = XKNX(connection_config=ConnectionConfig(**kwargs))
     loop = asyncio.get_running_loop()
     set_knx_runtime_state(
@@ -1961,43 +2350,6 @@ async def _knx_listener_async(knx_cfg):
         f"gateway={str(knx_cfg.get('gateway_ip', '') or '')}:{int(knx_cfg.get('gateway_port', 3671))} "
         f"local_ip={local_ip or '-'} status=starting"
     )
-    def telegram_received_cb(telegram):
-        try:
-            if runtime_context.bridge.stop_requested:
-                return
-            ga = str(getattr(telegram, "destination_address", ""))
-            payload = getattr(telegram, "payload", None)
-            add_log_entry(f"KNX RX Callback erreicht GA={ga or '-'} DPT=? Value={payload}")
-            if ga:
-                detected_dpt = knx_service.infer_knx_dpt(
-                    ga,
-                    "",
-                    load_knx2mqtt_config,
-                    load_knx2lox_config,
-                    load_mqtt2knx_config,
-                    load_udp2knx_config,
-                )
-                value_text = knx_service.parse_knx_payload_value(payload, detected_dpt)
-
-                monitor_dpt = detected_dpt
-                if not monitor_dpt:
-                    try:
-                        _auto_value, _auto_dpt = knx_service.auto_decode_value(knx_service.payload_to_bytes(payload))
-                        if _auto_dpt:
-                            monitor_dpt = _auto_dpt
-                    except Exception:
-                        monitor_dpt = ""
-
-                add_log_entry(f"KNX RX vor add_knx_monitor_entry GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
-                add_knx_monitor_entry(ga, value_text, "RX", monitor_dpt)
-                live_items = object_core_service.record_live_value("knx", value_text, group_address=ga)
-                if not _dispatch_object_routes(live_items, "knx", ga, value_text, metadata={"group_address": ga}):
-                    add_log_entry(f"KNX RX vor publish_knx_to_mqtt GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
-                    knx_service.publish_knx_to_mqtt(ga, payload, load_knx2mqtt_config, lambda: mqtt_client, runtime_context.knx.knx2mqtt_last_seen, add_log_entry, update_knx_last_seen)
-                    add_log_entry(f"KNX RX vor publish_knx_to_loxone GA={ga} DPT={monitor_dpt or detected_dpt or '-'} Value={value_text}")
-                    knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
-        except Exception as e:
-            add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
     try:
         if hasattr(xknx, "telegram_queue") and hasattr(xknx.telegram_queue, "register_telegram_received_cb"):
             xknx.telegram_queue.register_telegram_received_cb(telegram_received_cb)
@@ -2027,7 +2379,14 @@ async def _knx_listener_async(knx_cfg):
             await xknx.stop()
         except Exception:
             pass
-        set_knx_runtime_state(connection_status="stopped", xknx=None, loop=None)
+        try:
+            state = get_knx_runtime_state()
+            last_error = str(state.get("last_error") or "").strip()
+        except Exception:
+            last_error = ""
+        set_knx_runtime_state(connection_status="stopped", xknx=None, loop=None, last_error=last_error)
+        set_knx_listener_running(False)
+        set_knx_listener(None)
         add_log_entry("KNX Listener gestoppt")
 
 
@@ -2554,9 +2913,24 @@ def _route_object_target(item, target, value, original_source, source_ref, route
         retain = bool(getattr(target_adapter, "retain", False))
         if not topic or not mqtt_client:
             return False
-        _mark_object_router_publish(topic, value, object_id=item.id, source=original_source, target_adapter="mqtt")
-        mqtt_client.publish(topic, value, retain=retain)
-        last_values[topic] = value
+        mqtt_value = _knx_mqtt_payload_value(
+            value,
+            dpt=(metadata or {}).get("dpt", "") if isinstance(metadata, dict) else "",
+            value_type=(metadata or {}).get("value_type", "") if isinstance(metadata, dict) else "",
+        ) if str(original_source or "").strip().lower() == "knx" else value
+        _mark_object_router_publish(topic, mqtt_value, object_id=item.id, source=original_source, target_adapter="mqtt")
+        result = mqtt_client.publish(topic, mqtt_value, retain=retain)
+        add_log_entry(f"MQTT PUBLISH topic={topic} rc={getattr(result, 'rc', '')} mid={getattr(result, 'mid', '')}")
+        try:
+            received_perf = metadata.get("received_perf") if isinstance(metadata, dict) else None
+            received_wall = metadata.get("received_wall") if isinstance(metadata, dict) else None
+            if received_perf is not None:
+                add_log_entry(f"KNX PERF MQTT_PUBLISH ga={source_ref} topic={topic} total_ms={(time.perf_counter() - float(received_perf)) * 1000:.2f}")
+            if received_wall is not None:
+                add_log_entry(f"KNX TO MQTT ga={source_ref} topic={topic} delay_ms={(time.time() - float(received_wall)) * 1000:.2f}")
+        except Exception:
+            pass
+        last_values[topic] = mqtt_value
         return True
 
     if target == "loxone":
@@ -2585,10 +2959,25 @@ def _route_object_target(item, target, value, original_source, source_ref, route
 
     if target == "knx":
         knx_ga = str(getattr(target_adapter, "group_address", "") or "").strip()
-        knx_dpt = str(getattr(target_adapter, "dpt", "") or "1.001").strip() or "1.001"
-        if not knx_ga or not knx_dpt or not bool(load_knx_config().get("enabled", False)):
+        knx_dpt = str(getattr(target_adapter, "dpt", "") or "").strip()
+        if not knx_ga:
             return False
-        return knx_service.send_knx_value(knx_ga, knx_dpt, value, load_knx_config, add_log_entry)
+        if not knx_dpt:
+            add_log_entry(f"KNX send skipped: missing DPT for GA {knx_ga}")
+            return False
+        if not bool(load_knx_config().get("enabled", False)):
+            return False
+        add_log_entry(
+            f"OBJECT KNX TX object_id={getattr(item, 'id', '')} target={target} ga={knx_ga} dpt={knx_dpt} raw={value}"
+        )
+        return knx_service.send_knx_value(
+            knx_ga,
+            knx_dpt,
+            value,
+            load_knx_config,
+            add_log_entry,
+            add_monitor_entry=add_knx_monitor_entry,
+        )
 
     if target == "influx":
         if not _influx_adapter_complete(target_adapter):
@@ -2639,6 +3028,7 @@ def _dispatch_object_routes(live_items, original_source, source_ref, value, meta
             )
             continue
         route_available = True
+        routes = sorted(routes, key=lambda route: 0 if str(route.get("target", "") or "").strip().lower() == "mqtt" else 1)
         for entry in routes:
             target = str(entry.get("target", "") or "").strip().lower()
             if not target:
@@ -2666,7 +3056,7 @@ def _dispatch_object_routes(live_items, original_source, source_ref, value, meta
                 add_log_entry(
                     f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo=no error={exc}"
                 )
-    return any_sent
+    return any_sent or route_available
 
 
 def _dispatch_loxone_live_targets(live_items, value, state_name, change_only=False):
@@ -4049,11 +4439,28 @@ def shell_status_payload():
 
 
 def knx_monitor_payload():
-    return {
-        "log": get_knx_monitor_log(),
-        "last": get_knx_monitor_values(),
+    history = get_knx_history_snapshot()
+    last = get_knx_monitor_values()
+    with runtime_context.knx.lock:
+        history_id = id(runtime_context.knx.monitor_log)
+    payload = {
+        "snapshot": True,
+        "event": "knx_history_snapshot",
+        "history": history,
+        "history_count": len(history),
+        "history_object_id": history_id,
+        "log": history,
+        "last": last,
         "enabled": bool(load_knx_config().get("enabled", False)),
     }
+    try:
+        add_log_entry(f"KNX HISTORY INSTANCE object_id={history_id} module={__name__} size={len(history)} source=api")
+        entry = (payload.get("last") or {}).get("0/0/9")
+        if entry:
+            add_log_entry(f"KNX TRACE API ga=0/0/9 entry={entry!r}")
+    except Exception:
+        pass
+    return payload
 
 
 
@@ -5914,15 +6321,6 @@ function tm2RenderDetail(item) {
             <button type="button" class="action-btn object-main-btn" onclick="tm2CreateObjectSelected(this)">Objekt erstellen / verknüpfen</button>
             <button type="button" class="action-btn" onclick="tm2CopySelected()">Topic kopieren</button>
         </div>
-
-        <details class="expert-actions" style="margin-top:12px;">
-            <summary>⚙ Expertenmapping anzeigen</summary>
-            <div class="expert-actions-row">
-                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2lox')">MQTT→Loxone</button>
-                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2udp')">MQTT→UDP</button>
-                <button type="button" class="action-btn" onclick="tm2GoMapping('/mqtt2knx')">MQTT→KNX</button>
-            </div>
-        </details>
 
         <div class="small" id="tm2SaveState" style="margin-top:12px;"></div>
     `;
@@ -8805,16 +9203,6 @@ def monitor():
             <button onclick="copyTopic()" class="action-btn">Topic kopieren</button>
         </div>
 
-        <details class="expert-actions">
-            <summary>⚙ Expertenmapping anzeigen</summary>
-            <div class="expert-actions-row">
-                <button onclick="sendToMqtt2Lox()" class="action-btn">MQTT→Loxone</button>
-                <button onclick="sendToMqtt2Udp()" class="action-btn">MQTT→UDP</button>
-                <button onclick="sendToMqtt2Knx()" class="action-btn">MQTT→KNX</button>
-                <button onclick="sendToUdp2Mqtt()" class="action-btn">UDP→MQTT</button>
-            </div>
-        </details>
-        
         <div style="margin:0 0 15px 0; display:flex; gap:10px; flex-wrap:wrap;">
             <button onclick="toggleFavorite()" class="action-btn">⭐ Favorit</button>
             <button onclick="setAlias()" class="action-btn">🏷️ Alias</button>
@@ -9141,13 +9529,6 @@ function buildJsonKeyButtons(obj, prefix = "") {
                             <option value="text" ${influxType === "text" ? "selected" : ""}>Text</option>
                         </select>
                         <button type="button" class="json-influx-btn object-main-btn" onclick="sendJsonKeyToTarget('${encodeURIComponent(path)}', 'object', '${encodeURIComponent(String(value))}')">+ Objekt</button>
-                        <select class="json-map-select" title="Expertenmapping" onchange="sendJsonKeyToTarget('${encodeURIComponent(path)}', this.value); this.value='';">
-                            <option value="">⚙ Mapping…</option>
-                            <option value="lox">MQTT → Loxone</option>
-                            <option value="udp">MQTT → UDP</option>
-                            <option value="knx">MQTT → KNX</option>
-                            <option value="udp2mqtt">UDP → MQTT</option>
-                        </select>
                     </div>
                 </div>
             `;
@@ -9937,7 +10318,7 @@ def knx_hub_content():
         ("UDP → KNX", "/udp2knx", len(load_udp2knx_config()), "UDP Telegramme direkt auf KNX Gruppenadressen senden."),
         ("KNX → Loxone", "/knx2lox", len(load_knx2lox_config()), "KNX Telegramme direkt an Loxone Eingänge/Controls schicken."),
         ("KNX Gateway", "/knx_settings_embed", 1 if knx_cfg.get("enabled") else 0, "Gateway, Tunneling/Routing und lokale Schnittstelle einstellen."),
-        ("KNX Monitor", "/knx_monitor", len(monitor_values), "Live Telegramme ansehen und debuggen."),
+        ("KNX Explorer", "/knx_monitor", len(monitor_values), "Live Telegramme ansehen und debuggen."),
     ]
     html_cards = ""
     for title, url, count, desc in cards:
@@ -9972,7 +10353,7 @@ button:hover, .button-link:hover {{ background:#737d86; }}
 <h1>KNX Hub</h1>
 <div class="card">
     <span class="badge">Gateway: {escape('aktiv' if knx_cfg.get('enabled') else 'aus')}</span>
-    <p class="small">Alle KNX Brücken an einem Ort: MQTT, UDP, Loxone, Gateway und Monitor. Der KNX Monitor bleibt zusätzlich direkt in der Sidebar erreichbar.</p>
+    <p class="small">Alle KNX Bruecken an einem Ort: MQTT, UDP, Loxone, Gateway und Explorer. Der KNX Explorer bleibt zusaetzlich direkt in der Sidebar erreichbar.</p>
 </div>
 <div class="grid">{html_cards}</div>
 <div class="card">
@@ -9994,7 +10375,7 @@ button:hover, .button-link:hover {{ background:#737d86; }}
                 <input type="text" name="value" value="{test_value}" placeholder="23.28" required>
             </div>
         </div>
-        <label style="margin-top:10px;"><input type="checkbox" name="show_in_monitor" value="1" {show_in_monitor_checked}> Telegramm zusätzlich im KNX Monitor anzeigen</label>
+        <label style="margin-top:10px;"><input type="checkbox" name="show_in_monitor" value="1" {show_in_monitor_checked}> Telegramm zusaetzlich im KNX Explorer anzeigen</label>
         <div class="button-row">
             <button id="knxTestSendBtn" type="button">Telegramm senden</button>
             <button id="knxTestRepeatBtn" type="button">Letzten Test wiederholen</button>
@@ -10909,7 +11290,6 @@ def knx_test_repeat():
 def knx_test_clear_monitor():
     try:
         clear_knx_monitor_log()
-        clear_knx_monitor_values()
         clear_knx_test_state()
         bump_sse("knx")
         add_log_entry("KNX Testmonitor geleert")
@@ -10921,6 +11301,8 @@ def knx_test_clear_monitor():
             "source": "KNX Test",
             "http_status": 200,
             "action": "clear_monitor",
+            "history_cleared": True,
+            "clear_reason": "explicit_user_action",
             "in_monitor": False,
             "show_in_monitor": False,
         }
@@ -10941,99 +11323,148 @@ def knx_test_clear_monitor():
 
 
 def knx_monitor():
-    ensure_knx_listener_started("Monitor geöffnet")
+    ensure_knx_listener_started("Explorer geoeffnet")
     return """
 <!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<title>KNX Monitor</title>
+<title>KNX Explorer</title>
 <style>
-html, body { height:100%; overflow:hidden; }
-body { font-family:Arial, sans-serif; background:#111; color:#eee; margin:0; }
-.header { background:#161a22; border-bottom:1px solid #333; padding:14px 18px; z-index:2; }
-h1 { margin:0 0 10px; font-size:26px; }
-.toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-input, select, button { background:#10131a; color:#fff; border:1px solid #485063; border-radius:7px; padding:8px 10px; }
-input { min-width:320px; }
-button { background:#5f686f; cursor:pointer; border:0; font-weight:700; }
-button:hover { background:#737d86; }
-.wrap { display:grid; grid-template-columns:360px 1fr; height:calc(100vh - 148px); overflow:hidden; }
-.tree { border-right:1px solid #333; padding:14px; overflow:auto; background:#101010; }
-.content { padding:14px 18px; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
-.telegram-scroll { overflow:auto; flex:1; min-height:0; border:1px solid #303645; border-radius:8px; }
-.group { margin:5px 0; }
-.ga { cursor:pointer; padding:6px 8px; border-radius:5px; display:flex; justify-content:space-between; gap:8px; }
-.ga:hover { background:#242a35; }
-.ga.active { background:#5f686f; }
+body { margin:0; font-family:Arial, sans-serif; background:#202830; color:#f4f7fb; }
+header { background:#1b2229; padding:14px 20px; display:flex; align-items:center; gap:15px; border-bottom:1px solid #333; flex-wrap:nowrap; }
+header h1 { margin:0; font-size:22px; white-space:nowrap; }
+#search { flex:1; padding:10px; background:#111820; color:white; border:1px solid #4a5663; border-radius:8px; font-size:15px; min-width:180px; }
+#direction { background:#111820; color:white; border:1px solid #4a5663; border-radius:8px; padding:9px 10px; font-size:14px; }
+.layout { display:grid; grid-template-columns:34% 66%; height:calc(100vh - 62px); min-width:720px; }
+.tree { overflow:auto; border-right:1px solid #333; padding:12px; background:#151515; }
+.details { overflow:auto; padding:16px; background:#101010; }
+.tree-count { color:#aeb8c4; font-size:13px; margin-bottom:10px; }
+.ga { cursor:pointer; min-height:30px; padding:5px 8px; border-radius:6px; display:flex; justify-content:space-between; gap:8px; align-items:center; user-select:none; white-space:nowrap; }
+.ga:hover { background:#2a333d; }
+.ga.active { background:#5b5ff0; color:white; }
 .ga-main { font-weight:700; color:#f5d76e; }
-.ga-sub { color:#aeb8c4; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; }
-.card { background:#171a21; border:1px solid #333; border-radius:10px; padding:12px; margin-bottom:12px; }
+.ga.active .ga-main { color:white; }
+.ga-sub { color:#aeb8c4; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+.ga.active .ga-sub { color:#e8edf7; }
+.toggle { display:inline-flex; width:22px; min-width:22px; color:#ccc; align-items:center; justify-content:center; }
+.payload-box { background:#1b2229; border:1px solid #303b45; border-radius:10px; padding:15px; white-space:pre-wrap; word-break:break-word; font-family:Consolas, monospace; }
+.meta { color:#aeb8c4; margin-bottom:15px; }
+.meta-grid { display:grid; grid-template-columns:repeat(2, minmax(160px, 1fr)); gap:10px; margin:0 0 15px 0; }
+.meta-item { background:#141a22; border:1px solid #303b45; border-radius:8px; padding:10px; }
+.meta-label { color:#aeb8c4; font-size:12px; margin-bottom:5px; }
+.meta-value { color:#f4f7fb; font-size:14px; word-break:break-word; }
+.button-link, .action-btn { background:#5f686f; color:white; border:0; padding:9px 14px; text-decoration:none; border-radius:8px; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; justify-content:center; }
+.button-link:hover, .action-btn:hover { background:#727d85; }
+.action-btn:disabled { opacity:.45; cursor:not-allowed; }
+.object-main-btn { background:#2878d6; }
+.object-main-btn:hover { background:#1e63b2; }
+.object-primary-actions { margin:12px 0 18px 0; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.expert-actions { margin:0 0 16px 0; border:1px solid #303b45; background:#121922; border-radius:10px; padding:10px 12px; }
+.expert-actions summary { cursor:pointer; color:#cfe0f5; font-size:13px; font-weight:bold; user-select:none; }
+.expert-actions-row { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.history-box { margin-top:15px; background:#181818; border:1px solid #333; border-radius:10px; padding:12px; }
+.history-box h3 { margin:0 0 10px 0; font-size:16px; }
+.telegram-scroll { overflow:auto; max-height:34vh; border:1px solid #303645; border-radius:8px; }
 table { width:100%; border-collapse:collapse; background:#11151d; }
 th, td { border-bottom:1px solid #303645; padding:8px; text-align:left; vertical-align:top; }
 th { background:#202534; position:sticky; top:0; z-index:1; }
-.badge { display:inline-block; min-width:36px; text-align:center; border-radius:12px; padding:3px 8px; font-weight:700; }
+.badge { display:inline-flex; align-items:center; gap:6px; min-width:36px; justify-content:center; border-radius:999px; padding:3px 8px; border:1px solid #3b4653; background:#131920; color:#d6ddea; font-size:12px; white-space:nowrap; }
 .rx { background:#243e2e; color:#7dff9e; }
 .tx { background:#263653; color:#7cb5ff; }
 .out { background:#4a3420; color:#ffcb8a; }
 .out-pending { background:#4a3d20; color:#ffd88a; }
 .out-ok { background:#23422f; color:#7dff9e; }
 .out-error { background:#4a2020; color:#ff9a9a; }
-.small { color:#aeb8c4; font-size:12px; }
+.small { color:#aeb8c4; font-size:13px; line-height:1.35; }
 .value { font-family:Consolas, monospace; white-space:pre-wrap; word-break:break-word; }
-.actions a, .actions button { font-size:12px; padding:6px 8px; margin-right:5px; text-decoration:none; color:white; border-radius:6px; background:#5f686f; display:inline-block; }
-.influx-btn.active { background:#2ecc40 !important; color:white; }
+.influx-btn.active { background:#1f9d55 !important; color:white; }
 .influx-btn.inactive { background:#5f686f; color:white; }
-.influx-type-select { min-width:86px; padding:5px 7px; font-size:12px; }
-.knx-influx-topic-input { width:145px; padding:5px 7px; font-size:12px; }
-.knx-alias-save-btn { background:#2ecc40 !important; color:white !important; padding:5px 7px !important; margin-left:4px !important; }
-.knx-alias-cancel-btn { background:#5f686f !important; color:white !important; padding:5px 7px !important; margin-left:3px !important; }
-.expert-map-box summary { cursor:pointer; color:#cfe0f5; font-weight:700; font-size:12px; }
-.expert-map-box[open] { background:#121722; border:1px solid #303645; border-radius:8px; padding:6px; }
-@media(max-width:900px) { .wrap { grid-template-columns:1fr; height:calc(100vh - 170px); } .tree { border-right:0; border-bottom:1px solid #333; max-height:220px; } input { min-width:180px; width:100%; } }
+.influx-type-select, .knx-influx-topic-input { background:#111820; color:white; border:1px solid #4a5663; border-radius:8px; padding:8px 9px; font-size:13px; }
+.knx-influx-topic-input { min-width:210px; }
+.knx-alias-save-btn { background:#1f9d55 !important; }
+.knx-alias-cancel-btn { background:#5f686f !important; }
+#copyHint { color:#aeb8c4; font-size:12px; }
+@media(max-width:900px) { header { flex-wrap:wrap; } .layout { grid-template-columns:1fr; min-width:0; height:auto; } .tree { max-height:280px; border-right:0; border-bottom:1px solid #333; } .details { min-height:520px; } }
 </style>
 </head>
 <body>
-<div class="header">
-    <h1>KNX Monitor</h1>
-    <div class="toolbar">
-        <input id="search" placeholder="Gruppenadresse, Wert oder Richtung suchen...">
-        <select id="direction">
-            <option value="">Empfangen + Senden</option>
-            <option value="RX">nur Empfangen</option>
-            <option value="OUT">nur Senden</option>
-        </select>
-        <button id="pauseBtn" onclick="togglePause()">Pause</button>
-        <button onclick="clearView()">Ansicht leeren</button>
-        <span id="copyHint" class="small"></span>
-    </div>
-</div>
+<header>
+    <h1>KNX Explorer</h1>
+    <input id="search" placeholder="Gruppenadresse, Wert, DPT oder Richtung suchen...">
+    <button type="button" class="action-btn" onclick="expandAllKnxNodes()">Alles aufklappen</button>
+    <button type="button" class="action-btn" onclick="collapseAllKnxNodes()">Alles einklappen</button>
+    <button type="button" class="action-btn" onclick="refresh(true)">Aktualisieren</button>
+    <select id="direction" title="Richtungsfilter">
+        <option value="">Empfangen + Senden</option>
+        <option value="RX">nur Empfangen</option>
+        <option value="OUT">nur Senden</option>
+    </select>
+    <button type="button" class="action-btn" id="pauseBtn" onclick="togglePause()">Pause</button>
+    <span id="copyHint"></span>
+</header>
 
-<div class="wrap">
+<div class="layout">
     <div class="tree">
-        <div class="small">Gruppenadressen</div>
+        <div class="tree-count" id="treeCount">Lade Gruppenadressen...</div>
         <div id="treeBox"></div>
     </div>
-    <div class="content">
-        <div class="card">
-            <b>Letzte Telegramme</b>
-            <div class="small" id="summary">warte auf Daten...</div>
+
+    <div class="details">
+        <h2 id="selectedTitle">Keine Gruppenadresse gewaehlt</h2>
+
+        <div class="object-primary-actions">
+            <button type="button" class="action-btn object-main-btn" id="createObjectBtn" onclick="createObjectFromSelectedKnx()" disabled>Objekt erstellen / verknuepfen</button>
+            <button type="button" class="action-btn" id="copyGaBtn" onclick="copySelectedGa()" disabled>GA kopieren</button>
+            <button type="button" class="action-btn" onclick="clearView()">Verlauf leeren</button>
         </div>
-        <div class="telegram-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Zeit</th>
-                    <th>Richtung</th>
-                    <th>Gruppenadresse</th>
-                    <th>Quelle</th>
-                    <th>Wert</th>
-                    <th>DPT</th>
-                    <th class="actions">Aktion</th>
-                </tr>
-            </thead>
-            <tbody id="rows"></tbody>
-        </table>
+
+        <div class="meta-grid">
+            <div class="meta-item">
+                <div class="meta-label">Letzter Wert</div>
+                <div class="meta-value value" id="selectedValue">-</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">DPT</div>
+                <div class="meta-value" id="selectedDpt">-</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Richtung</div>
+                <div class="meta-value" id="selectedDirection">-</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">APDU</div>
+                <div class="meta-value value" id="selectedApdu">-</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Quelle</div>
+                <div class="meta-value" id="selectedSource">-</div>
+            </div>
+        </div>
+
+        <div class="meta" id="selectedMeta">Links eine Gruppenadresse auswaehlen.</div>
+        <div class="payload-box" id="selectedPayload">Noch keine Gruppenadresse ausgewaehlt.</div>
+
+        <div class="history-box">
+            <h3>Verlauf</h3>
+            <div class="tree-count" id="summary">warte auf Daten...</div>
+            <div class="telegram-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Zeit</th>
+                            <th>Typ</th>
+                            <th>Richtung</th>
+                            <th>Gruppenadresse</th>
+                            <th>Quelle</th>
+                            <th>Wert</th>
+                            <th>DPT</th>
+                            <th>APDU</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -11045,6 +11476,27 @@ let localClearedAt = 0;
 let topicConfig = {};
 let knxAliasEditGa = "";
 let knxAliasDraft = {};
+let knxTreeCollapsed = false;
+let knxLatestByGa = {};
+const KNX_HISTORY_STORAGE_KEY = "mp_gateway_knx_history_v1";
+function loadStoredKnxHistory() {
+    try {
+        const stored = JSON.parse(window.localStorage.getItem(KNX_HISTORY_STORAGE_KEY) || "[]");
+        return Array.isArray(stored) ? stored.slice(0, 15) : [];
+    } catch (e) {
+        return [];
+    }
+}
+function storeKnxHistory() {
+    try {
+        window.localStorage.setItem(KNX_HISTORY_STORAGE_KEY, JSON.stringify((knxHistoryEntries || []).slice(0, 15)));
+    } catch (e) {
+        // Browser storage is only a resilience layer; backend history remains authoritative.
+    }
+}
+let knxHistoryEntries = loadStoredKnxHistory();
+let knxHistoryRequestId = 0;
+let knxHistoryAppliedId = 0;
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, m => ({
@@ -11194,6 +11646,28 @@ function knxMonitorBadgeLabel(entry) {
     return "Empfangen";
 }
 
+function knxMonitorTypeLabel(entry) {
+    const t = String(entry && entry.telegram_type ? entry.telegram_type : "GroupValueWrite");
+    if (t === "GroupValueWrite") return "Write";
+    if (t === "GroupValueResponse") return "Response";
+    if (t === "GroupValueRead") return "Read";
+    return t || "Telegramm";
+}
+
+function knxPrimaryValue(entry) {
+    if (!entry) return "-";
+    if (entry.display_value !== null && entry.display_value !== undefined && String(entry.display_value) !== "") {
+        return String(entry.display_value);
+    }
+    if (entry.value !== null && entry.value !== undefined && String(entry.value) !== "") {
+        return String(entry.value);
+    }
+    if (entry.raw_value !== null && entry.raw_value !== undefined && String(entry.raw_value) !== "") {
+        return "Raw: " + String(entry.raw_value);
+    }
+    return "-";
+}
+
 function knxMonitorBadgeClass(entry) {
     const status = String(entry && entry.status ? entry.status : "").toUpperCase();
     if (status === "PENDING") return "out-pending";
@@ -11211,16 +11685,178 @@ function togglePause() {
 
 function clearView() {
     localClearedAt = Date.now();
+    console.warn("KNX HISTORY UPDATE", {
+        action: "clear_visible",
+        before: knxHistoryEntries.length,
+        after: 0,
+        source: "user"
+    });
+    knxHistoryEntries = [];
+    storeKnxHistory();
+    window.lastKnxData = Object.assign({}, window.lastKnxData || {}, {history: knxHistoryEntries, history_count: 0, log: knxHistoryEntries});
     document.getElementById("rows").innerHTML = "";
-    document.getElementById("summary").textContent = "Ansicht geleert – neue Daten laufen weiter ein.";
+    document.getElementById("summary").textContent = "Verlauf geleert - neue Daten laufen weiter ein.";
+}
+
+function expandAllKnxNodes() {
+    knxTreeCollapsed = false;
+    renderLast(window.lastKnxData || {});
+}
+
+function collapseAllKnxNodes() {
+    knxTreeCollapsed = true;
+    renderLast(window.lastKnxData || {});
 }
 
 function selectGa(ga) {
     selectedGa = selectedGa === ga ? "" : ga;
+    if (selectedGa) knxTreeCollapsed = false;
     renderLast(window.lastKnxData || {});
 }
 
-function renderLast(data) {
+function selectedKnxEntry() {
+    const data = window.lastKnxData || {};
+    return selectedGa ? ((data.last || {})[selectedGa] || null) : null;
+}
+
+function copySelectedGa() {
+    if (!selectedGa) {
+        showCopyHint("Keine Gruppenadresse ausgewaehlt");
+        return;
+    }
+    copyText(selectedGa);
+}
+
+function navigateObjectManagerFromKnxExplorer(url) {
+    if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+            type: "mqtt2lox:navigateFrame",
+            url: url,
+            activeHref: "/objects_v33"
+        }, window.location.origin);
+        return;
+    }
+    window.location.href = url;
+}
+
+function createObjectFromSelectedKnx() {
+    const entry = selectedKnxEntry();
+    if (!selectedGa || !entry) {
+        showCopyHint("Keine Gruppenadresse ausgewaehlt");
+        return;
+    }
+    const displayName = String(entry.name || entry.label || entry.description || entry.source_name || selectedGa || "").trim() || selectedGa;
+    const dpt = String(entry.dpt || "").trim();
+    const params = new URLSearchParams({
+        explorer: "knx",
+        source_type: "knx",
+        source: "knx",
+        tab: "knx",
+        name: displayName,
+        datatype: "auto",
+        group_address: selectedGa,
+        source_address: selectedGa,
+        dpt: dpt,
+        last_value: String(entry.value ?? "")
+    });
+    navigateObjectManagerFromKnxExplorer("/objects_v33/create_from_explorer?" + params.toString());
+}
+
+function renderKnxExpertActions(ga) {
+    const box = document.getElementById("expertActionsBody");
+    if (!box) return;
+    if (!ga) {
+        box.innerHTML = '<span class="small">Links eine Gruppenadresse auswaehlen.</span>';
+        return;
+    }
+    const qga = encodeURIComponent(ga);
+    const gaJson = JSON.stringify(String(ga || ""));
+    const influxActive = isKnxInfluxActive(ga);
+    const influxClass = influxActive ? "influx-btn active" : "influx-btn inactive";
+    const influxLabel = influxActive ? "Influx aktiv" : "Influx aktivieren";
+    const influxType = getKnxInfluxType(ga);
+    const influxTopicAlias = getKnxInfluxTopicAlias(ga);
+    const aliasEditActive = knxAliasEditGa === String(ga || "");
+    const aliasInputValue = aliasEditActive && (String(ga || "") in knxAliasDraft) ? knxAliasDraft[String(ga || "")] : influxTopicAlias;
+    box.innerHTML = `
+        <a class="button-link" href="/mqtt2knx?group_address=${qga}">MQTT-&gt;KNX</a>
+        <a class="button-link" href="/knx2lox?group_address=${qga}">KNX-&gt;Loxone</a>
+        <button type="button" class="action-btn ${influxClass}" onclick='toggleKnxInflux(${gaJson})'>${influxLabel}</button>
+        <select class="influx-type-select" onchange='setKnxInfluxType(${gaJson}, this.value)'>
+            <option value="auto" ${influxType === "auto" ? "selected" : ""}>Auto</option>
+            <option value="bool01" ${influxType === "bool01" ? "selected" : ""}>Bool 0/1</option>
+            <option value="number" ${influxType === "number" ? "selected" : ""}>Zahl</option>
+            <option value="text" ${influxType === "text" ? "selected" : ""}>Text</option>
+        </select>
+        <input class="knx-influx-topic-input" value="${esc(aliasInputValue)}" placeholder="Influx Topic/Alias"
+            onfocus='startKnxAliasEdit(${gaJson}, this.value)'
+            oninput='setKnxAliasDraft(${gaJson}, this.value)'
+            onkeydown='if(event.key === "Enter"){event.preventDefault(); setKnxAliasDraft(${gaJson}, this.value); saveKnxAliasEdit(${gaJson}); this.blur();} if(event.key === "Escape"){event.preventDefault(); cancelKnxAliasEdit(${gaJson}); this.blur();}'
+            title="Leer = knx/${esc(ga)}">
+        <button type="button" class="action-btn knx-alias-save-btn" title="Alias speichern" onclick='saveKnxAliasEdit(${gaJson})'>OK</button>
+        <button type="button" class="action-btn knx-alias-cancel-btn" title="Aenderung verwerfen" onclick='cancelKnxAliasEdit(${gaJson})'>Abbrechen</button>
+    `;
+}
+
+function prependKnxHistoryEntry(entry, source) {
+    if (!entry || typeof entry !== "object") return;
+    const before = knxHistoryEntries.length;
+    knxHistoryEntries = [entry].concat(knxHistoryEntries).slice(0, 15);
+    storeKnxHistory();
+    console.warn("KNX HISTORY UPDATE", {
+        action: "prepend",
+        before: before,
+        after: knxHistoryEntries.length,
+        source: source || "live_entry"
+    });
+}
+
+function applyKnxSnapshot(data, source) {
+    const previousLog = knxHistoryEntries;
+    const previousLast = knxLatestByGa;
+    data = data || {};
+
+    if (data.last && typeof data.last === "object") {
+        knxLatestByGa = data.last;
+    } else if (!data.last && previousLast) {
+        data.last = previousLast;
+    }
+
+    if (data.snapshot === true && Array.isArray(data.history)) {
+        const nextLog = data.history.slice(0, 15);
+
+        if (nextLog.length > 0) {
+            knxHistoryEntries = nextLog;
+            storeKnxHistory();
+        } else if (
+            data.history_cleared === true &&
+            data.clear_reason === "explicit_user_action"
+        ) {
+            knxHistoryEntries = [];
+            storeKnxHistory();
+        } else {
+            knxHistoryEntries = previousLog;
+        }
+    } else if (
+        data.snapshot === false &&
+        data.event === "knx_history_entry" &&
+        data.entry
+    ) {
+        prependKnxHistoryEntry(
+            data.entry,
+            source || "entry"
+        );
+    } else {
+        knxHistoryEntries = previousLog;
+    }
+
+    data.log = knxHistoryEntries;
+    data.last = knxLatestByGa;
+    return data;
+}
+
+function renderLast(data, source) {
+    data = applyKnxSnapshot(data, source || "render");
     window.lastKnxData = data;
 
     // Legacy: Während ein KNX Influx Topic/Alias editiert wird, die Tabelle nicht
@@ -11234,8 +11870,8 @@ function renderLast(data) {
     const search = document.getElementById("search").value.toLowerCase();
     const dir = document.getElementById("direction").value;
 
-    const last = data.last || {};
-    const log = data.log || [];
+    const last = knxLatestByGa || {};
+    const log = knxHistoryEntries || [];
 
     let gas = Object.keys(last).sort((a,b) => {
         const pa = a.split("/").map(x => parseInt(x || "0", 10));
@@ -11243,20 +11879,25 @@ function renderLast(data) {
         return (pa[0]-pb[0]) || (pa[1]-pb[1]) || (pa[2]-pb[2]);
     });
 
-    const treeHtml = gas.map(ga => {
+    const visibleGas = knxTreeCollapsed && selectedGa ? gas.filter(ga => ga === selectedGa) : (knxTreeCollapsed ? [] : gas);
+    const treeHtml = visibleGas.map(ga => {
         const e = last[ga] || {};
-        const match = !search || ga.toLowerCase().includes(search) || String(e.value || "").toLowerCase().includes(search);
+        const primaryValue = knxPrimaryValue(e);
+        if (ga === "0/0/9") console.log("KNX Explorer entry", e);
+        const match = !search || ga.toLowerCase().includes(search) || primaryValue.toLowerCase().includes(search);
         if (!match) return "";
         const alias = getKnxInfluxTopicAlias(ga);
-        const aliasMark = alias ? ` → ${esc(alias)}` : '';
-        const influxMark = isKnxInfluxActive(ga) ? `<span class="small" style="color:#7dff9e;font-weight:700;">Influx${aliasMark}</span><br>` : '';
+        const aliasMark = alias ? ` -> ${esc(alias)}` : '';
+        const influxMark = isKnxInfluxActive(ga) ? `<span class="ga-sub">Influx${aliasMark}</span><br>` : '';
         return `<div class="ga ${selectedGa===ga?'active':''}" onclick="selectGa('${esc(ga)}')">
-            <span><span class="ga-main">${esc(ga)}</span><br>${influxMark}<span class="ga-sub">${esc(e.source || "KNX")} · ${esc(e.value || "")}</span></span>
+            <span class="toggle">›</span>
+            <span style="min-width:0; flex:1;"><span class="ga-main">${esc(ga)}</span><br>${influxMark}<span class="ga-sub">${esc(e.source || "KNX")} · ${esc(primaryValue)}</span></span>
             <span class="badge ${knxMonitorBadgeClass(e)}">${esc(knxMonitorBadgeLabel(e))}</span>
         </div>`;
     }).join("");
 
-    document.getElementById("treeBox").innerHTML = treeHtml || '<div class="small">Noch keine KNX Telegramme.</div>';
+    document.getElementById("treeBox").innerHTML = treeHtml || '<div class="small">Keine sichtbaren Gruppenadressen.</div>';
+    document.getElementById("treeCount").textContent = `${gas.length} Gruppenadressen`;
 
     let filtered = log.filter(e => {
         const entryDirection = String(e.direction || "RX").toUpperCase();
@@ -11264,7 +11905,7 @@ function renderLast(data) {
         if (dir === "OUT" && entryDirection !== "OUT" && entryDirection !== "WRITE") return false;
         if (selectedGa && e.ga !== selectedGa) return false;
         if (search) {
-            const hay = [e.time, e.ga, e.value, e.direction, e.status, knxMonitorBadgeLabel(e), e.dpt].join(" ").toLowerCase();
+            const hay = [e.time, e.ga, knxPrimaryValue(e), e.value, e.raw_value, e.direction, e.status, knxMonitorBadgeLabel(e), knxMonitorTypeLabel(e), e.dpt, e.apdu].join(" ").toLowerCase();
             if (!hay.includes(search)) return false;
         }
         return true;
@@ -11273,67 +11914,76 @@ function renderLast(data) {
     document.getElementById("summary").textContent =
         `${filtered.length} angezeigt · max. 15 im Verlauf · ${gas.length} Gruppenadressen`;
 
+    const selectedEntry = selectedGa ? (last[selectedGa] || null) : null;
+    const selectedTitle = document.getElementById("selectedTitle");
+    const selectedMeta = document.getElementById("selectedMeta");
+    const selectedValue = document.getElementById("selectedValue");
+    const selectedDpt = document.getElementById("selectedDpt");
+    const selectedDirection = document.getElementById("selectedDirection");
+    const selectedApdu = document.getElementById("selectedApdu");
+    const selectedSource = document.getElementById("selectedSource");
+    const selectedPayload = document.getElementById("selectedPayload");
+    const createObjectBtn = document.getElementById("createObjectBtn");
+    const copyGaBtn = document.getElementById("copyGaBtn");
+    if (selectedEntry) {
+        selectedTitle.textContent = selectedGa;
+        selectedValue.textContent = knxPrimaryValue(selectedEntry);
+        selectedDpt.textContent = selectedEntry.dpt || "unbekannt";
+        selectedDirection.textContent = knxMonitorBadgeLabel(selectedEntry);
+        selectedApdu.textContent = selectedEntry.apdu || "-";
+        selectedSource.textContent = selectedEntry.source || "KNX";
+        selectedMeta.textContent = selectedEntry.time ? `Zuletzt: ${selectedEntry.time}` : "-";
+        selectedPayload.textContent = selectedEntry.raw_value ? `Raw: ${selectedEntry.raw_value}` : knxPrimaryValue(selectedEntry);
+        createObjectBtn.disabled = false;
+        copyGaBtn.disabled = false;
+        renderKnxExpertActions(selectedGa);
+    } else {
+        selectedTitle.textContent = "Keine Gruppenadresse gewaehlt";
+        selectedMeta.textContent = "Links eine Gruppenadresse auswaehlen.";
+        selectedValue.textContent = "-";
+        selectedDpt.textContent = "-";
+        selectedDirection.textContent = "-";
+        selectedApdu.textContent = "-";
+        selectedSource.textContent = "-";
+        selectedPayload.textContent = "Noch keine Gruppenadresse ausgewaehlt.";
+        createObjectBtn.disabled = true;
+        copyGaBtn.disabled = true;
+        renderKnxExpertActions("");
+    }
+
     document.getElementById("rows").innerHTML = filtered.map(e => {
-        const qga = encodeURIComponent(e.ga || "");
-        const gaJson = JSON.stringify(String(e.ga || ""));
-        const influxActive = isKnxInfluxActive(e.ga);
-        const influxClass = influxActive ? "influx-btn active" : "influx-btn inactive";
-        const influxLabel = influxActive ? "✓ Influx" : "Influx";
-        const influxType = getKnxInfluxType(e.ga);
-        const influxTopicAlias = getKnxInfluxTopicAlias(e.ga);
-        const aliasEditActive = knxAliasEditGa === String(e.ga || "");
-        const aliasInputValue = aliasEditActive && (String(e.ga || "") in knxAliasDraft) ? knxAliasDraft[String(e.ga || "")] : influxTopicAlias;
         return `<tr>
             <td>${esc(e.time)}</td>
+            <td>${esc(knxMonitorTypeLabel(e))}</td>
             <td><span class="badge ${knxMonitorBadgeClass(e)}">${esc(knxMonitorBadgeLabel(e))}</span></td>
             <td><b>${esc(e.ga)}</b></td>
             <td class="small">${esc(e.source || "")}</td>
-            <td class="value">${esc(e.value)}</td>
+            <td class="value">${esc(knxPrimaryValue(e))}</td>
             <td>${esc(e.dpt || "")}</td>
-            <td class="actions" style="min-width:230px;width:230px;">
-                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
-                    <button onclick='copyText(${gaJson})'>GA kopieren</button>
-                    <a class="object-main-btn" href="/objects/edit/new?source=knx&value=${qga}&influx_topic=${encodeURIComponent(influxTopicAlias || ('knx/' + (e.ga || '')))}&name=${qga}">+ Objekt</a>
-                </div>
-                <details class="expert-map-box">
-                    <summary>⚙ Expertenmapping anzeigen</summary>
-                    <table class="knx-action-table" style="margin-top:6px;">
-                        <tr>
-                            <td><a href="/mqtt2knx?group_address=${qga}">MQTT→KNX</a></td>
-                            <td><a href="/knx2lox?group_address=${qga}">KNX→Loxone</a></td>
-                        </tr>
-                        <tr>
-                            <td><button class="${influxClass}" onclick='toggleKnxInflux(${gaJson})'>${influxLabel}</button></td>
-                            <td><select class="influx-type-select" onchange='setKnxInfluxType(${gaJson}, this.value)'>
-                                <option value="auto" ${influxType === "auto" ? "selected" : ""}>Auto</option>
-                                <option value="bool01" ${influxType === "bool01" ? "selected" : ""}>Bool 0/1</option>
-                                <option value="number" ${influxType === "number" ? "selected" : ""}>Zahl</option>
-                                <option value="text" ${influxType === "text" ? "selected" : ""}>Text</option>
-                            </select></td>
-                        </tr>
-                        <tr>
-                            <td colspan="2">
-                                <input class="knx-influx-topic-input" value="${esc(aliasInputValue)}" placeholder="Influx Topic/Alias"
-                                    onfocus='startKnxAliasEdit(${gaJson}, this.value)'
-                                    oninput='setKnxAliasDraft(${gaJson}, this.value)'
-                                    onkeydown='if(event.key === "Enter"){event.preventDefault(); setKnxAliasDraft(${gaJson}, this.value); saveKnxAliasEdit(${gaJson}); this.blur();} if(event.key === "Escape"){event.preventDefault(); cancelKnxAliasEdit(${gaJson}); this.blur();}'
-                                    title="Leer = knx/${esc(e.ga)}">
-                                <button class="knx-alias-save-btn" title="Alias speichern" onclick='saveKnxAliasEdit(${gaJson})'>OK</button>
-                                <button class="knx-alias-cancel-btn" title="Änderung verwerfen" onclick='cancelKnxAliasEdit(${gaJson})'>×</button>
-                            </td>
-                        </tr>
-                    </table>
-                </details>
-            </td>
+            <td class="value">${esc(e.apdu || "")}</td>
         </tr>`;
-    }).join("") || '<tr><td colspan="6" class="small">Keine passenden Einträge.</td></tr>';
+    }).join("") || '<tr><td colspan="8" class="small">Keine passenden Eintraege.</td></tr>';
 }
 
-function refresh() {
-    if (paused) return;
+function refresh(force=false) {
+    if (paused && !force) return;
+    const requestId = ++knxHistoryRequestId;
     fetch("/knx_monitor_data?t=" + Date.now(), {cache:"no-store"})
         .then(r => r.json())
-        .then(renderLast)
+        .then(data => {
+            if (requestId < knxHistoryAppliedId) {
+                console.warn("KNX HISTORY UPDATE", {
+                    action: "ignore_stale_response",
+                    before: knxHistoryEntries.length,
+                    after: knxHistoryEntries.length,
+                    source: "api_refresh",
+                    request_id: requestId
+                });
+                return;
+            }
+            knxHistoryAppliedId = requestId;
+            renderLast(data, "api_refresh");
+        })
         .catch(err => {
             document.getElementById("summary").textContent = "Fehler beim Laden: " + err;
         });
@@ -11348,18 +11998,18 @@ function startKnxMonitorStream() {
     const es = new EventSource("/events/knx_monitor");
     es.addEventListener("knx_monitor", ev => {
         if (paused) return;
-        try { renderLast(JSON.parse(ev.data || "{}")); }
+        try { renderLast(JSON.parse(ev.data || "{}"), "sse_snapshot"); }
         catch(e) { document.getElementById("summary").textContent = "SSE Fehler: " + e; }
     });
-    es.onerror = () => console.log("KNX Monitor SSE reconnect...");
+    es.onerror = () => console.log("KNX Explorer SSE reconnect...");
 }
 
-document.getElementById("search").addEventListener("input", () => renderLast(window.lastKnxData || {}));
-document.getElementById("direction").addEventListener("change", () => renderLast(window.lastKnxData || {}));
+document.getElementById("search").addEventListener("input", () => renderLast(window.lastKnxData || {}, "local_filter"));
+document.getElementById("direction").addEventListener("change", () => renderLast(window.lastKnxData || {}, "local_filter"));
 fetch("/knx_listener_start", {method:"POST"}).catch(() => {});
 fetch("/monitor_topic_config?t=" + Date.now(), {cache:"no-store"})
     .then(r => r.json())
-    .then(cfg => { topicConfig = cfg || {}; renderLast(window.lastKnxData || {}); })
+    .then(cfg => { topicConfig = cfg || {}; renderLast(window.lastKnxData || {}, "topic_config"); })
     .catch(() => {});
 startKnxMonitorStream();
 </script>

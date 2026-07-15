@@ -1,7 +1,71 @@
 # Roadmap
 
-## Aktueller Stand: 33.4.27
+## Aktueller Stand: 33.4.52
 
+- Ab 33.4.52 decodiert der KNX Explorer unbekannte 1-/2-/4-Byte-Nutzdaten wieder vorsichtig als Auto-DPT und nutzt konkrete DPTs aus dem schnellen Runtime-Index fuer Einheiten.
+- Ab 33.4.52 wird der letzte 15er-Verlauf zusaetzlich browserseitig gesichert, damit leere Snapshots oder Reconnects ihn nicht mehr sichtbar loeschen.
+
+## Aktueller Stand: 33.4.51
+
+- Ab 33.4.51 basieren KNX-Decoder, DPT-Lookup, Runtime-GA-Index und Gruppenadressliste wieder auf dem nachweisbaren Stand 33.4.47.
+- Ab 33.4.51 gelten die Decoder-/DPT-/Gruppenadress-Erweiterungen aus 33.4.48 bis 33.4.50 als zurueckgezogen; Speed-Fix, Routing-Worker und DPT-1-Werte `0`/`1` bleiben bestehen.
+- Ab 33.4.51 ignoriert ausschliesslich der Frontend-History-Block leere Snapshots; nur die explizit markierte Benutzeraktion darf den lokalen Verlauf leeren.
+
+- Ab 33.4.50 speichert `config/knx_group_addresses.json` KNX-Gruppenadressnamen und DPTs fuer den schnellen Runtime-Index.
+- Ab 33.4.50 kann der KNX Explorer den DPT einer Gruppenadresse direkt bearbeiten und ohne Neustart neu decodieren.
+- Ab 33.4.50 decodiert der KNX-RX-Pfad DPT-Hauptgruppen 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18 und 20 ueber einen zentralen Dispatcher.
+- Ab 33.4.50 werden fehlende DPTs nur technisch als `*.xxx auto` ohne Einheit interpretiert; konkrete Einheiten kommen aus konkreten DPTs.
+- Ab 33.4.49 ersetzt ein leerer KNX-History-Snapshot eine bereits sichtbare lokale History nicht mehr.
+- Ab 33.4.49 protokolliert der KNX Explorer ignorierte leere Snapshots inklusive Backend-Zaehler.
+- Ab 33.4.48 decodiert der KNX Explorer DPT-9-APDU-Bytes wieder als 2-Byte-Float und zeigt `9.001`/`9.007` mit Einheit statt Raw an.
+- Ab 33.4.48 fuehrt der KNX-GA-Runtime-Index DPT-Ergaenzungen aus Legacy-/Topic-Konfigurationen zusammen, ohne Objektmetadaten zu verlieren.
+- Ab 33.4.48 testen Rohbyte-Beispiele fuer DPT `9.001`, DPT `9.007` und DPT `1.001` gemeinsam den Decode-Pfad.
+- Ab 33.4.47 veraendern nur noch zentrale KNX-History-Funktionen den serverseitigen Verlauf.
+- Ab 33.4.47 liefert die KNX-Verlauf-API eindeutige Snapshots mit `history_object_id`, damit Telegrammempfang und API auf dieselbe Runtime-Instanz pruefbar sind.
+- Ab 33.4.47 ignoriert der KNX Explorer Status-/Teilpayloads fuer die History und schuetzt gegen stale Polling-Responses.
+- Ab 33.4.46 sind KNX-History und KNX-Latest-State auch im Frontend getrennt, damit Status-/Teil-Updates den Verlauf nicht mehr leeren.
+- Ab 33.4.46 werden unvollstaendige KNX-SSE-/Polling-Payloads ohne `log` nicht als Loeschsignal fuer den Verlauf behandelt.
+- Ab 33.4.46 loggt der Backend-Verlauf Append- und explizite Clear-Aktionen mit Groesse vorher/nachher.
+- Ab 33.4.45 zeigt und routet der KNX Explorer DPT-1-Schaltwerte als `1`/`0` statt als Boolean oder `EIN`/`AUS`.
+- Ab 33.4.45 bleibt der KNX-Verlauf ein ereignisbasierter RAM-Ringpuffer mit maximal 15 eindeutigen Telegramm-Eintraegen.
+- Ab 33.4.45 schuetzt der KNX Explorer die sichtbare History vor leeren Live-Events ohne `log`-Snapshot.
+- Ab 33.4.44 ist der KNX-RX-Callback auf schnellen Explorer-Update plus Queue-Einreihung reduziert; Routing und Netzwerkziele laufen im KNX-Routing-Worker.
+- Ab 33.4.44 zeigen `KNX PERF` und `KNX TO MQTT` Logs die Latenz von RX bis Decode, Explorer, Queue, Routing und MQTT-Publish.
+- Ab 33.4.44 blockiert ein Objekt-DPT `unbekannt` die DPTBinary-Erkennung nicht mehr.
+- Ab 33.4.43 zeigt der KNX Explorer eindeutige xknx-Binary-Payloads auch ohne konfigurierten DPT und markiert sie mit `dpt_source=payload_inferred`; ab 33.4.45 erfolgt die Darstellung als `1`/`0`.
+- Ab 33.4.43 normalisiert der KNX-Objektlookup Gruppenadressen fuer DPT- und Live-Match robuster.
+- Ab 33.4.45 bleibt der typisierte Integer-Wert `1`/`0` in der Explorer-API erhalten, waehrend `display_value` die Listenanzeige steuert.
+- Ab 33.4.42 decodiert der KNX Explorer DPT-1-Schalttelegramme zentral aus dem xknx-Payload-Wert; ab 33.4.45 zeigt er `1`/`0` statt Raw.
+- Ab 33.4.42 bleiben GroupValueRead, unbekannte DPTs und Decode-Fehler sichtbar; Raw-Hex wird parallel als Detailwert gehalten.
+- Ab 33.4.42 zaehlt der KNX-Monitor wiederholte RX-Telegramme pro Gruppenadresse ueber `receive_count`, auch wenn der Wert gleich bleibt.
+- Ab 33.4.41 zeigt der KNX Explorer empfangene `GroupValueWrite`-Telegramme mit Typ, DPT, Wert und APDU an.
+- Ab 33.4.41 werden unbekannte oder nicht decodierbare KNX-Werte als `Raw: <HEX>` mit Status `Raw` angezeigt statt verworfen.
+- Ab 33.4.41 werden DPT-1-Schaltwerte inklusive `False`/`0` sichtbar dargestellt; ab 33.4.45 als `1`/`0`.
+- Ab 33.4.40 nutzt der KNX Listener fuer RX wieder `register_telegram_received_cb` an der xknx-TelegramQueue.
+- Ab 33.4.40 bleibt die RX-Anzeige aus 33.4.38 erhalten, aber der Callback-Pfad entspricht wieder dem zuvor funktionierenden Runtime-Verhalten.
+- Ab 33.4.39 nutzt der KNX Explorer beim Objekt-Button wieder den Shell-kompatiblen Frame-Navigationspfad.
+- Ab 33.4.39 oeffnet `Objekt erstellen / verknuepfen` aus dem eingebetteten KNX Explorer den zentralen Objektmanager sichtbar im Content-Frame.
+- Ab 33.4.38 registriert der KNX Listener RX-Telegramme wieder direkt ueber den XKNX-Konstruktor-Callback.
+- Ab 33.4.38 verdraengen OUT-/ERROR-Sendestatusse vorhandene RX-Liveeintraege im KNX Explorer nicht mehr aus der Gruppenadressenliste.
+- Ab 33.4.37 schreiben objektbasierte KNX-Ausgaenge wieder in denselben Monitor-State, den der KNX Explorer liest.
+- Ab 33.4.37 zeigt der KNX Explorer bei fehlender Tunnelverbindung fuer die Ziel-GA einen `OUT/ERROR`-Eintrag statt leer zu bleiben.
+- Ab 33.4.36 zeigt KNX-TX die vorbereitete DPT-Payload auch dann im Log, wenn der Tunnel anschliessend nicht aufgebaut werden kann.
+- Ab 33.4.36 bleiben xknx-Tunnel-Fehler im Runtime-State sichtbar und der Listener-State wird beim Stop/Fehler sauber zurueckgesetzt.
+- Ab 33.4.35 fuehrt der KNX Explorer neue Objekte ueber denselben zentralen Objektmanager-Explorer-Workflow wie MQTT, UDP und Loxone an.
+- Ab 33.4.35 erzeugt der KNX Explorer beim Objekt-Button keine Legacy-KNX-Mappings mehr, sondern uebergibt nur KNX-Quelldaten an den Objektmanager.
+- Ab 33.4.34 unterscheidet KNX-TX im Log APDU und reine DPT-Payload-Bytes und zeigt `payload_len`/`payload_hex`.
+- Ab 33.4.34 wird der verwendete DPT bereits am Objekt-/MQTT-/UDP-KNX-Ausgangspunkt geloggt, damit alte Mapping- oder Default-DPTs sichtbar werden.
+- Ab 33.4.33 wird KNX-Output nur noch mit vorhandenem DPT und passender xknx-DPT-Kodierung als `GroupValueWrite` gesendet.
+- Ab 33.4.33 loggt KNX-TX `ga`, `dpt`, Rohwert, normalisierten Wert und Encoder; fehlender DPT fuehrt zu sauberem Skip statt falschem Default.
+- Ab 33.4.32 zeigen die Explorer keine sichtbaren Expertenmapping- oder Experteneinstellungs-Accordions mehr.
+- Ab 33.4.32 bleiben die zugehoerigen Backend-Routen und Mapping-Logiken vorhanden, werden aber aus den Explorer-Detailbereichen nicht mehr angeboten.
+- Ab 33.4.31 ist der KNX Explorer optisch an MQTT/Loxone angeglichen: kompakter Header, linke Gruppenadressenliste und rechter Detail-/Verlaufsbereich ohne Dashboard-Karten.
+- Ab 33.4.30 ist der ehemalige KNX Monitor als `KNX Explorer` in Navigation und Seitenlayout an die Explorer-Struktur angeglichen.
+- Ab 33.4.30 bleiben KNX-Backend, Telegrammverarbeitung, Listener und bestehende Monitor-Endpunkte technisch unveraendert.
+- Ab 33.4.29 filtert der Objektmanager ausschliesslich nach der Objektquelle und nicht mehr nach Zielsystemen oder aktivierten Protokollen.
+- Ab 33.4.29 sind die Filterchips auf echte Quellen reduziert: MQTT, Loxone, UDP und KNX.
+- Ab 33.4.28 ist UDP in der Sidebar auf einen einzigen Einstieg `UDP Explorer` reduziert.
+- Ab 33.4.28 bleiben UDP Monitor, UDP-Hub-Funktionen und Mappings im Backend erhalten und werden ueber den UDP Explorer erreicht.
 - Ab 33.4.27 liest die Live-API den Objekt-Live-State aus demselben Service-Store wie der UDP-Core-Pfad.
 - Ab 33.4.27 zeigen Debug-Logs `LIVE TAB DEBUG` und `UDP LIVE UPDATE DEBUG`, ob Wert und API-Return denselben Runtime-State verwenden.
 - Ab 33.4.26 gibt es einen zentralen Objekt-Livewert-Updater, den MQTT, Loxone, KNX und UDP gemeinsam nutzen.
@@ -34,6 +98,31 @@
 ## Naechste Schritte
 
 - Objektmanager V33 Plan auswerten: zuerst Read-only Analyse bestehender Mappings, danach Objektkandidaten und Adaptervorschlaege.
+- KNX Explorer 33.4.41 pruefen: `GroupValueWrite` mit DPT `1.001` und APDU `01` erscheint als `EIN`.
+- KNX Explorer 33.4.41 pruefen: `GroupValueWrite` mit DPT `1.001` und APDU `00` erscheint als `AUS`.
+- KNX Explorer 33.4.41 pruefen: unbekannter DPT mit APDU `3A` erscheint als `Raw: 3A` und Status `Raw`.
+- KNX Listener 33.4.40 pruefen: Log zeigt wieder `KNX Listener RX Callback registriert via register_telegram_received_cb`.
+- KNX Explorer 33.4.40 pruefen: echte KNX-Bus-RX-Telegramme erscheinen nach Listener-Start wieder im Verlauf.
+- KNX Explorer 33.4.39 pruefen: Button `Objekt erstellen / verknuepfen` navigiert aus der Shell zu `/objects_v33/create_from_explorer?...`.
+- KNX Explorer 33.4.39 pruefen: der erzeugte Import enthaelt `source_type=knx`, `knx.group_address`, `knx.dpt` und oeffnet den KNX-Tab.
+- KNX Explorer 33.4.38 pruefen: eingehende Bus-Telegramme erscheinen wieder als `Empfangen` in Gruppenadressenliste und Verlauf.
+- KNX Explorer 33.4.38 pruefen: ein anschliessender Objektmanager-Sendefehler auf derselben GA darf den RX-Eintrag links nicht ueberschreiben.
+- KNX Explorer 33.4.37 pruefen: Objekt-Route MQTT/Loxone/UDP -> KNX legt im Explorer fuer die Ziel-GA einen Senden-Eintrag an.
+- KNX Explorer 33.4.37 pruefen: bei Tunnelfehler bleibt die Ziel-GA links sichtbar und der Detailbereich zeigt Status `ERROR`.
+- KNX TX 33.4.36 pruefen: bei fehlendem Tunnel muss vor `KNX Senden fehlgeschlagen` trotzdem `KNX TX prepared ... payload_len=2 ...` fuer DPT `9.001` erscheinen.
+- KNX TX 33.4.36 pruefen: Tunnel-Fehlerlog enthaelt Status, Gateway, lokale IP und `last_error=Tunnel connection could not be established`.
+- KNX Explorer 33.4.35 pruefen: `Objekt erstellen / verknuepfen` oeffnet `/objects_v33/create_from_explorer` mit `explorer=knx`, GA, DPT und Livewert.
+- KNX Explorer 33.4.35 pruefen: nach dem Speichern liegt die Gruppenadresse/DPT im KNX-Adapter des Objekts und es wird kein Legacy-Mapping angelegt.
+- KNX TX 33.4.34 pruefen: Testsendung GA `0/3/1`, DPT `9.001`, Wert `69.28` loggt `payload_len=2` und `payload_hex=16c4`.
+- KNX TX 33.4.34 pruefen: Objekt-/MQTT-/UDP-KNX-Logs zeigen vor dem Senden den tatsaechlich durchgereichten DPT.
+- KNX TX 33.4.33 pruefen: MQTT/UDP/Loxone-Wert `69.28` auf GA `0/3/1` mit DPT `9.001` muss im ETS/Loxone als 2-Byte-Float interpretierbar sein.
+- KNX TX 33.4.33 pruefen: fehlender DPT sendet nicht und loggt `KNX send skipped: missing DPT for GA ...`.
+- Explorer UI 33.4.32 pruefen: MQTT, Loxone, UDP und KNX zeigen kein `Expertenmapping anzeigen` und keine `Experteneinstellungen anzeigen` mehr.
+- Explorer UI 33.4.32 pruefen: Objektanlage, Kopieren, Favorit/Alias, Influx und normale Detailanzeige bleiben ohne Expertenbereich nutzbar.
+- KNX Explorer 33.4.31 pruefen: Header, Suche, Auf-/Einklappen, Aktualisieren, Pause, linke Liste und rechter Detailbereich verhalten sich wie MQTT/Loxone Explorer.
+- KNX Explorer 33.4.31 pruefen: Detailbereich zeigt Gruppenadresse, letzten Wert, DPT, Richtung, Quelle, Objektanlage, GA-Kopie und Verlauf.
+- KNX Explorer 33.4.30 pruefen: Sidebar, KNX-Hub und Seitenkopf zeigen `KNX Explorer`, waehrend `/knx_monitor` und alle KNX-Funktionen unveraendert laufen.
+- KNX Explorer 33.4.30 pruefen: Toolbar, Suche, Statusbereich, Explorer-Liste, Detailwert und Telegrammverlauf entsprechen optisch den anderen Explorern.
 - Adaptermodell V33 pruefen: gemeinsame Felder, Protokoll-Pflichtfelder und Validierungsregeln fuer spaetere Read-only Analyse verwenden.
 - Passive Objekt-Registry 33.0.2 pruefen: Laden fehlender Datei, Speichern nach `data/objects_v33.json`, Validierung und Roundtrip mit `ObjectDefinition`.
 - Passive Adapter-Engine 33.0.3 pruefen: Serialisierung/Deserialisierung fuer MQTT, Loxone, UDP, KNX und Influx sowie Registry-Roundtrip.
