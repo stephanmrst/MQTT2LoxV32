@@ -1,4 +1,4 @@
-﻿# === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
+# === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
 import asyncio
 import json
 import logging
@@ -49,6 +49,9 @@ _OBJECT_ROUTE_RELOAD_PENDING = False
 _RECENT_OBJECT_ROUTER_PUBLISHES = {}
 _RECENT_OBJECT_ROUTER_PUBLISH_TOPICS = {}
 _RECENT_OBJECT_ROUTER_PUBLISH_LOCK = threading.Lock()
+_KNX_RX_QUEUE = queue.SimpleQueue()
+_KNX_RX_WORKER_STARTED = False
+_KNX_RX_WORKER_LOCK = threading.Lock()
 _KNX_ROUTING_QUEUE = queue.Queue(maxsize=1000)
 _KNX_ROUTING_WORKER_STARTED = False
 _KNX_ROUTING_WORKER_LOCK = threading.Lock()
@@ -1024,7 +1027,6 @@ def add_knx_monitor_entry(group_address, value, direction="RX", dpt="", status="
         "source": str(source or ("Objektmanager" if direction_text in {"OUT", "WRITE"} or status_key.startswith("OUT_") else "KNX Bus")),
     }
 
-    print("[KNX MONITOR ADD]", entry)
     add_knx_monitor_log_entry(entry)
     if ga:
         existing_direction = str((existing or {}).get("direction") or "").upper()
@@ -2118,6 +2120,107 @@ def _safe_qsize(q):
         return -1
 
 
+def ensure_knx_rx_worker():
+    global _KNX_RX_WORKER_STARTED
+    with _KNX_RX_WORKER_LOCK:
+        if _KNX_RX_WORKER_STARTED:
+            return
+        thread = threading.Thread(target=_knx_rx_worker, name="knx-rx-worker", daemon=True)
+        thread.start()
+        _KNX_RX_WORKER_STARTED = True
+        add_log_entry("KNX RX Worker gestartet")
+
+
+def enqueue_knx_received_telegram(telegram, received_perf=None, received_wall=None):
+    """Hand a telegram off immediately so the xknx event loop never blocks on UI/routing work."""
+    ensure_knx_rx_worker()
+    _KNX_RX_QUEUE.put({
+        "telegram": telegram,
+        "received_perf": float(received_perf or time.perf_counter()),
+        "received_wall": float(received_wall or time.time()),
+    })
+
+
+def _knx_rx_worker():
+    while True:
+        item = _KNX_RX_QUEUE.get()
+        try:
+            _process_knx_received_telegram(
+                (item or {}).get("telegram"),
+                received_perf=(item or {}).get("received_perf"),
+                received_wall=(item or {}).get("received_wall"),
+            )
+        except Exception as exc:
+            add_log_entry(f"KNX RX Worker Fehler: {exc}")
+
+
+def _process_knx_received_telegram(telegram, received_perf=None, received_wall=None):
+    if telegram is None or runtime_context.bridge.stop_requested:
+        return
+    received_perf = float(received_perf or time.perf_counter())
+    received_wall = float(received_wall or time.time())
+    ga = str(getattr(telegram, "destination_address", ""))
+    if not ga:
+        return
+    source_address = str(getattr(telegram, "source_address", "") or "")
+    payload = getattr(telegram, "payload", None)
+    telegram_type = payload.__class__.__name__ if payload is not None else "Telegram"
+    try:
+        apdu_hex = knx_service.format_knx_raw_value(telegram)
+    except Exception:
+        apdu_hex = ""
+
+    metadata = get_knx_runtime_metadata(ga)
+    detected_dpt = str(metadata.get("dpt") or "")
+    dpt_source = str(metadata.get("dpt_source") or "")
+    decoded = knx_service.decode_knx_value(telegram, ga, detected_dpt)
+    monitor_dpt = decoded.get("dpt") or ("unbekannt" if not detected_dpt else detected_dpt)
+    value_text = decoded.get("display_value")
+    if value_text is None:
+        value_text = f"Raw: {decoded.get('raw_value') or apdu_hex or ''}".strip()
+    unit = str(decoded.get("unit") or "").strip()
+    if unit and value_text and not str(value_text).endswith(unit):
+        value_text = f"{value_text} {unit}"
+    monitor_status = "" if decoded.get("decoded") else "Raw"
+    if decoded.get("value_type") == "read":
+        monitor_status = "Read"
+    apdu_hex = decoded.get("raw_value") or apdu_hex
+
+    add_knx_monitor_entry(
+        ga,
+        value_text,
+        "RX",
+        monitor_dpt,
+        status=monitor_status,
+        telegram_type=decoded.get("telegram_type") or telegram_type,
+        apdu=apdu_hex,
+        source_address=decoded.get("source_address") or source_address,
+        display_value=value_text,
+        raw_value=decoded.get("raw_value") or apdu_hex,
+        decoded=decoded.get("decoded"),
+        value_type=decoded.get("value_type"),
+        value_data=decoded.get("value") if decoded.get("value") is not None else value_text,
+        dpt_source=decoded.get("dpt_source") or dpt_source,
+        update_live=False,
+    )
+
+    route_value = decoded.get("value") if decoded.get("value") is not None else value_text
+    enqueue_knx_routing_event({
+        "source_protocol": "knx",
+        "source_address": source_address,
+        "group_address": knx_service.normalize_knx_ga(ga),
+        "object_id": metadata.get("object_id") or "",
+        "dpt": monitor_dpt,
+        "value": route_value,
+        "display_value": value_text,
+        "raw_value": decoded.get("raw_value") or apdu_hex,
+        "value_type": decoded.get("value_type"),
+        "payload": payload,
+        "received_perf": received_perf,
+        "received_wall": received_wall,
+    })
+
+
 def ensure_knx_routing_worker():
     global _KNX_ROUTING_WORKER_STARTED
     with _KNX_ROUTING_WORKER_LOCK:
@@ -2134,7 +2237,6 @@ def enqueue_knx_routing_event(event):
     ga = str((event or {}).get("group_address") or "")
     try:
         _KNX_ROUTING_QUEUE.put_nowait(dict(event or {}))
-        add_log_entry(f"ROUTING QUEUE size={_safe_qsize(_KNX_ROUTING_QUEUE)} ga={ga}")
         return True
     except queue.Full:
         add_log_entry(f"ROUTING QUEUE full ga={ga} dropped=yes")
@@ -2164,26 +2266,20 @@ def _process_knx_routing_event(event):
     received_perf = float(event.get("received_perf") or time.perf_counter())
     received_wall = float(event.get("received_wall") or time.time())
     wait_ms = (time.perf_counter() - received_perf) * 1000
-    add_log_entry(f"ROUTING WORKER ga={ga} queue_wait_ms={wait_ms:.2f}")
 
     if event.get("value_type") == "read":
-        add_log_entry(f"KNX PERF ROUTING_SKIP_READ ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
         return
 
     live_items = list(event.get("live_items") or [])
     if not live_items:
         live_start = time.perf_counter()
         live_items = object_core_service.record_live_value("knx", value, group_address=ga)
-        add_log_entry(f"KNX PERF LIVE ga={ga} step_ms={(time.perf_counter() - live_start) * 1000:.2f} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
     runtime_meta = get_knx_runtime_metadata(ga)
     fast_mqtt_sent = False
     mqtt_topic = str(runtime_meta.get("mqtt_topic") or "").strip()
     if mqtt_topic and mqtt_client:
         mqtt_value = _knx_mqtt_payload_value(value, dpt=event.get("dpt") or runtime_meta.get("dpt", ""), value_type=event.get("value_type", ""))
         result = mqtt_client.publish(mqtt_topic, mqtt_value, retain=bool(runtime_meta.get("mqtt_retain", False)))
-        add_log_entry(f"MQTT PUBLISH topic={mqtt_topic} rc={getattr(result, 'rc', '')} mid={getattr(result, 'mid', '')}")
-        add_log_entry(f"KNX PERF MQTT_PUBLISH ga={ga} topic={mqtt_topic} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
-        add_log_entry(f"KNX TO MQTT ga={ga} topic={mqtt_topic} delay_ms={(time.time() - received_wall) * 1000:.2f}")
         try:
             object_id = str(runtime_meta.get("object_id") or "")
             if object_id:
@@ -2193,7 +2289,6 @@ def _process_knx_routing_event(event):
         fast_mqtt_sent = True
     non_mqtt_targets = [target for target in (runtime_meta.get("targets") or []) if target != "mqtt"]
     if fast_mqtt_sent and not non_mqtt_targets:
-        add_log_entry(f"KNX PERF ROUTING ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f} routed=true fast_mqtt_only=true")
         return
     routed = _dispatch_object_routes(
         live_items,
@@ -2202,12 +2297,10 @@ def _process_knx_routing_event(event):
         value,
         metadata={"group_address": ga, "received_perf": received_perf, "received_wall": received_wall, "gateway_origin": "mqtt" if fast_mqtt_sent else "", "dpt": event.get("dpt") or runtime_meta.get("dpt", ""), "value_type": event.get("value_type", "")},
     )
-    add_log_entry(f"KNX PERF ROUTING ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f} routed={str(bool(routed)).lower()}")
 
     if routed:
         return
 
-    add_log_entry(f"KNX RX vor publish_knx_to_mqtt GA={ga} DPT={event.get('dpt') or '-'} Value={value_text}")
     knx_service.publish_knx_to_mqtt(
         ga,
         payload,
@@ -2219,9 +2312,7 @@ def _process_knx_routing_event(event):
         received_perf=received_perf,
         received_wall=received_wall,
     )
-    add_log_entry(f"KNX PERF MQTT_CALL ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
 
-    add_log_entry(f"KNX RX vor publish_knx_to_loxone GA={ga} DPT={event.get('dpt') or '-'} Value={value_text}")
     knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
 
 
@@ -2242,95 +2333,18 @@ async def _knx_listener_async(knx_cfg):
         kwargs["local_ip"] = local_ip
     ensure_knx_routing_worker()
     rebuild_knx_ga_runtime_index()
+    ensure_knx_rx_worker()
+
     def telegram_received_cb(telegram):
-        try:
-            received_perf = time.perf_counter()
-            received_wall = time.time()
-            if runtime_context.bridge.stop_requested:
-                return
-            ga = str(getattr(telegram, "destination_address", ""))
-            source_address = str(getattr(telegram, "source_address", "") or "")
-            payload = getattr(telegram, "payload", None)
-            telegram_type = payload.__class__.__name__ if payload is not None else "Telegram"
-            add_log_entry(f"KNX PERF RX ga={ga or '-'} t={received_perf:.6f}")
-            apdu_hex = ""
-            try:
-                apdu_hex = knx_service.format_knx_raw_value(telegram)
-            except Exception:
-                apdu_hex = ""
-            add_log_entry(f"KNX RX source={source_address or '-'} destination={ga or '-'} payload={payload!r} telegram_type={telegram_type}")
-            trace_knx_009 = knx_service.normalize_knx_ga(ga) == "0/0/9"
-            if trace_knx_009:
-                add_log_entry(
-                    f"KNX TRACE RX ga={ga} source={source_address or '-'} type={telegram_type} "
-                    f"payload_type={type(payload).__name__ if payload is not None else '-'} payload={payload!r} raw={apdu_hex or '-'}"
-                )
-            if ga:
-                metadata = get_knx_runtime_metadata(ga)
-                detected_dpt = str(metadata.get("dpt") or "")
-                dpt_source = str(metadata.get("dpt_source") or "")
-                if trace_knx_009:
-                    add_log_entry(
-                        f"KNX TRACE LOOKUP ga={ga} metadata={metadata!r} configured_dpt={detected_dpt!r}"
-                    )
-                decoded = knx_service.decode_knx_value(telegram, ga, detected_dpt)
-                add_log_entry(f"KNX PERF DECODE ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
-                if trace_knx_009:
-                    add_log_entry(f"KNX TRACE DECODE ga={ga} result={decoded!r}")
-                monitor_dpt = decoded.get("dpt") or ("unbekannt" if not detected_dpt else detected_dpt)
-                value_text = decoded.get("display_value")
-                if value_text is None:
-                    value_text = f"Raw: {decoded.get('raw_value') or apdu_hex or ''}".strip()
-                unit = str(decoded.get("unit") or "").strip()
-                if unit and value_text and not str(value_text).endswith(unit):
-                    value_text = f"{value_text} {unit}"
-                monitor_status = "" if decoded.get("decoded") else "Raw"
-                if decoded.get("value_type") == "read":
-                    monitor_status = "Read"
-                apdu_hex = decoded.get("raw_value") or apdu_hex
-                add_log_entry(
-                    f"KNX DECODE destination={ga} dpt={monitor_dpt or '-'} decoded={decoded.get('decoded')} "
-                    f"value={decoded.get('value')!r} display={value_text!r} raw={apdu_hex or '-'}"
-                )
-                add_knx_monitor_entry(
-                    ga,
-                    value_text,
-                    "RX",
-                    monitor_dpt,
-                    status=monitor_status,
-                    telegram_type=decoded.get("telegram_type") or telegram_type,
-                    apdu=apdu_hex,
-                    source_address=decoded.get("source_address") or source_address,
-                    display_value=value_text,
-                    raw_value=decoded.get("raw_value") or apdu_hex,
-                    decoded=decoded.get("decoded"),
-                    value_type=decoded.get("value_type"),
-                    value_data=decoded.get("value") if decoded.get("value") is not None else value_text,
-                    dpt_source=decoded.get("dpt_source") or dpt_source,
-                    update_live=False,
-                )
-                add_log_entry(f"KNX PERF EXPLORER ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
-                if trace_knx_009:
-                    explorer_entry = get_knx_monitor_values().get(knx_service.normalize_knx_ga(ga), {})
-                    add_log_entry(f"KNX TRACE EXPLORER ga={ga} entry={explorer_entry!r}")
-                route_value = decoded.get("value") if decoded.get("value") is not None else value_text
-                enqueue_knx_routing_event({
-                    "source_protocol": "knx",
-                    "source_address": source_address,
-                    "group_address": knx_service.normalize_knx_ga(ga),
-                    "object_id": metadata.get("object_id") or "",
-                    "dpt": monitor_dpt,
-                    "value": route_value,
-                    "display_value": value_text,
-                    "raw_value": decoded.get("raw_value") or apdu_hex,
-                    "value_type": decoded.get("value_type"),
-                    "payload": payload,
-                    "received_perf": received_perf,
-                    "received_wall": received_wall,
-                })
-                add_log_entry(f"KNX PERF CALLBACK_DONE ga={ga} total_ms={(time.perf_counter() - received_perf) * 1000:.2f}")
-        except Exception as e:
-            add_log_entry(f"KNX Listener Telegramm Fehler: {e}")
+        # xknx invokes this callback on its asyncio event loop. Never decode,
+        # update the UI or route synchronously here; a blocked callback causes
+        # exactly the intermittent 15-20 second stalls seen on the bus.
+        enqueue_knx_received_telegram(
+            telegram,
+            received_perf=time.perf_counter(),
+            received_wall=time.time(),
+        )
+
     xknx = XKNX(connection_config=ConnectionConfig(**kwargs))
     loop = asyncio.get_running_loop()
     set_knx_runtime_state(
@@ -4453,13 +4467,6 @@ def knx_monitor_payload():
         "last": last,
         "enabled": bool(load_knx_config().get("enabled", False)),
     }
-    try:
-        add_log_entry(f"KNX HISTORY INSTANCE object_id={history_id} module={__name__} size={len(history)} source=api")
-        entry = (payload.get("last") or {}).get("0/0/9")
-        if entry:
-            add_log_entry(f"KNX TRACE API ga=0/0/9 entry={entry!r}")
-    except Exception:
-        pass
     return payload
 
 
@@ -4513,12 +4520,12 @@ def dashboard_content():
         <div class="small">Mappings</div>
     </a>
     <a class="card dashboard-tile" href="/knx">
-        <div class="muted">KNX Hub</div>
+        <div class="muted">KNX Routen</div>
         <div class="stat-value">{mqtt2knx_count + knx2mqtt_count + udp2knx_count + knx2lox_count}</div>
         <div class="small">KNX Mappings gesamt</div>
     </a>
     <a class="card dashboard-tile" href="/mqtt">
-        <div class="muted">MQTT Hub</div>
+        <div class="muted">MQTT Routen</div>
         <div class="stat-value">{mqtt2lox_count + mqtt2udp_count + udp2mqtt_count + mqtt2knx_count + knx2mqtt_count}</div>
         <div class="small">MQTT Mappings gesamt</div>
     </a>
@@ -4801,7 +4808,7 @@ def settings_content(config, notice=""):
         {"name": "MQTT Broker", "status": f"{mqtt.get('host', '-')}:{mqtt.get('port', '-')}", "desc": "Hauptbroker, zusätzliche Broker und Prefix", "route": "/mqtt_settings_embed"},
         {"name": "UDP", "status": "aktiv" if udp_cfg.get("enabled") else "aus", "desc": f"UDP → MQTT Eingang auf Port {udp_cfg.get('port', '-')}; MQTT → UDP Mappings bleiben links unter Mappings", "route": "/udp_input"},
         {"name": "InfluxDB", "status": "aktiv" if influx.get("enabled") else "aus", "desc": "Zeitreihen-Ausgabe / Logging", "route": "/influx_settings_embed"},
-        {"name": "KNX", "status": "aktiv" if knx_cfg.get("enabled") else "aus", "desc": f"Gateway {knx_cfg.get('gateway_ip', '-')}:{knx_cfg.get('gateway_port', '-')}; Mappings liegen im KNX Hub", "route": "/knx_settings_embed"}
+        {"name": "KNX", "status": "aktiv" if knx_cfg.get("enabled") else "aus", "desc": f"Gateway {knx_cfg.get('gateway_ip', '-')}:{knx_cfg.get('gateway_port', '-')}; Routen werden im Objektmanager gepflegt", "route": "/knx_settings_embed"}
     ]
 
     rows = ""
@@ -10304,33 +10311,14 @@ def mqtt_hub():
 
 
 def knx_hub_content():
-    knx_cfg = load_knx_config()
-    monitor_values = get_knx_monitor_values()
     test_state = get_knx_test_state()
     diag_text = _knx_test_diagnostics_text(test_state)
     test_group_address = escape(str(test_state.get("group_address", "") or ""))
     test_value = escape(str(test_state.get("raw_value", "") or ""))
     test_selected_dpt = escape(str(test_state.get("selected_dpt", "auto") or "auto"))
     show_in_monitor_checked = 'checked' if test_state.get("show_in_monitor", True) else ''
-    cards = [
-        ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
-        ("KNX → MQTT", "/knx2mqtt", len(load_knx2mqtt_config()), "KNX Telegramme als MQTT Topics veröffentlichen."),
-        ("UDP → KNX", "/udp2knx", len(load_udp2knx_config()), "UDP Telegramme direkt auf KNX Gruppenadressen senden."),
-        ("KNX → Loxone", "/knx2lox", len(load_knx2lox_config()), "KNX Telegramme direkt an Loxone Eingänge/Controls schicken."),
-        ("KNX Gateway", "/knx_settings_embed", 1 if knx_cfg.get("enabled") else 0, "Gateway, Tunneling/Routing und lokale Schnittstelle einstellen."),
-        ("KNX Explorer", "/knx_monitor", len(monitor_values), "Live Telegramme ansehen und debuggen."),
-    ]
-    html_cards = ""
-    for title, url, count, desc in cards:
-        status = "aktiv" if title == "KNX Gateway" and knx_cfg.get("enabled") else str(count)
-        html_cards += f'''
-        <a class="knx-card" href="{escape(url)}">
-            <div class="knx-card-title">{escape(title)}</div>
-            <div class="knx-card-count">{escape(status)}</div>
-            <div class="small">{escape(desc)}</div>
-        </a>'''
     return f'''
-<!doctype html><html><head><title>KNX Hub</title><style>
+<!doctype html><html><head><title>KNX Testcenter</title><style>
 body {{ font-family:Arial; background:#202830; color:#f4f7fb; margin:30px; }}
 a {{ color:inherit; text-decoration:none; }}
 .card {{ background:#1b2229; border:1px solid #303b45; border-radius:12px; padding:18px; margin-bottom:16px; }}
@@ -10350,14 +10338,16 @@ button, .button-link {{ background:#5f686f; color:#fff; border:0; border-radius:
 button:hover, .button-link:hover {{ background:#737d86; }}
 .diagnostic-box {{ white-space:pre-wrap; background:#10131a; border:1px solid #485063; border-radius:8px; padding:12px; font-family:Consolas, monospace; min-height:180px; }}
 </style></head><body>
-<h1>KNX Hub</h1>
+<h1>KNX Testcenter</h1>
 <div class="card">
-    <span class="badge">Gateway: {escape('aktiv' if knx_cfg.get('enabled') else 'aus')}</span>
-    <p class="small">Alle KNX Bruecken an einem Ort: MQTT, UDP, Loxone, Gateway und Explorer. Der KNX Explorer bleibt zusaetzlich direkt in der Sidebar erreichbar.</p>
+    <p class="small">KNX-Telegramme gezielt senden, wiederholen und die erzeugte APDU diagnostizieren. Gateway-Einstellungen und KNX Explorer bleiben separat erreichbar.</p>
+    <div class="button-row">
+        <a class="button-link" href="/knx_settings_embed">KNX Gateway-Einstellungen</a>
+        <a class="button-link" href="/knx_monitor">KNX Explorer öffnen</a>
+    </div>
 </div>
-<div class="grid">{html_cards}</div>
 <div class="card">
-    <h2 style="margin-top:0;">KNX Testcenter</h2>
+    <h2 style="margin-top:0;">Telegramm testen</h2>
     <form id="knxTestForm" method="post" action="/knx_test/send" data-default-action="/knx_test/send">
         <div class="test-grid">
             <div>

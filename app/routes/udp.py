@@ -3,7 +3,7 @@
 These routes delegate to the app core handlers during the migration.
 """
 
-from flask import Blueprint, current_app
+from flask import Blueprint, current_app, redirect
 
 
 bp = Blueprint("udp", __name__)
@@ -15,7 +15,8 @@ def _core():
 
 @bp.route("/mqtt2udp")
 def mqtt2udp():
-    return _core().mqtt2udp()
+    # Legacy Mapping-Explorer entfernt. Konfiguration bleibt fuer Bestandsrouten erhalten.
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2udp/save", methods=["POST"])
@@ -50,7 +51,8 @@ def udp_presets_save():
 
 @bp.route("/udp2mqtt")
 def udp2mqtt():
-    return _core().udp2mqtt()
+    # Legacy Mapping-Explorer entfernt. Konfiguration bleibt fuer Bestandsrouten erhalten.
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2mqtt/save", methods=["POST"])

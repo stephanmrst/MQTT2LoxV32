@@ -1,13 +1,1 @@
-[
-  {
-    "enabled": true,
-    "group_address": "0/2/4",
-    "mqtt_topic": "Schlafzimmer /temperatur/Lichtschalter",
-    "dpt": "9.001",
-    "retain": true,
-    "invert": false,
-    "group": "uo",
-    "set_name": "Neues KNX → MQTT Set",
-    "mapping_alias": "xycxccvxyvx"
-  }
-]
+[]

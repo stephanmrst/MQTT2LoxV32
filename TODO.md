@@ -1,3 +1,14 @@
+## 33.4.58
+
+- Optionales, schaltbares KNX-Diagnose-Logging statt dauerhaftem Hot-Path-Logging vorsehen.
+
+## 33.4.55
+
+- Navigation pruefen: MQTT Hub ist entfernt und `/mqtt` oeffnet den MQTT Explorer.
+- KNX Testcenter unter `/knx` inklusive Senden, Wiederholen, Monitor-Eintrag und Diagnose pruefen.
+- Direkte Aufrufe aller alten Mapping-Explorer pruefen: Weiterleitung auf `/objects_v33`.
+- Spaeter separat entscheiden, wann Legacy-Mappingdateien nach vollstaendiger Objektmigration auch aus Runtime und Code entfernt werden koennen.
+
 # TODO
 
 ## 33.0.x

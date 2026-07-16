@@ -5,7 +5,7 @@ These routes delegate to the app core handlers during the migration.
 
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, redirect, request
 
 try:
     from app.services import knx as knx_service
@@ -100,7 +100,8 @@ def knx_test_clear_monitor():
 
 @bp.route("/mqtt2knx")
 def mqtt2knx():
-    return _core().mqtt2knx()
+    # Legacy Mapping-Explorer entfernt. Bestehende Laufzeitkonfiguration bleibt kompatibel.
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2knx/save", methods=["POST"])
@@ -120,7 +121,8 @@ def mqtt2knx_data():
 
 @bp.route("/udp2knx")
 def udp2knx():
-    return _core().udp2knx()
+    # Legacy Mapping-Explorer entfernt. Bestehende Laufzeitkonfiguration bleibt kompatibel.
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2knx/save", methods=["POST"])
@@ -140,7 +142,8 @@ def udp2knx_data():
 
 @bp.route("/knx2mqtt")
 def knx2mqtt():
-    return _core().knx2mqtt()
+    # Legacy Mapping-Explorer entfernt. Bestehende Laufzeitkonfiguration bleibt kompatibel.
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx2mqtt/save", methods=["POST"])
@@ -155,7 +158,8 @@ def knx2mqtt_data():
 
 @bp.route("/knx2lox")
 def knx2lox():
-    return _core().knx2lox()
+    # Legacy Mapping-Explorer entfernt. Bestehende Laufzeitkonfiguration bleibt kompatibel.
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx2lox/save", methods=["POST"])

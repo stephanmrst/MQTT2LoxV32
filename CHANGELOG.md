@@ -1,3 +1,24 @@
+## 33.4.58
+
+- KNX-DPT-1-Telegramme ohne hinterlegte Zuordnung werden im Explorer als `1.001` statt `unbekannt` gekennzeichnet.
+- Hohe Laufzeitlast durch ausführliche KNX-PERF-/TRACE-Logs im Telegramm-, Routing- und Snapshot-Pfad entfernt.
+- KNX-Explorer und KNX→MQTT reagieren dadurch wieder unmittelbar, ohne DPT-9- oder Verlaufslogik zu verändern.
+
+# 33.4.56
+
+- Alte Legacy-Mappingdaten vollständig entfernt.
+- Die bisherigen JSON-Mappingdateien für MQTT/Loxone/UDP/KNX sind jetzt leer.
+- Objektmanager-V33-Routen, KNX-Testcenter und aktuelle Explorer bleiben unverändert.
+- KNX-DPT-Decodierung, Verlauf und Laufzeitpfade wurden nicht verändert.
+
+## 33.4.55
+
+- MQTT Hub aus der Sidebar entfernt; `/mqtt` leitet direkt auf den MQTT Explorer weiter.
+- KNX Hub auf ein eigenstaendiges KNX Testcenter reduziert; Gateway-Einstellungen und KNX Explorer sind dort direkt verlinkt.
+- Alte Mapping-Explorer fuer MQTT->Loxone, MQTT->UDP, UDP->MQTT, MQTT->KNX, UDP->KNX, KNX->MQTT und KNX->Loxone aus dem sichtbaren Workflow entfernt; direkte GET-Aufrufe leiten zum Objektmanager V33 weiter.
+- Bestehende Legacy-Mappingdaten und Runtime-Loader bleiben vorerst kompatibel, damit vorhandene Installationen beim UI-Cleanup keine Routen verlieren.
+- KNX-DPT-Decodierung, Explorer-Verlauf, Routing und Performancepfad unveraendert gelassen.
+
 ## 33.4.54
 
 - KNX-Verlaufspuffer auf 250 Ereignisse erweitert; die UI zeigt weiterhin maximal 15 Zeilen.

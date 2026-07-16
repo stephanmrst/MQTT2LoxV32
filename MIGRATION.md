@@ -1,3 +1,11 @@
+## Migration auf 33.4.58
+
+Keine Konfigurationsmigration erforderlich. Bestehende KNX-Objekte und DPT-Zuordnungen bleiben unverändert.
+
+## Aktueller Stand: 33.4.55
+
+Keine manuelle Datenmigration erforderlich. Die alten Mapping-Seiten sind nicht mehr erreichbar und leiten zum Objektmanager V33 weiter. Bereits vorhandene Legacy-Mappings werden von der Runtime weiterhin gelesen, damit bestehende Installationen unveraendert arbeiten. Neue oder geaenderte Routen sollen ausschliesslich ueber den Objektmanager gepflegt werden. Das KNX Testcenter bleibt unter `/knx` erhalten.
+
 # Migration
 
 ## Aktueller Stand: 33.4.52

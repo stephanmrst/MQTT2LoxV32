@@ -473,13 +473,45 @@ def _dpt1_boolean_from_payload(payload):
 
 
 def _payload_is_xknx_binary(payload):
-    try:
-        value = getattr(payload, "value", None)
-        if value is not None and value.__class__.__name__ == "DPTBinary":
+    """Detect xknx binary payloads even when wrapped multiple levels deep."""
+    current = payload
+    for _ in range(5):
+        if current is None:
+            return False
+        if current.__class__.__name__ == "DPTBinary":
             return True
-    except Exception:
-        pass
-    return payload.__class__.__name__ == "DPTBinary" if payload is not None else False
+        if isinstance(current, bool):
+            return True
+        try:
+            next_value = getattr(current, "value", None)
+        except Exception:
+            next_value = None
+        if next_value is None or next_value is current:
+            break
+        current = next_value
+    return False
+
+
+def _payload_is_short_binary(payload):
+    """Best-effort detection for KNX 1-bit short APDUs without configured DPT.
+
+    Some xknx versions wrap DPTBinary differently, so class-name detection alone
+    is not reliable. A GroupValueWrite/Response carrying small-data 0 or 1 is a
+    valid switch telegram and should still reach the Explorer as numeric 0/1.
+    """
+    if _payload_is_xknx_binary(payload):
+        return True
+
+    raw = _payload_value(payload)
+    if isinstance(raw, bool):
+        return True
+
+    telegram_type = _telegram_type(payload)
+    if telegram_type not in {"GroupValueWrite", "GroupValueResponse"}:
+        return False
+
+    small_data = _short_apdu_small_data(payload)
+    return small_data in (0, 1)
 
 
 def decode_knx_value(telegram, group_address="", configured_dpt=None, invert=False):
@@ -537,7 +569,7 @@ def decode_knx_value(telegram, group_address="", configured_dpt=None, invert=Fal
         return result
 
     if not dpt:
-        if _payload_is_xknx_binary(payload):
+        if _payload_is_short_binary(payload):
             b = _dpt1_boolean_from_payload(payload)
             if b is not None:
                 b = (not b) if invert else b
@@ -547,7 +579,7 @@ def decode_knx_value(telegram, group_address="", configured_dpt=None, invert=Fal
                     "value": normalized_value,
                     "display_value": str(normalized_value),
                     "raw_value": "01" if normalized_value else "00",
-                    "dpt": None,
+                    "dpt": "1.001",
                     "dpt_source": "payload_inferred",
                     "unit": None,
                     "value_type": "integer",

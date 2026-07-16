@@ -1,3 +1,13 @@
+## Stand 33.4.58
+
+- KNX-Empfangspfad ist wieder schlank; Diagnose-Logging darf künftig nur gezielt und abschaltbar aktiviert werden.
+
+## Aktueller Stand: 33.4.55
+
+- Die Navigation folgt jetzt dem V33-Workflow Explorer -> Objektmanager -> Runtime; MQTT/KNX-Hubs und alte Mapping-Explorer sind nicht mehr Teil der sichtbaren Oberflaeche.
+- Das KNX Testcenter bleibt als eigenstaendige Werkzeugseite erhalten.
+- Legacy-Mappingdateien bleiben bis zu einer spaeteren kontrollierten Datenmigration nur als Laufzeit-Kompatibilitaet bestehen.
+
 # Roadmap
 
 ## Aktueller Stand: 33.4.52

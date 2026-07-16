@@ -3,7 +3,7 @@
 These routes delegate to the app core handlers during the migration.
 """
 
-from flask import Blueprint, current_app
+from flask import Blueprint, current_app, redirect
 
 
 bp = Blueprint("mqtt", __name__)
@@ -15,7 +15,8 @@ def _core():
 
 @bp.route("/mqtt")
 def mqtt_hub():
-    return _core().mqtt_hub()
+    # Legacy-Hub entfernt: direkter Einstieg in den MQTT Explorer.
+    return redirect("/monitor")
 
 
 @bp.route("/monitor")
