@@ -313,6 +313,26 @@ def adapter_from_form(protocol: str, form_data: Any) -> BaseAdapter:
             payload["qos"] = 0
     if protocol == "loxone" and "target_enabled" not in payload:
         payload["target_enabled"] = "target_enabled" in form_data
+    if protocol == "udp":
+        # Checkbox fields are absent from submitted form data when unchecked.
+        # Normalize them explicitly instead of leaving stale values or strings.
+        source_enabled = "source_enabled" in form_data
+        target_enabled = "target_enabled" in form_data
+        payload["source_enabled"] = source_enabled
+        payload["target_enabled"] = target_enabled
+        payload["enabled"] = bool(source_enabled or target_enabled)
+        payload["direction"] = (
+            "both" if source_enabled and target_enabled
+            else "in" if source_enabled
+            else "out" if target_enabled
+            else "both"
+        )
+        target_host = str(payload.get("target_host") or payload.get("target_ip") or "").strip()
+        payload["target_host"] = target_host
+        payload["target_ip"] = target_host
+        target_mode = str(payload.get("target_payload_mode") or payload.get("payload_mode") or "topic_value").strip() or "topic_value"
+        payload["target_payload_mode"] = target_mode
+        payload["payload_mode"] = target_mode
     return deserialize_adapter(payload)
 
 

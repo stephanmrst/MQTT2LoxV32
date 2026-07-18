@@ -1,3 +1,6 @@
+
+## Migration auf 33.4.66
+Keine manuelle Migration erforderlich. Bereits konfigurierte UDP-Ziele bleiben erhalten. Neue Objekte starten mit deaktiviertem UDP-Ziel.
 ## Migration auf 33.4.58
 
 Keine Konfigurationsmigration erforderlich. Bestehende KNX-Objekte und DPT-Zuordnungen bleiben unverändert.

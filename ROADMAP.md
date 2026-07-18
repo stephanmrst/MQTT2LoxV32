@@ -1,3 +1,7 @@
+
+## Stand 33.4.66
+- KNX-Empfang und MQTT-Routing bleiben auf dem stabilen 33.4.63-Pfad.
+- UDP-Zielkonfiguration wird nach Speichern ohne Neustart wirksam.
 ## Stand 33.4.58
 
 - KNX-Empfangspfad ist wieder schlank; Diagnose-Logging darf künftig nur gezielt und abschaltbar aktiviert werden.

@@ -1,3 +1,10 @@
+
+## 33.4.66
+- Basis wieder auf den stabilen Stand 33.4.63 gesetzt.
+- Neu gespeicherte UDP-Ziele werden nach dem Adapter-Speichern in den KNX-RAM-Index übernommen.
+- Der Index-Neuaufbau läuft ausschließlich im asynchronen Objekt-Routen-Reload, niemals im KNX-Empfangspfad.
+- Neue Objekte aktivieren UDP-Senden nicht mehr automatisch.
+- Die UDP-Routenprüfung berücksichtigt `target_enabled`.
 ## 33.4.58
 
 - KNX-DPT-1-Telegramme ohne hinterlegte Zuordnung werden im Explorer als `1.001` statt `unbekannt` gekennzeichnet.

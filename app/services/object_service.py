@@ -363,8 +363,15 @@ def _apply_udp_default_topic(item: GatewayObject, create_missing: bool = False) 
     if udp_adapter is None:
         if not create_missing:
             return
-        udp_adapter = ADAPTER_TYPES["udp"](enabled=False, direction="out", datatype=item.datatype or "auto", target_enabled=True)
-    udp_adapter.target_enabled = True
+        udp_adapter = ADAPTER_TYPES["udp"](
+            enabled=False,
+            direction="out",
+            datatype=item.datatype or "auto",
+            target_enabled=False,
+        )
+    # A default topic is useful as a suggestion, but it must never activate
+    # UDP sending on a freshly created object. Preserve an explicitly saved
+    # target_enabled value on existing adapters.
     udp_adapter.udp_topic = default_topic
     udp_adapter.target_payload_mode = str(getattr(udp_adapter, "target_payload_mode", "") or "topic_value") or "topic_value"
     udp_adapter.payload_mode = udp_adapter.target_payload_mode
@@ -1405,7 +1412,9 @@ def _resolved_live_status(item: GatewayObject) -> dict[str, Any]:
     route_report = get_object_route_report(item)
     route_source = str(route_report.get("current_source") or "").strip().lower()
     live["route_source"] = route_source or ""
-    live["display_source"] = route_source or "unbekannt"
+    # The card must show the protocol that actually supplied the live value.
+    # Route source is only a configuration fallback and must not overwrite it.
+    live["display_source"] = source or route_source or "unbekannt"
     live["route_sources"] = sorted({
         str(route.get("source") or "").strip().lower()
         for route in (route_report.get("main_routes") or [])

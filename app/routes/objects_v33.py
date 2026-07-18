@@ -125,8 +125,17 @@ def _route_status(object_def):
 
 def _current_source_label(object_def):
     try:
-        report = object_service.get_object_route_report(object_def) or {}
-        live_source = str(report.get("current_source") or "").strip().lower()
+        live = object_service.get_object_live_status(getattr(object_def, "id", "")) or {}
+        live_source = str(
+            live.get("source_protocol")
+            or live.get("last_source")
+            or live.get("current_source")
+            or live.get("original_source")
+            or ""
+        ).strip().lower()
+        if not live_source or live_source == "unbekannt":
+            report = object_service.get_object_route_report(object_def) or {}
+            live_source = str(report.get("current_source") or "").strip().lower()
         if not live_source:
             live_source = str(getattr(object_def, "source_protocol", "") or getattr(object_def, "input_protocol", "") or "").strip().lower()
     except Exception:

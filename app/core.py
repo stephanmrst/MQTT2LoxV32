@@ -1,5 +1,6 @@
 # === MQTT2Lox Sidebar Shell Layout Core UI Cleanup Objektmanager - 2026-06-17 ===
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -635,26 +636,15 @@ def log_knx_history_change(action, reason, before, after):
 
 def get_knx_history_snapshot():
     with runtime_context.knx.lock:
-        snapshot = list(runtime_context.knx.monitor_log)[:250]
-        history_id = id(runtime_context.knx.monitor_log)
-    try:
-        add_log_entry(f"KNX HISTORY API object_id={history_id} size={len(snapshot)}")
-    except Exception:
-        pass
-    return snapshot
+        return list(runtime_context.knx.monitor_log)[:250]
 
 
 def append_knx_history(entry):
+    # Hot path: keep this to one short in-memory operation.  Do not write the
+    # global live log for every telegram; that wakes SSE clients and can delay
+    # following button edges.
     with runtime_context.knx.lock:
-        history_id = id(runtime_context.knx.monitor_log)
-        before = len(runtime_context.knx.monitor_log)
         runtime_context.knx.monitor_log.appendleft(dict(entry or {}))
-        after = len(runtime_context.knx.monitor_log)
-    try:
-        add_log_entry(f"KNX HISTORY INSTANCE object_id={history_id} module={__name__} size={after} source=telegram")
-    except Exception:
-        pass
-    log_knx_history_change("append", "telegram_received", before, after)
 
 
 def add_knx_monitor_log_entry(entry):
@@ -1712,6 +1702,10 @@ def reload_object_routes(context=""):
     errors = ""
     try:
         _object_routes(True)
+        # Object/adapter changes must also refresh the RAM-only KNX lookup.
+        # This runs from the asynchronous save/reload path, never from the
+        # KNX telegram hot path.
+        rebuild_knx_ga_runtime_index()
     except Exception as exc:
         errors = str(exc)
         add_log_entry(f"Objektrouten Reload Fehler context={context or ''}: {exc}")
@@ -2044,6 +2038,11 @@ def rebuild_knx_ga_runtime_index():
             mqtt_adapter = adapters.get("mqtt")
             mqtt_topic = ""
             mqtt_retain = False
+            udp_adapter = adapters.get("udp")
+            udp_target_host = ""
+            udp_target_port = ""
+            udp_topic = ""
+            udp_payload_mode = "topic_value"
             targets = []
             if _mqtt_adapter_complete(mqtt_adapter):
                 mqtt_topic = str(object_core_service._adapter_value(mqtt_adapter, "topic") or "").strip()
@@ -2051,22 +2050,62 @@ def rebuild_knx_ga_runtime_index():
                 targets.append("mqtt")
             if _loxone_adapter_complete(adapters.get("loxone")):
                 targets.append("loxone")
-            if _udp_adapter_complete(adapters.get("udp")):
+            if _udp_adapter_complete(udp_adapter):
+                udp_target_host = str(
+                    object_core_service._adapter_value(udp_adapter, "target_host")
+                    or object_core_service._adapter_value(udp_adapter, "target_ip")
+                    or ""
+                ).strip()
+                udp_target_port = str(object_core_service._adapter_value(udp_adapter, "target_port") or "").strip()
+                udp_topic = str(object_core_service._adapter_value(udp_adapter, "udp_topic") or "").strip()
+                if not udp_topic:
+                    legacy_format = str(object_core_service._adapter_value(udp_adapter, "format") or "").strip()
+                    if legacy_format and legacy_format not in {"text", "topic_value", "value_only", "json", "json_number"}:
+                        udp_topic = legacy_format
+                udp_payload_mode = str(
+                    object_core_service._adapter_value(udp_adapter, "payload_mode") or "topic_value"
+                ).strip() or "topic_value"
                 targets.append("udp")
             if _influx_adapter_complete(adapters.get("influx")):
                 targets.append("influx")
             if _knx_adapter_complete(adapters.get("knx")):
                 targets.append("knx")
-            index[ga] = {
-                "group_address": ga,
-                "dpt": dpt,
-                "dpt_source": "object" if dpt else "",
-                "object_id": str(getattr(item, "id", "") or ""),
+            object_id = str(getattr(item, "id", "") or "")
+            object_meta = {
+                "object_id": object_id,
                 "object_name": str(getattr(item, "name", "") or ""),
+                "dpt": dpt,
                 "mqtt_topic": mqtt_topic,
                 "mqtt_retain": mqtt_retain,
+                "udp_target_host": udp_target_host,
+                "udp_target_port": udp_target_port,
+                "udp_topic": udp_topic,
+                "udp_payload_mode": udp_payload_mode,
                 "targets": sorted(set(targets)),
             }
+            current = dict(index.get(ga) or {"group_address": ga})
+            object_routes = list(current.get("object_routes") or [])
+            object_routes.append(object_meta)
+            current["object_routes"] = object_routes
+            current["object_ids"] = [
+                str(meta.get("object_id") or "")
+                for meta in object_routes
+                if str(meta.get("object_id") or "")
+            ]
+            # Keep compatibility fields, but never let a later duplicate GA
+            # erase a valid DPT/target from an earlier object.
+            if dpt and not current.get("dpt"):
+                current["dpt"] = dpt
+                current["dpt_source"] = "object"
+            if not current.get("object_id"):
+                current["object_id"] = object_id
+                current["object_name"] = object_meta["object_name"]
+            current["targets"] = sorted({
+                target
+                for meta in object_routes
+                for target in (meta.get("targets") or [])
+            })
+            index[ga] = current
     except Exception as exc:
         add_log_entry(f"KNX Runtime Index Objekt Fehler: {exc}")
 
@@ -2132,10 +2171,19 @@ def ensure_knx_rx_worker():
 
 
 def enqueue_knx_received_telegram(telegram, received_perf=None, received_wall=None):
-    """Hand a telegram off immediately so the xknx event loop never blocks on UI/routing work."""
+    """Queue an immutable telegram snapshot without blocking the xknx event loop.
+
+    xknx telegram/payload objects may be mutated after callbacks return.  A deep
+    copy preserves every press/release edge so rapid double/triple clicks cannot
+    collapse into the following telegram.
+    """
     ensure_knx_rx_worker()
+    try:
+        telegram_snapshot = copy.deepcopy(telegram)
+    except Exception:
+        telegram_snapshot = telegram
     _KNX_RX_QUEUE.put({
-        "telegram": telegram,
+        "telegram": telegram_snapshot,
         "received_perf": float(received_perf or time.perf_counter()),
         "received_wall": float(received_wall or time.time()),
     })
@@ -2186,25 +2234,9 @@ def _process_knx_received_telegram(telegram, received_perf=None, received_wall=N
         monitor_status = "Read"
     apdu_hex = decoded.get("raw_value") or apdu_hex
 
-    add_knx_monitor_entry(
-        ga,
-        value_text,
-        "RX",
-        monitor_dpt,
-        status=monitor_status,
-        telegram_type=decoded.get("telegram_type") or telegram_type,
-        apdu=apdu_hex,
-        source_address=decoded.get("source_address") or source_address,
-        display_value=value_text,
-        raw_value=decoded.get("raw_value") or apdu_hex,
-        decoded=decoded.get("decoded"),
-        value_type=decoded.get("value_type"),
-        value_data=decoded.get("value") if decoded.get("value") is not None else value_text,
-        dpt_source=decoded.get("dpt_source") or dpt_source,
-        update_live=False,
-    )
-
     route_value = decoded.get("value") if decoded.get("value") is not None else value_text
+    # Hand the event to the ordered routing worker before any UI/history work.
+    # This keeps every edge in order and minimizes KNX -> MQTT/Loxone latency.
     enqueue_knx_routing_event({
         "source_protocol": "knx",
         "source_address": source_address,
@@ -2219,6 +2251,24 @@ def _process_knx_received_telegram(telegram, received_perf=None, received_wall=N
         "received_perf": received_perf,
         "received_wall": received_wall,
     })
+
+    add_knx_monitor_entry(
+        ga,
+        value_text,
+        "RX",
+        monitor_dpt,
+        status=monitor_status,
+        telegram_type=decoded.get("telegram_type") or telegram_type,
+        apdu=apdu_hex,
+        source_address=decoded.get("source_address") or source_address,
+        display_value=value_text,
+        raw_value=decoded.get("raw_value") or apdu_hex,
+        decoded=decoded.get("decoded"),
+        value_type=decoded.get("value_type"),
+        value_data=route_value,
+        dpt_source=decoded.get("dpt_source") or dpt_source,
+        update_live=False,
+    )
 
 
 def ensure_knx_routing_worker():
@@ -2258,62 +2308,139 @@ def _knx_routing_worker():
 
 
 def _process_knx_routing_event(event):
+    """Route every KNX edge to every matching object, in receive order.
+
+    Multiple Objectmanager objects may legitimately use the same KNX group
+    address.  The runtime index therefore stores all matching objects; no
+    duplicate GA may overwrite another object's MQTT/UDP targets.
+    """
     event = dict(event or {})
     ga = str(event.get("group_address") or "")
     payload = event.get("payload")
     value = event.get("value")
-    value_text = event.get("display_value") if event.get("display_value") is not None else value
     received_perf = float(event.get("received_perf") or time.perf_counter())
     received_wall = float(event.get("received_wall") or time.time())
-    wait_ms = (time.perf_counter() - received_perf) * 1000
 
     if event.get("value_type") == "read":
         return
 
-    live_items = list(event.get("live_items") or [])
-    if not live_items:
-        live_start = time.perf_counter()
-        live_items = object_core_service.record_live_value("knx", value, group_address=ga)
     runtime_meta = get_knx_runtime_metadata(ga)
-    fast_mqtt_sent = False
-    mqtt_topic = str(runtime_meta.get("mqtt_topic") or "").strip()
-    if mqtt_topic and mqtt_client:
-        mqtt_value = _knx_mqtt_payload_value(value, dpt=event.get("dpt") or runtime_meta.get("dpt", ""), value_type=event.get("value_type", ""))
-        result = mqtt_client.publish(mqtt_topic, mqtt_value, retain=bool(runtime_meta.get("mqtt_retain", False)))
-        try:
-            object_id = str(runtime_meta.get("object_id") or "")
-            if object_id:
-                object_core_service.record_live_target(object_id, "mqtt", value=mqtt_value, original_source="knx")
-        except Exception:
-            pass
-        fast_mqtt_sent = True
-    non_mqtt_targets = [target for target in (runtime_meta.get("targets") or []) if target != "mqtt"]
-    if fast_mqtt_sent and not non_mqtt_targets:
-        return
-    routed = _dispatch_object_routes(
-        live_items,
-        "knx",
-        ga,
-        value,
-        metadata={"group_address": ga, "received_perf": received_perf, "received_wall": received_wall, "gateway_origin": "mqtt" if fast_mqtt_sent else "", "dpt": event.get("dpt") or runtime_meta.get("dpt", ""), "value_type": event.get("value_type", "")},
-    )
+    object_routes = list(runtime_meta.get("object_routes") or [])
+    if not object_routes:
+        object_id = str(event.get("object_id") or runtime_meta.get("object_id") or "").strip()
+        if object_id:
+            object_routes = [{
+                "object_id": object_id,
+                "dpt": runtime_meta.get("dpt", ""),
+                "mqtt_topic": runtime_meta.get("mqtt_topic", ""),
+                "mqtt_retain": runtime_meta.get("mqtt_retain", False),
+                "udp_target_host": runtime_meta.get("udp_target_host", ""),
+                "udp_target_port": runtime_meta.get("udp_target_port", ""),
+                "udp_topic": runtime_meta.get("udp_topic", ""),
+                "udp_payload_mode": runtime_meta.get("udp_payload_mode", "topic_value"),
+                "targets": runtime_meta.get("targets", []),
+            }]
 
-    if routed:
+    any_route = False
+    sent_mqtt_keys = set()
+    sent_udp_keys = set()
+
+    for object_meta in object_routes:
+        object_id = str(object_meta.get("object_id") or "").strip()
+        sent_targets = set()
+        dpt = event.get("dpt") or object_meta.get("dpt") or runtime_meta.get("dpt", "")
+
+        mqtt_topic = str(object_meta.get("mqtt_topic") or "").strip()
+        mqtt_key = (mqtt_topic, bool(object_meta.get("mqtt_retain", False)))
+        if mqtt_topic and mqtt_client and mqtt_key not in sent_mqtt_keys:
+            try:
+                mqtt_value = _knx_mqtt_payload_value(
+                    value, dpt=dpt, value_type=event.get("value_type", "")
+                )
+                _mark_object_router_publish(
+                    mqtt_topic, mqtt_value, object_id=object_id,
+                    source="knx", target_adapter="mqtt",
+                )
+                result = mqtt_client.publish(
+                    mqtt_topic, mqtt_value,
+                    retain=bool(object_meta.get("mqtt_retain", False)),
+                )
+                if getattr(result, "rc", 0) == 0:
+                    sent_targets.add("mqtt")
+                    sent_mqtt_keys.add(mqtt_key)
+                    any_route = True
+                    last_values[mqtt_topic] = mqtt_value
+                    if object_id:
+                        object_core_service.record_live_target(
+                            object_id, "mqtt", value=mqtt_value, original_source="knx"
+                        )
+                else:
+                    add_log_entry(
+                        f"KNX MQTT TX Fehler ga={ga} topic={mqtt_topic} rc={getattr(result, 'rc', '')}"
+                    )
+            except Exception as exc:
+                add_log_entry(f"KNX MQTT TX Fehler ga={ga} topic={mqtt_topic}: {exc}")
+
+        udp_host = str(object_meta.get("udp_target_host") or "").strip()
+        udp_port = str(object_meta.get("udp_target_port") or "").strip()
+        udp_topic = str(object_meta.get("udp_topic") or "").strip()
+        udp_mode = str(object_meta.get("udp_payload_mode") or "topic_value").strip() or "topic_value"
+        udp_key = (udp_host, udp_port, udp_topic, udp_mode)
+        if udp_host and udp_port and udp_key not in sent_udp_keys:
+            try:
+                # No synchronous UI log in the button hot path.
+                udp_ok = udp.send_mqtt2udp(
+                    udp_host, udp_port, udp_topic, value, udp_mode,
+                    add_log_entry=None, object_id=object_id, source="knx",
+                )
+                if udp_ok:
+                    sent_targets.add("udp")
+                    sent_udp_keys.add(udp_key)
+                    any_route = True
+                    if object_id:
+                        object_core_service.record_live_target(
+                            object_id, "udp", value=value, original_source="knx"
+                        )
+                else:
+                    add_log_entry(f"KNX UDP TX fehlgeschlagen ga={ga} target={udp_host}:{udp_port}")
+            except Exception as exc:
+                add_log_entry(f"KNX UDP TX Fehler ga={ga} target={udp_host}:{udp_port}: {exc}")
+
+        if object_id:
+            routed = _dispatch_object_routes(
+                [{"object_id": object_id, "value": value}],
+                "knx", ga, value,
+                metadata={
+                    "group_address": ga,
+                    "received_perf": received_perf,
+                    "received_wall": received_wall,
+                    "dpt": dpt,
+                    "value_type": event.get("value_type", ""),
+                    "skip_targets": sorted(sent_targets),
+                    "use_event_value": True,
+                },
+            )
+            any_route = bool(routed or any_route)
+
+    try:
+        object_core_service.record_live_value("knx", value, group_address=ga)
+    except Exception as exc:
+        LOGGER.debug("KNX live update failed ga=%s error=%s", ga, exc)
+
+    if any_route:
         return
 
     knx_service.publish_knx_to_mqtt(
-        ga,
-        payload,
-        load_knx2mqtt_config,
-        lambda: mqtt_client,
-        runtime_context.knx.knx2mqtt_last_seen,
-        add_log_entry,
-        update_knx_last_seen,
-        received_perf=received_perf,
+        ga, payload, load_knx2mqtt_config, lambda: mqtt_client,
+        runtime_context.knx.knx2mqtt_last_seen, add_log_entry,
+        update_knx_last_seen, received_perf=received_perf,
         received_wall=received_wall,
     )
-
-    knx_service.publish_knx_to_loxone(ga, payload, load_knx2lox_config, load_config, runtime_context.knx.knx2lox_last_seen, add_log_entry, requests, update_knx_last_seen)
+    knx_service.publish_knx_to_loxone(
+        ga, payload, load_knx2lox_config, load_config,
+        runtime_context.knx.knx2lox_last_seen, add_log_entry,
+        requests, update_knx_last_seen,
+    )
 
 
 async def _knx_listener_async(knx_cfg):
@@ -2861,6 +2988,12 @@ def _udp_adapter_complete(adapter):
         return False
     if str(getattr(adapter, "direction", "both") or "both").strip().lower() not in {"out", "both"}:
         return False
+    # New UDP adapters store source and target activation independently.
+    # Respect an explicit target_enabled=False; legacy adapters without this
+    # field remain compatible when host and port are present.
+    target_enabled = getattr(adapter, "target_enabled", None)
+    if target_enabled is not None and not bool(target_enabled):
+        return False
     target_host = str(getattr(adapter, "target_host", "") or getattr(adapter, "target_ip", "") or "").strip()
     target_port = str(getattr(adapter, "target_port", "") or "").strip()
     return bool(target_host and target_port)
@@ -2934,16 +3067,12 @@ def _route_object_target(item, target, value, original_source, source_ref, route
         ) if str(original_source or "").strip().lower() == "knx" else value
         _mark_object_router_publish(topic, mqtt_value, object_id=item.id, source=original_source, target_adapter="mqtt")
         result = mqtt_client.publish(topic, mqtt_value, retain=retain)
-        add_log_entry(f"MQTT PUBLISH topic={topic} rc={getattr(result, 'rc', '')} mid={getattr(result, 'mid', '')}")
-        try:
-            received_perf = metadata.get("received_perf") if isinstance(metadata, dict) else None
-            received_wall = metadata.get("received_wall") if isinstance(metadata, dict) else None
-            if received_perf is not None:
-                add_log_entry(f"KNX PERF MQTT_PUBLISH ga={source_ref} topic={topic} total_ms={(time.perf_counter() - float(received_perf)) * 1000:.2f}")
-            if received_wall is not None:
-                add_log_entry(f"KNX TO MQTT ga={source_ref} topic={topic} delay_ms={(time.time() - float(received_wall)) * 1000:.2f}")
-        except Exception:
-            pass
+        LOGGER.debug(
+            "MQTT PUBLISH topic=%s rc=%s mid=%s",
+            topic,
+            getattr(result, "rc", ""),
+            getattr(result, "mid", ""),
+        )
         last_values[topic] = mqtt_value
         return True
 
@@ -3011,6 +3140,12 @@ def _route_object_target(item, target, value, original_source, source_ref, route
 
 
 def _dispatch_object_routes(live_items, original_source, source_ref, value, metadata=None):
+    """Dispatch an object event without flooding the synchronous UI live log.
+
+    This function is on the ordered KNX routing path.  Per-target diagnostics
+    therefore use the normal debug logger; add_log_entry is reserved for real
+    errors so quick press sequences remain lossless and low latency.
+    """
     metadata = dict(metadata or {})
     route_available = False
     any_sent = False
@@ -3020,37 +3155,44 @@ def _dispatch_object_routes(live_items, original_source, source_ref, value, meta
             continue
         item = object_core_service.get_object(object_id)
         if item is None:
-            add_log_entry(f"Object input object_id={object_id} original_source={original_source} source_ref={source_ref} value={value} result=skipped reason=object_missing")
+            LOGGER.debug(
+                "Object input skipped object_id=%s source=%s ref=%s reason=object_missing",
+                object_id, original_source, source_ref,
+            )
             continue
         route_info = object_core_service.route_object_value(object_id, original_source, source_ref, value, metadata)
         routes = list(route_info.get("routes") or [])
-        route_report = route_info.get("route_report") or {}
-        live_status = object_core_service.get_object_live_status(object_id) or {}
-        route_value = live_status.get("value")
-        if route_value in (None, ""):
+        if metadata.get("use_event_value"):
             route_value = value
-        available_routes = ",".join(sorted({str(entry.get("target", "")).lower() for entry in routes if entry.get("target")})) or "-"
-        add_log_entry(
-            f"Object input object_id={object_id} original_source={original_source} source_ref={source_ref} value={route_value}"
-        )
-        add_log_entry(
-            f"ENTER object routing object_id={object_id} original_source={original_source} target_adapter=all value={route_value} available_routes={available_routes}"
-        )
+        else:
+            live_status = object_core_service.get_object_live_status(object_id) or {}
+            route_value = live_status.get("value")
+            if route_value in (None, ""):
+                route_value = value
         if not routes:
-            add_log_entry(
-                f"Object routing object_id={object_id} original_source={original_source} target_adapter=none value={route_value} skipped_echo=no reason=no_active_routes"
-            )
             continue
         route_available = True
-        routes = sorted(routes, key=lambda route: 0 if str(route.get("target", "") or "").strip().lower() == "mqtt" else 1)
+        target_priority = {"mqtt": 0, "udp": 1, "loxone": 2, "influx": 3, "knx": 4}
+        routes = sorted(
+            routes,
+            key=lambda route: target_priority.get(
+                str(route.get("target", "") or "").strip().lower(), 99
+            ),
+        )
         for entry in routes:
             target = str(entry.get("target", "") or "").strip().lower()
             if not target:
                 continue
             gateway_origin = str(metadata.get("gateway_origin") or "").strip().lower()
-            skipped_echo = target == original_source or (gateway_origin and gateway_origin == target)
-            add_log_entry(
-                f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo={'yes' if skipped_echo else 'no'}"
+            skip_targets = {
+                str(item or "").strip().lower()
+                for item in (metadata.get("skip_targets") or [])
+                if str(item or "").strip()
+            }
+            skipped_echo = (
+                target == original_source
+                or (gateway_origin and gateway_origin == target)
+                or target in skip_targets
             )
             if skipped_echo:
                 continue
@@ -3059,16 +3201,15 @@ def _dispatch_object_routes(live_items, original_source, source_ref, value, meta
                 if ok:
                     any_sent = True
                     object_core_service.record_live_target(object_id, target, value=route_value, original_source=original_source)
-                    add_log_entry(
-                        f"Object route OK object_id={object_id} original_source={original_source} target_adapter={target}"
-                    )
                 else:
-                    add_log_entry(
-                        f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo=yes reason=send_failed"
+                    LOGGER.debug(
+                        "Object route send failed object_id=%s source=%s target=%s value=%r",
+                        object_id, original_source, target, route_value,
                     )
             except Exception as exc:
                 add_log_entry(
-                    f"Object routing object_id={object_id} original_source={original_source} target_adapter={target} value={route_value} skipped_echo=no error={exc}"
+                    f"Object routing Fehler object_id={object_id} original_source={original_source} "
+                    f"target_adapter={target}: {exc}"
                 )
     return any_sent or route_available
 
