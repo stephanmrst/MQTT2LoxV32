@@ -457,90 +457,129 @@ def influx_flux_string(value):
     return json.dumps(str(value or ""), ensure_ascii=False)
 
 
-def influx_get_topics(search="", limit=500, load_config=None, start="-30d"):
+def influx_get_entries(search="", limit=400, load_config=None, start="-30d"):
+    """Liest ausschließlich Serien, für die im gewählten Zeitraum echte Punkte existieren."""
     ok, msg, cfg = influx_v2_request_config(load_config)
     if not ok:
         return False, msg, []
-    bucket = str(cfg.get("bucket", "")).strip()
-    measurement = str(cfg.get("measurement", "loxone") or "loxone").strip()
-    start = str(start or "-30d") or "-30d"
-    search = str(search or "").strip().lower()
 
-    flux = f'''
-import "influxdata/influxdb/schema"
-schema.tagValues(
-  bucket: {influx_flux_string(bucket)},
-  tag: "topic",
-  predicate: (r) => r._measurement == {influx_flux_string(measurement)},
-  start: {start}
-)
+    bucket = str(cfg.get("bucket", "")).strip()
+    start = str(start or "-30d") or "-30d"
+    search_lower = str(search or "").strip().lower()
+
+    # Wichtig: Keine schema.measurements()/schema.tagValues()-Abfragen verwenden.
+    # Diese Schema-Indexabfragen können nach Löschungen noch historische Tagwerte
+    # liefern. Stattdessen werden die vorhandenen Measurement/Topic-Kombinationen
+    # direkt aus realen Punkten im gewählten Zeitraum gebildet.
+    flux_series = f'''
+from(bucket: {influx_flux_string(bucket)})
+  |> range(start: {start})
+  |> keep(columns: ["_measurement", "topic", "_value"])
+  |> group(columns: ["_measurement", "topic"])
+  |> count(column: "_value")
+  |> keep(columns: ["_measurement", "topic", "_value"])
 '''
-    ok, msg, csv_text = influx_v2_query(flux, load_config)
+    ok, msg, csv_series = influx_v2_query(flux_series, load_config, timeout=12)
     if not ok:
         return False, msg, []
-    topics = []
-    for row in influx_csv_dicts(csv_text):
-        t = str(row.get("_value", "") or "").strip()
-        if not t:
+
+    discovered = set()
+    for row in influx_csv_dicts(csv_series):
+        measurement = str(row.get("_measurement", "") or "").strip()
+        topic = str(row.get("topic", "") or "").strip()
+        # Wiederholte CSV-Kopfzeilen aus mehreren Flux-Tabellen ignorieren.
+        if not measurement or measurement == "_measurement":
             continue
-        if search and search not in t.lower():
-            continue
-        topics.append(t)
-    topics = sorted(set(topics), key=lambda x: x.casefold())[:int(limit)]
+        discovered.add((measurement, topic))
+
+    series = sorted(discovered, key=lambda item: (item[0].casefold(), item[1].casefold()))
 
     result = []
-    for topic in topics:
+    for measurement, topic in series:
+        haystack = f"{measurement} {topic}".lower()
+        if search_lower and search_lower not in haystack:
+            continue
+        if len(result) >= int(limit):
+            break
+
+        measurement_json = influx_flux_string(measurement)
+        topic_filter = f" and r.topic == {influx_flux_string(topic)}" if topic else ""
+        # Bei Serien ohne Topic-Tag ausdrücklich nur Punkte ohne vorhandenes topic
+        # berücksichtigen, damit sie nicht mit getaggten Serien vermischt werden.
+        no_topic_filter = " and not exists r.topic" if not topic else ""
         last_value = "-"
         last_time = "-"
-        fields = ""
+        fields = "-"
         count = "-"
         try:
-            topic_json = influx_flux_string(topic)
             flux_last = f'''
 from(bucket: {influx_flux_string(bucket)})
   |> range(start: {start})
-  |> filter(fn: (r) => r._measurement == {influx_flux_string(measurement)} and r.topic == {topic_json})
+  |> filter(fn: (r) => r._measurement == {measurement_json}{topic_filter}{no_topic_filter})
   |> last()
   |> keep(columns: ["_time", "_field", "_value"])
 '''
-            ok2, _msg2, csv_last = influx_v2_query(flux_last, load_config, timeout=5)
-            last_rows = influx_csv_dicts(csv_last) if ok2 else []
+            ok_last, _last_msg, csv_last = influx_v2_query(flux_last, load_config, timeout=8)
+            last_rows = influx_csv_dicts(csv_last) if ok_last else []
             if last_rows:
-                lr = last_rows[0]
-                last_value = str(lr.get("_value", "-") or "-")
-                last_time = str(lr.get("_time", "-") or "-")
-                fields = ", ".join(sorted(set(str(x.get("_field", "") or "") for x in last_rows if x.get("_field"))))
+                newest = max(last_rows, key=lambda row: str(row.get("_time", "") or ""))
+                last_value = str(newest.get("_value", "-") or "-")
+                last_time = str(newest.get("_time", "-") or "-")
+                field_names = sorted({
+                    str(row.get("_field", "") or "").strip()
+                    for row in last_rows
+                    if str(row.get("_field", "") or "").strip() and row.get("_field") != "_field"
+                }, key=lambda value: value.casefold())
+                fields = ", ".join(field_names) or "-"
 
             flux_count = f'''
 from(bucket: {influx_flux_string(bucket)})
   |> range(start: {start})
-  |> filter(fn: (r) => r._measurement == {influx_flux_string(measurement)} and r.topic == {topic_json})
+  |> filter(fn: (r) => r._measurement == {measurement_json}{topic_filter}{no_topic_filter})
   |> count()
-  |> sum()
+  |> group()
+  |> sum(column: "_value")
 '''
-            ok3, _msg3, csv_count = influx_v2_query(flux_count, load_config, timeout=5)
-            count_rows = influx_csv_dicts(csv_count) if ok3 else []
+            ok_count, _count_msg, csv_count = influx_v2_query(flux_count, load_config, timeout=8)
+            count_rows = influx_csv_dicts(csv_count) if ok_count else []
             if count_rows:
                 count = str(count_rows[0].get("_value", "-") or "-")
-        except Exception as e:
-            last_value = f"Fehler: {e}"
+        except Exception as exc:
+            last_value = f"Fehler: {exc}"
+
+        # Zusätzliche Absicherung: Eine Zeile wird nur ausgegeben, wenn die
+        # Detailabfrage weiterhin echte Daten findet. So verschwinden gerade
+        # gelöschte Serien auch bei einem zeitgleichen Refresh vollständig.
+        if fields == "-" and last_time == "-" and count == "-":
+            continue
+
         result.append({
+            "measurement": measurement,
             "topic": topic,
-            "fields": fields or "value",
+            "label": topic or measurement,
+            "fields": fields,
             "last_value": last_value,
             "last_time": last_time,
             "count": count,
         })
+
     return True, "ok", result
 
+def influx_get_topics(search="", limit=500, load_config=None, start="-30d"):
+    """Kompatibilitäts-Wrapper für ältere Aufrufer."""
+    return influx_get_entries(search=search, limit=limit, load_config=load_config, start=start)
 
-def influx_delete_topic(topic, load_config, add_log_entry, start="1970-01-01T00:00:00Z", stop=None, requests_module=requests):
+def influx_delete_series(measurement, topic, load_config, add_log_entry, start="1970-01-01T00:00:00Z", stop=None, requests_module=requests):
+    """Löscht ein echtes Measurement oder eine Measurement/Topic-Kombination."""
     ok, msg, cfg = influx_v2_request_config(load_config)
     if not ok:
         return False, msg
+
+    measurement = str(measurement or "").strip()
     topic = str(topic or "").strip()
-    if not topic:
-        return False, "Topic fehlt"
+    if not measurement:
+        return False, "Measurement fehlt"
+
     host = str(cfg.get("host", "")).strip()
     port = int(cfg.get("port", 8086))
     org = str(cfg.get("org", "")).strip()
@@ -549,17 +588,33 @@ def influx_delete_topic(topic, load_config, add_log_entry, start="1970-01-01T00:
     if not stop:
         from datetime import datetime, timezone, timedelta
         stop = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+
     url = f"http://{host}:{port}/api/v2/delete?org={quote(org, safe='')}&bucket={quote(bucket, safe='')}"
     headers = {"Authorization": f"Token {token}", "Content-Type": "application/json"}
-    safe_topic = topic.replace('"', '\\"')
-    body = {"start": start, "stop": stop, "predicate": f'topic="{safe_topic}"'}
+    safe_measurement = measurement.replace('\"', '\\\"')
+    predicate = f'_measurement="{safe_measurement}"'
+    if topic:
+        safe_topic = topic.replace('\"', '\\\"')
+        predicate += f' AND topic="{safe_topic}"'
+    body = {"start": start, "stop": stop, "predicate": predicate}
+
     try:
-        r = requests_module.post(url, headers=headers, json=body, timeout=10)
-    except Exception as e:
-        return False, f"Influx Delete Fehler: {e}"
-    if r.status_code in (200, 202, 204):
-        add_log_entry(f"Influx gelöscht: topic={topic}")
-        return True, f"Gelöscht: {topic}"
-    if r.status_code == 401:
+        response = requests_module.post(url, headers=headers, json=body, timeout=10)
+    except Exception as exc:
+        return False, f"Influx Delete Fehler: {exc}"
+
+    label = f"{measurement} / {topic}" if topic else measurement
+    if response.status_code in (200, 202, 204):
+        add_log_entry(f"Influx gelöscht: measurement={measurement}" + (f", topic={topic}" if topic else ""))
+        return True, f"Gelöscht: {label}"
+    if response.status_code == 401:
         return False, "401 Unauthorized: Token braucht Delete/Write-Recht für Bucket/Org"
-    return False, f"Influx Delete HTTP {r.status_code}: {(r.text or '').strip()}"
+    return False, f"Influx Delete HTTP {response.status_code}: {(response.text or '').strip()}"
+
+
+def influx_delete_topic(topic, load_config, add_log_entry, start="1970-01-01T00:00:00Z", stop=None, requests_module=requests):
+    """Legacy-Löschung innerhalb des konfigurierten Standard-Measurements."""
+    cfg = load_config().get("influx", {})
+    measurement = str(cfg.get("measurement", "loxone") or "loxone").strip()
+    return influx_delete_series(measurement, topic, load_config, add_log_entry, start=start, stop=stop, requests_module=requests_module)
+

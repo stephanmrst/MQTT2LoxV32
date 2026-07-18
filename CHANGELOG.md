@@ -1,3 +1,45 @@
+# 34.0.5
+
+- Objekt Export / Import direkt in die Einstellungen integriert.
+- Keine separate Seite mehr für den normalen Export-/Import-Ablauf.
+- Import-Ergebnis wird direkt in den Einstellungen angezeigt.
+
+# 34.0.4
+
+- Dashboard-Fehler bei fehlender interner Broker-Konfiguration behoben.
+- Zugriff auf die zentrale Standardkonfiguration des internen Brokers korrigiert.
+
+# 34.0.2
+
+- Fehlende `_object_routes()`-Brücke zur neuen Objekt-Runtime wiederhergestellt.
+- Verbliebene Dashboard-, Explorer- und Legacy-UI-Aufrufe auf die objektbasierten Loader umgestellt.
+- Keine alten Mapping-Dateien werden dadurch wieder aktiviert; `objects.json` bleibt die einzige Routing-Quelle.
+
+# 34.0.1
+
+- Objektmanager ist die einzige Runtime-Quelle für Routen und Influx-Ziele.
+- Legacy-Dateien wie `topic_config.json`, `mqtt2lox.json`, `mqtt2udp_config.json` und weitere Mapping-Dateien werden von der Runtime ignoriert.
+- „Template Export / Import“ heißt jetzt „Objekt Export / Import“.
+- Export und Import enthalten ausschließlich vollständige Objektmanager-Objekte aus `objects.json`.
+- Alte Mapping-Templates werden bewusst nicht mehr importiert.
+
+# 34.0.1
+
+- Influx Explorer ermittelt Serien jetzt ausschließlich aus tatsächlich vorhandenen Datenpunkten im gewählten Zeitraum.
+- Historische beziehungsweise gelöschte Topic-Werte aus dem Influx-Schemaindex werden nicht mehr angezeigt.
+- Nach dem Löschen verschwinden leere Serien vollständig aus der Tabelle.
+- Serien ohne `topic`-Tag werden sauber von getaggten Serien getrennt.
+
+# 33.4.69
+
+- Influx Explorer vollständig auf echte InfluxDB-Liveabfragen umgestellt.
+- Liest alle tatsächlich vorhandenen Measurements im konfigurierten Bucket, nicht mehr nur das konfigurierte Standard-Measurement.
+- Zeigt Topic-Tags nur dort, wo sie in Influx wirklich vorhanden sind.
+- Measurements ohne Topic-Tag werden ebenfalls angezeigt.
+- Gelöschte Einträge verschwinden nach dem Neuladen vollständig.
+- Löschen arbeitet jetzt gezielt nach Measurement und optionalem Topic-Tag.
+- Zeitraumfilter für 1 Stunde bis 1 Jahr ergänzt.
+
 # 33.4.68-rc2
 
 - GitHub-saubere Docker-Version ohne lokale Konfigurations-, Objekt- oder Laufzeitdaten.

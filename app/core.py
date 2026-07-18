@@ -1040,109 +1040,69 @@ def _knx_mqtt_payload_value(value, dpt="", value_type=""):
             return "1" if str(value).strip().lower() in {"1", "true", "on", "yes", "ein"} else "0"
     return value
 
+def _object_routes(log=False):
+    """Erzeugt alle Laufzeitrouten ausschließlich aus den Objekten des Objektmanagers."""
+    return object_core_service.build_routes_from_objects(add_log_entry if log else None)
+
+
 def load_topic_config():
-    if not os.path.exists(TOPIC_CONFIG_FILE):
-        with open(TOPIC_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
-        return {}
+    """V34: Topic-Runtime ausschließlich aus dem Objektmanager erzeugen."""
+    generated = _object_routes(False).get("topic_config", {})
+    return dict(generated) if isinstance(generated, dict) else {}
 
-    with open(TOPIC_CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
 
+def load_mqtt2lox_config():
+    return list(_object_routes(False).get("mqtt2lox", []))
+
+
+def load_mqtt2udp_config():
+    return list(_object_routes(False).get("mqtt2udp", []))
+
+
+def load_mqtt2knx_config():
+    return list(_object_routes(False).get("mqtt2knx", []))
+
+
+def load_knx2mqtt_config():
+    return list(_object_routes(False).get("knx2mqtt", []))
+
+
+def load_udp2mqtt_config():
+    return list(_object_routes(False).get("udp2mqtt", []))
+
+
+def load_udp2knx_config():
+    return list(_object_routes(False).get("udp2knx", []))
+
+
+def load_knx2lox_config():
+    return list(_object_routes(False).get("knx2lox", []))
+
+
+
+
+# -----------------------------------------------------------------------------
+# Core-Konfigurations- und UI-Helfer
+# Diese Funktionen sind keine Legacy-Routen. Sie werden weiterhin von
+# Dashboard, Einstellungen, Sidebar, Brokersteuerung und KNX-Konfiguration
+# benötigt.
+# -----------------------------------------------------------------------------
 
 def save_topic_config(data):
     with open(TOPIC_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-
-def load_mqtt2lox_config():
-    if not os.path.exists(MQTT2LOX_FILE):
-        save_mqtt2lox_config([])
-        return []
-
-    with open(MQTT2LOX_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # neue Defaults für alte Configs ergänzen
-    for m in data:
-        m.setdefault("payload_mode", "raw")
-        m.setdefault("json_key", "")
-        m.setdefault("output_mode", "single")
-        m.setdefault("group", "")
-        m.setdefault("set_name", "")
-        m.setdefault("mapping_alias", "")
-
-    return data
-
-
 def save_mqtt2lox_config(data):
     with open(MQTT2LOX_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
-def load_mqtt2udp_config():
-    if not os.path.exists(MQTT2UDP_FILE):
-        save_mqtt2udp_config([])
-        return []
-
-    with open(MQTT2UDP_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if not isinstance(data, list):
-        data = []
-
-    for m in data:
-        if isinstance(m, dict):
-            m.setdefault("enabled", True)
-            m.setdefault("group", "")
-            m.setdefault("set_name", "")
-            m.setdefault("mapping_alias", "")
-            m.setdefault("source_topic", "")
-            m.setdefault("udp_topic", "")
-            m.setdefault("udp_ip", "")
-            m.setdefault("udp_port", "7000")
-            m.setdefault("udp_format", "topic_value")
-            m.setdefault("payload_mode", "raw")
-            m.setdefault("json_key", "")
-            m.setdefault("test_value", "123")
-
-    return data
-
 
 def save_mqtt2udp_config(data):
     with open(MQTT2UDP_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-
-def load_udp2mqtt_config():
-    if not os.path.exists(UDP2MQTT_FILE):
-        save_udp2mqtt_config([])
-        return []
-    try:
-        with open(UDP2MQTT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = []
-    if not isinstance(data, list):
-        data = []
-    for m in data:
-        if isinstance(m, dict):
-            m.setdefault("enabled", True)
-            m.setdefault("udp_topic", "")
-            m.setdefault("mqtt_topic", "")
-            m.setdefault("retain", False)
-            m.setdefault("test_value", "123")
-            m.setdefault("group", "")
-            m.setdefault("set_name", "")
-            m.setdefault("mapping_alias", "")
-    return data
-
-
 def save_udp2mqtt_config(data):
     with open(UDP2MQTT_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-
 
 def load_mqtt_brokers():
     data = safe_load_json_file(MQTT_BROKERS_FILE, [])
@@ -1152,11 +1112,8 @@ def load_mqtt_brokers():
         save_mqtt_brokers(data)
     return data
 
-
 def save_mqtt_brokers(data):
     safe_save_json_file(MQTT_BROKERS_FILE, data if isinstance(data, list) else [], indent=2)
-
-
 
 def load_monitor_settings():
     if not os.path.exists(MONITOR_SETTINGS_FILE):
@@ -1170,26 +1127,14 @@ def load_monitor_settings():
     with open(MONITOR_SETTINGS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def save_monitor_settings(data):
     with open(MONITOR_SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)        
-
-
-DEFAULT_PLUGINS = [
-    {"id": "mqtt", "name": "MQTT", "enabled": True, "status": "aktiv", "description": "Hauptbroker und zusätzliche Broker", "route": "/mqtt_settings_embed"},
-    {"id": "loxone", "name": "Loxone", "enabled": True, "status": "aktiv", "description": "Loxone Websocket, HTTP und Mapping", "route": "/settings_embed"},
-    {"id": "udp", "name": "UDP", "enabled": True, "status": "aktiv", "description": "MQTT → UDP und UDP → MQTT", "route": "/mqtt2udp"},
-    {"id": "influx", "name": "InfluxDB", "enabled": True, "status": "aktiv", "description": "Zeitreihen-Ausgabe", "route": "/influx_settings_embed"},
-    {"id": "zigbee", "name": "Zigbee", "enabled": False, "status": "vorbereitet", "description": "Reserviert für Zigbee2MQTT Links und Mapping", "route": ""},
-    {"id": "knx", "name": "KNX", "enabled": False, "status": "Foundation", "description": "KNX Gateway, MQTT → KNX und KNX → MQTT", "route": "/mqtt2knx"}
-]
-
+        json.dump(data, f, indent=4, ensure_ascii=False)
 
 def load_plugins_config():
     if not os.path.exists(PLUGIN_CONFIG_FILE):
-        save_plugins_config(DEFAULT_PLUGINS)
-        return [dict(x) for x in DEFAULT_PLUGINS]
+        save_plugins_config([])
+        return []
 
     try:
         with open(PLUGIN_CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -1197,21 +1142,14 @@ def load_plugins_config():
     except Exception:
         data = []
 
-    known = {item.get("id"): item for item in data if isinstance(item, dict)}
-    merged = []
-    for default in DEFAULT_PLUGINS:
-        item = dict(default)
-        item.update(known.get(default["id"], {}))
-        merged.append(item)
+    if not isinstance(data, list):
+        data = []
 
-    save_plugins_config(merged)
-    return merged
-
+    return data
 
 def save_plugins_config(data):
     with open(PLUGIN_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
 
 def load_sidebar_links():
     if not os.path.exists(SIDEBAR_LINKS_FILE):
@@ -1245,13 +1183,10 @@ def load_sidebar_links():
     save_sidebar_links(cleaned)
     return cleaned
 
-
 def save_sidebar_links(data):
     with open(SIDEBAR_LINKS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-
-# ---------- Legacy Objektverwaltung / Smart-Home Datenpunkt-Zentrale ----------
 def load_objects_config():
     data = safe_load_json_file(OBJECTS_FILE, [])
     if isinstance(data, dict) and isinstance(data.get("objects"), list):
@@ -1285,7 +1220,6 @@ def load_objects_config():
         save_objects_config(cleaned)
     return cleaned
 
-
 def save_objects_config(data):
     current = safe_load_json_file(OBJECTS_FILE, [])
     payload = data if isinstance(data, list) else []
@@ -1295,29 +1229,12 @@ def save_objects_config(data):
     else:
         safe_save_json_file(OBJECTS_FILE, payload, indent=2)
 
-
-
-
-DEFAULT_INTERNAL_BROKER_CONFIG = {
-    "enabled": False,
-    "use_as_main": False,
-    "host": "0.0.0.0",
-    "connect_host": "127.0.0.1",
-    "port": 1883,
-    "allow_anonymous": True,
-    "user": "",
-    "password": "",
-    "persistence": True,
-    "mosquitto_path": "mosquitto"
-}
-
-
 def load_internal_broker_config():
     data = safe_load_json_file(INTERNAL_BROKER_FILE, {})
     if not isinstance(data, dict):
         data = {}
 
-    cfg = dict(DEFAULT_INTERNAL_BROKER_CONFIG)
+    cfg = dict(config.DEFAULT_INTERNAL_BROKER_CONFIG)
     cfg.update(data)
 
     try:
@@ -1329,9 +1246,8 @@ def load_internal_broker_config():
         save_internal_broker_config(cfg)
     return cfg
 
-
 def save_internal_broker_config(data):
-    cfg = dict(DEFAULT_INTERNAL_BROKER_CONFIG)
+    cfg = dict(config.DEFAULT_INTERNAL_BROKER_CONFIG)
     if isinstance(data, dict):
         cfg.update(data)
     try:
@@ -1340,10 +1256,8 @@ def save_internal_broker_config(data):
         cfg["port"] = 1883
     safe_save_json_file(INTERNAL_BROKER_FILE, cfg, indent=2)
 
-
 def get_backup_files():
     return backup_service.get_backup_files(CONFIG_DIR, DATA_DIR, BASE_DIR, add_log_entry)
-
 
 def is_tcp_port_open(host, port, timeout=0.4):
     try:
@@ -1351,7 +1265,6 @@ def is_tcp_port_open(host, port, timeout=0.4):
             return True
     except Exception:
         return False
-
 
 def get_internal_broker_status():
     status = runtime_service.get_internal_broker_status(load_internal_broker_config, get_broker_process())
@@ -1361,10 +1274,8 @@ def get_internal_broker_status():
     )
     return status
 
-
 def build_mosquitto_config_file(cfg):
     return runtime_service.build_mosquitto_config_file(cfg, CONFIG_DIR, DATA_DIR, add_log_entry)
-
 
 def start_internal_broker_process():
     update_broker_state(start_requested=True, stop_requested=False, status="startet")
@@ -1385,7 +1296,6 @@ def start_internal_broker_process():
     )
     return ok, msg
 
-
 def stop_internal_broker_process():
     update_broker_state(stop_requested=True, start_requested=False, status="Stop angefordert")
     ok, msg, process = runtime_service.stop_internal_broker(get_broker_process(), add_log_entry)
@@ -1398,10 +1308,8 @@ def stop_internal_broker_process():
     )
     return ok, msg
 
-
 def get_effective_mqtt_config(config):
     return mqtt_module.get_effective_mqtt_config(config, load_internal_broker_config)
-
 
 def build_sidebar_links_html(iframe_shell=False):
     links = [
@@ -1423,7 +1331,6 @@ def build_sidebar_links_html(iframe_shell=False):
             html += f'<a class="mp-nav-link" href="{url}" onclick="setActive(this)">{label}</a>'
     return html
 
-
 DEFAULT_KNX_CONFIG = {
     "enabled": False,
     "gateway_ip": "",
@@ -1432,7 +1339,6 @@ DEFAULT_KNX_CONFIG = {
     "local_ip": "",
     "physical_address": "1.1.250"
 }
-
 
 def load_knx_config():
     """KNX Gateway Config laden, ohne vorhandene Werte versehentlich zu überschreiben."""
@@ -1453,7 +1359,6 @@ def load_knx_config():
         cfg["gateway_port"] = 3671
 
     return cfg
-
 
 def save_knx_config(data):
     """KNX Gateway Config atomar speichern."""
@@ -1479,222 +1384,21 @@ def save_knx_config(data):
 
     safe_save_json_file(KNX_CONFIG_FILE, cfg, indent=2)
 
-
-
-def load_mqtt2knx_config():
-    if not os.path.exists(MQTT2KNX_FILE):
-        save_mqtt2knx_config([])
-        return []
-    try:
-        with open(MQTT2KNX_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = []
-    if not isinstance(data, list):
-        data = []
-    for m in data:
-        if isinstance(m, dict):
-            m.setdefault("enabled", True)
-            m.setdefault("source_topic", "")
-            m.setdefault("payload_mode", "raw")
-            m.setdefault("json_key", "")
-            m.setdefault("group_address", "")
-            m.setdefault("dpt", "1.001")
-            m.setdefault("invert", False)
-            m.setdefault("test_value", "1")
-    return data
-
-
 def save_mqtt2knx_config(data):
     with open(MQTT2KNX_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-def load_knx2mqtt_config():
-    if not os.path.exists(KNX2MQTT_FILE):
-        save_knx2mqtt_config([])
-        return []
-    try:
-        with open(KNX2MQTT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = []
-    if not isinstance(data, list):
-        data = []
-    for m in data:
-        if isinstance(m, dict):
-            m.setdefault("enabled", True)
-            m.setdefault("group_address", "")
-            m.setdefault("mqtt_topic", "")
-            m.setdefault("dpt", "1.001")
-            m.setdefault("retain", True)
-            m.setdefault("invert", False)
-    return data
-
 
 def save_knx2mqtt_config(data):
     with open(KNX2MQTT_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-
-def load_udp2knx_config():
-    if not os.path.exists(UDP2KNX_FILE):
-        save_udp2knx_config([])
-        return []
-    try:
-        with open(UDP2KNX_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = []
-    if not isinstance(data, list):
-        data = []
-    for m in data:
-        if isinstance(m, dict):
-            m.setdefault("enabled", True)
-            m.setdefault("source_topic", "")
-            m.setdefault("group_address", "")
-            m.setdefault("dpt", "1.001")
-            m.setdefault("invert", False)
-            m.setdefault("test_value", "1")
-    return data
-
-
 def save_udp2knx_config(data):
     with open(UDP2KNX_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-
-def load_knx2lox_config():
-    if not os.path.exists(KNX2LOX_FILE):
-        save_knx2lox_config([])
-        return []
-    try:
-        with open(KNX2LOX_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        data = []
-    if not isinstance(data, list):
-        data = []
-    for m in data:
-        if isinstance(m, dict):
-            m.setdefault("enabled", True)
-            m.setdefault("group_address", "")
-            m.setdefault("loxone_io", "")
-            m.setdefault("dpt", "1.001")
-            m.setdefault("invert", False)
-    return data
-
-
 def save_knx2lox_config(data):
     with open(KNX2LOX_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-config.set_log_handler(add_log_entry)
-APP_ROOT = config.APP_ROOT
-CONFIG_DIR = config.CONFIG_DIR
-DATA_DIR = config.DATA_DIR
-BACKUP_DIR = config.BACKUP_DIR
-CONFIG_FILE = config.CONFIG_FILE
-TOPIC_CONFIG_FILE = config.TOPIC_CONFIG_FILE
-MQTT2LOX_FILE = config.MQTT2LOX_FILE
-MQTT2UDP_FILE = config.MQTT2UDP_FILE
-UDP2MQTT_FILE = config.UDP2MQTT_FILE
-MQTT_BROKERS_FILE = config.MQTT_BROKERS_FILE
-MONITOR_SETTINGS_FILE = config.MONITOR_SETTINGS_FILE
-PLUGIN_CONFIG_FILE = config.PLUGIN_CONFIG_FILE
-KNX_CONFIG_FILE = config.KNX_CONFIG_FILE
-MQTT2KNX_FILE = config.MQTT2KNX_FILE
-KNX2MQTT_FILE = config.KNX2MQTT_FILE
-UDP2KNX_FILE = config.UDP2KNX_FILE
-KNX2LOX_FILE = config.KNX2LOX_FILE
-SIDEBAR_LINKS_FILE = config.SIDEBAR_LINKS_FILE
-INTERNAL_BROKER_FILE = config.INTERNAL_BROKER_FILE
-OBJECTS_FILE = config.OBJECTS_FILE
-safe_load_json_file = config.safe_load_json_file
-safe_save_json_file = config.safe_save_json_file
-load_config = config.load_config
-save_config = config.save_config
-_base_load_topic_config = config.load_topic_config
-save_topic_config = config.save_topic_config
-_base_load_mqtt2lox_config = config.load_mqtt2lox_config
-save_mqtt2lox_config = config.save_mqtt2lox_config
-_base_load_mqtt2udp_config = config.load_mqtt2udp_config
-save_mqtt2udp_config = config.save_mqtt2udp_config
-_base_load_udp2mqtt_config = config.load_udp2mqtt_config
-save_udp2mqtt_config = config.save_udp2mqtt_config
-load_mqtt_brokers = config.load_mqtt_brokers
-save_mqtt_brokers = config.save_mqtt_brokers
-load_monitor_settings = config.load_monitor_settings
-save_monitor_settings = config.save_monitor_settings
-load_plugins_config = config.load_plugins_config
-save_plugins_config = config.save_plugins_config
-load_sidebar_links = config.load_sidebar_links
-save_sidebar_links = config.save_sidebar_links
-load_objects_config = config.load_objects_config
-save_objects_config = config.save_objects_config
-load_internal_broker_config = config.load_internal_broker_config
-save_internal_broker_config = config.save_internal_broker_config
-load_knx_config = config.load_knx_config
-save_knx_config = config.save_knx_config
-_base_load_mqtt2knx_config = config.load_mqtt2knx_config
-save_mqtt2knx_config = config.save_mqtt2knx_config
-_base_load_knx2mqtt_config = config.load_knx2mqtt_config
-save_knx2mqtt_config = config.save_knx2mqtt_config
-_base_load_udp2knx_config = config.load_udp2knx_config
-save_udp2knx_config = config.save_udp2knx_config
-_base_load_knx2lox_config = config.load_knx2lox_config
-save_knx2lox_config = config.save_knx2lox_config
-
-
-def _object_routes(log=False):
-    return object_core_service.build_routes_from_objects(add_log_entry if log else None)
-
-
-def load_topic_config():
-    data = _base_load_topic_config()
-    generated = _object_routes(False).get("topic_config", {})
-    if not generated:
-        return data
-    merged = dict(data if isinstance(data, dict) else {})
-    for topic, settings in generated.items():
-        current = dict(merged.get(topic, {})) if isinstance(merged.get(topic), dict) else {}
-        current.update(settings)
-        merged[topic] = current
-    return merged
-
-
-def load_mqtt2lox_config():
-    return list(_base_load_mqtt2lox_config() or [])
-
-
-def load_mqtt2udp_config():
-    return list(_base_load_mqtt2udp_config() or [])
-
-
-def load_mqtt2knx_config():
-    data = _base_load_mqtt2knx_config()
-    return list(data or []) + list(_object_routes(False).get("mqtt2knx", []))
-
-
-def load_knx2mqtt_config():
-    data = _base_load_knx2mqtt_config()
-    return list(data or []) + list(_object_routes(False).get("knx2mqtt", []))
-
-
-def load_udp2mqtt_config():
-    return list(_base_load_udp2mqtt_config() or [])
-
-
-def load_udp2knx_config():
-    data = _base_load_udp2knx_config()
-    return list(data or []) + list(_object_routes(False).get("udp2knx", []))
-
-
-def load_knx2lox_config():
-    data = _base_load_knx2lox_config()
-    return list(data or []) + list(_object_routes(False).get("knx2lox", []))
-
 
 def reload_object_routes(context=""):
     start = time.perf_counter()
@@ -1740,146 +1444,98 @@ def reload_object_routes_async(context=""):
     return True
 
 
-# ---------- V19.3 Mapping Templates / Import-Export ----------
-# Wichtig: als Funktion, damit Python keine Loader referenziert,
-# bevor sie weiter unten im File definiert sind.
-def get_template_export_sections():
-    return {
-        "mqtt2lox": {"label": "MQTT → Loxone", "file": MQTT2LOX_FILE, "load": load_mqtt2lox_config, "save": save_mqtt2lox_config, "kind": "list"},
-        "mqtt2udp": {"label": "MQTT → UDP", "file": MQTT2UDP_FILE, "load": load_mqtt2udp_config, "save": save_mqtt2udp_config, "kind": "list"},
-        "udp2mqtt": {"label": "UDP → MQTT", "file": UDP2MQTT_FILE, "load": load_udp2mqtt_config, "save": save_udp2mqtt_config, "kind": "list"},
-        "mqtt2knx": {"label": "MQTT → KNX", "file": MQTT2KNX_FILE, "load": load_mqtt2knx_config, "save": save_mqtt2knx_config, "kind": "list"},
-        "knx2mqtt": {"label": "KNX → MQTT", "file": KNX2MQTT_FILE, "load": load_knx2mqtt_config, "save": save_knx2mqtt_config, "kind": "list"},
-        "udp2knx": {"label": "UDP → KNX", "file": UDP2KNX_FILE, "load": load_udp2knx_config, "save": save_udp2knx_config, "kind": "list"},
-        "knx2lox": {"label": "KNX → Loxone", "file": KNX2LOX_FILE, "load": load_knx2lox_config, "save": save_knx2lox_config, "kind": "list"},
-        "topic_config": {"label": "Topic Einstellungen", "file": TOPIC_CONFIG_FILE, "load": load_topic_config, "save": save_topic_config, "kind": "dict"},
-        "mqtt_brokers": {"label": "Zusätzliche MQTT Broker", "file": MQTT_BROKERS_FILE, "load": load_mqtt_brokers, "save": save_mqtt_brokers, "kind": "list"},
-        "udp_presets": {"label": "UDP Presets", "file": UDP_PRESETS_FILE, "load": load_udp_presets, "save": save_udp_presets, "kind": "list"},
-    }
+# ---------- V34 Objekt Export / Import ----------
+def _load_raw_objects_for_export():
+    raw = safe_load_json_file(OBJECTS_FILE, [])
+    if isinstance(raw, dict):
+        raw = raw.get("objects", [])
+    return [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
 
 
-def make_template_package(name, selected_sections):
+def make_object_export_package(name="MP-Gateway Objekte"):
     from datetime import datetime
-    data = {}
-    includes = {}
-    for section_id in selected_sections:
-        spec = get_template_export_sections().get(section_id)
-        if not spec:
-            continue
-        try:
-            data[section_id] = spec["load"]()
-            includes[section_id] = True
-        except Exception as e:
-            add_log_entry(f"Template Export Fehler {section_id}: {e}")
+    objects = _load_raw_objects_for_export()
     return {
-        "type": "mqtt2lox_mapping_template",
-        "app": "MQTT2Lox",
-        "version": "20",
-        "name": str(name or "Mapping Template").strip() or "Mapping Template",
+        "type": "mpgateway_object_export",
+        "app": "MP-Gateway",
+        "version": "34.0.5",
+        "name": str(name or "MP-Gateway Objekte").strip() or "MP-Gateway Objekte",
         "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "includes": includes,
-        "data": data,
+        "objects": objects,
     }
 
 
-def merge_template_section(section_id, incoming, mode="append"):
-    spec = get_template_export_sections().get(section_id)
-    if not spec:
-        return False, f"Unbekannter Bereich: {section_id}"
-    kind = spec.get("kind")
-    if kind == "list":
-        if not isinstance(incoming, list):
-            return False, f"{section_id}: keine Liste"
-        if mode == "replace":
-            new_data = incoming
-        else:
-            current = spec["load"]()
-            if not isinstance(current, list):
-                current = []
-            new_data = current + incoming
-        spec["save"](new_data)
-        return True, f"{section_id}: {len(incoming)} Einträge importiert"
-    if kind == "dict":
-        if not isinstance(incoming, dict):
-            return False, f"{section_id}: kein Objekt"
-        if mode == "replace":
-            new_data = incoming
-        else:
-            current = spec["load"]()
-            if not isinstance(current, dict):
-                current = {}
-            new_data = dict(current)
-            new_data.update(incoming)
-        spec["save"](new_data)
-        return True, f"{section_id}: {len(incoming)} Schlüssel importiert"
-    return False, f"{section_id}: Typ nicht unterstützt"
-
-
-def import_template_package(package, mode="append"):
+def import_object_package(package, mode="append"):
     if not isinstance(package, dict):
-        return False, ["Template ist kein gültiges JSON Objekt"]
-    if package.get("type") not in ["mqtt2lox_mapping_template", "mapping_pack", "mqtt2lox_template"]:
-        return False, ["Datei ist kein MQTT2Lox Mapping Template"]
-    data = package.get("data", {})
-    if not isinstance(data, dict):
-        return False, ["Template enthält keinen data-Bereich"]
-    messages = []
-    imported_any = False
-    for section_id, incoming in data.items():
-        ok, msg = merge_template_section(section_id, incoming, mode=mode)
-        messages.append(msg)
-        imported_any = imported_any or ok
-    return imported_any, messages
+        return False, ["Datei ist kein gültiges JSON-Objekt."]
+    if package.get("type") != "mpgateway_object_export":
+        return False, ["Datei ist kein MP-Gateway Objekt-Export."]
+    incoming = package.get("objects")
+    if not isinstance(incoming, list):
+        return False, ["Der Export enthält keine Objektliste."]
+    incoming = [item for item in incoming if isinstance(item, dict)]
+    if mode == "replace":
+        merged = incoming
+    else:
+        current = _load_raw_objects_for_export()
+        by_id = {str(item.get("id", "")): item for item in current if str(item.get("id", ""))}
+        without_id = [item for item in current if not str(item.get("id", ""))]
+        added = 0
+        updated = 0
+        for item in incoming:
+            object_id = str(item.get("id", ""))
+            if object_id:
+                if object_id in by_id:
+                    updated += 1
+                else:
+                    added += 1
+                by_id[object_id] = item
+            else:
+                without_id.append(item)
+                added += 1
+        merged = list(by_id.values()) + without_id
+    safe_save_json_file(OBJECTS_FILE, merged, indent=2)
+    try:
+        object_core_service.invalidate_object_caches()
+    except Exception:
+        pass
+    if mode == "replace":
+        return True, [f"{len(incoming)} Objekte übernommen; vorhandene Objekte ersetzt."]
+    return True, [f"{len(incoming)} Objekte verarbeitet; Bestand enthält jetzt {len(merged)} Objekte."]
 
 
 def mapping_templates_content(notice=""):
-    rows = ""
-    for section_id, spec in get_template_export_sections().items():
-        count = "-"
-        try:
-            data = spec["load"]()
-            count = len(data) if hasattr(data, "__len__") else "-"
-        except Exception:
-            count = "Fehler"
-        rows += f"""
-<tr>
-    <td><input type=\"checkbox\" name=\"section_{escape(section_id)}\" checked></td>
-    <td><b>{escape(spec.get('label', section_id))}</b><br><span class=\"small\">{escape(os.path.basename(spec.get('file','')))}</span></td>
-    <td>{escape(str(count))}</td>
-</tr>"""
+    count = len(_load_raw_objects_for_export())
     return f"""
 {notice or ""}
-<div class=\"card compact-card\">
-    <h2 class=\"section-title\">Mapping Templates</h2>
-    <p class=\"small\">V19: gezielte Export-/Import-Pakete für Integrationen. Kein komplettes Backup, sondern wiederverwendbare Vorlagen.</p>
+<div class="card compact-card">
+    <h2 class="section-title">Objekt Export / Import</h2>
+    <p class="small">Sichert und überträgt ausschließlich die Objekte des Objektmanagers. Einstellungen, Broker-Zugänge und alte Legacy-Mappings sind nicht enthalten.</p>
 </div>
 
-<div class=\"card\">
-    <h2 class=\"section-title\">Template exportieren</h2>
-    <form method=\"post\" action=\"/templates/export\">
-        <label>Name des Templates</label>
-        <input name=\"template_name\" value=\"MQTT2Lox Mapping Template\">
-        <table style=\"margin-top:14px;\">
-            <tr><th>Export</th><th>Bereich</th><th>Einträge</th></tr>
-            {rows}
-        </table>
-        <div class=\"button-row\" style=\"margin-top:14px;\">
-            <button type=\"submit\">Template herunterladen</button>
+<div class="card">
+    <h2 class="section-title">Objekte exportieren</h2>
+    <form method="post" action="/templates/export">
+        <label>Name des Exports</label>
+        <input name="export_name" value="MP-Gateway Objekte">
+        <p class="small">Aktuell vorhanden: <b>{count}</b> Objekte</p>
+        <div class="button-row" style="margin-top:14px;">
+            <button type="submit">Objekte herunterladen</button>
         </div>
     </form>
 </div>
 
-<div class=\"card\">
-    <h2 class=\"section-title\">Template importieren</h2>
-    <form method=\"post\" action=\"/templates/import\" enctype=\"multipart/form-data\" class=\"restore-form\">
-        <input type=\"file\" name=\"template_file\" accept=\".json\" required class=\"file-upload\">
-        <select name=\"mode\" style=\"width:auto; min-width:180px;\">
-            <option value=\"append\">Anhängen / ergänzen</option>
-            <option value=\"replace\">Bereiche ersetzen</option>
+<div class="card">
+    <h2 class="section-title">Objekte importieren</h2>
+    <form method="post" action="/templates/import" enctype="multipart/form-data" class="restore-form">
+        <input type="file" name="object_file" accept=".json" required class="file-upload">
+        <select name="mode" style="width:auto; min-width:180px;">
+            <option value="append">Ergänzen / gleiche IDs aktualisieren</option>
+            <option value="replace">Alle Objekte ersetzen</option>
         </select>
-        <button type=\"submit\">Template importieren</button>
+        <button type="submit">Objekte importieren</button>
     </form>
-    <p class=\"small\">Anhängen lässt bestehende Mappings stehen. Ersetzen überschreibt nur die Bereiche, die im Template enthalten sind.</p>
+    <p class="small">Beim Ergänzen werden Objekte mit derselben ID aktualisiert. „Alle Objekte ersetzen“ überschreibt den vollständigen Objektbestand.</p>
 </div>
 """
 
@@ -3250,7 +2906,7 @@ def _mqtt_object_route_loader(item, topic):
                 "loxone_io": loxone_io,
                 "payload_mode": "raw",
                 "json_key": "",
-                "group": "Objektmanager V33",
+                "group": "Objektmanager",
                 "set_name": item.name or item.id,
                 "mapping_alias": item.name,
                 "custom_topic": "",
@@ -3270,7 +2926,7 @@ def _mqtt_object_route_loader(item, topic):
                 "udp_ip": udp_ip,
                 "udp_port": udp_port,
                 "udp_format": str(udp_format or "topic_value") or "topic_value",
-                "group": "Objektmanager V33",
+                "group": "Objektmanager",
                 "set_name": item.name or item.id,
                 "mapping_alias": item.name,
                 "payload_mode": str(udp_format or "topic_value") or "topic_value",
@@ -3290,7 +2946,7 @@ def _mqtt_object_route_loader(item, topic):
                 "dpt": knx_dpt,
                 "invert": False,
                 "test_value": "1",
-                "group": "Objektmanager V33",
+                "group": "Objektmanager",
                 "set_name": item.name or item.id,
                 "mapping_alias": item.name,
             }]
@@ -3997,7 +3653,7 @@ def collect_global_search_items():
     results = []
 
     try:
-        for idx, item in enumerate(_base_load_mqtt2lox_config()):
+        for idx, item in enumerate(load_mqtt2lox_config()):
             if not isinstance(item, dict):
                 continue
             _global_search_add(
@@ -4016,7 +3672,7 @@ def collect_global_search_items():
         add_log_entry(f"Globale Suche MQTT2Lox Fehler: {e}")
 
     try:
-        for idx, item in enumerate(_base_load_mqtt2udp_config()):
+        for idx, item in enumerate(load_mqtt2udp_config()):
             if not isinstance(item, dict):
                 continue
             _global_search_add(
@@ -4328,7 +3984,7 @@ def collect_config_conflicts():
 
     # MQTT -> Loxone
     try:
-        for idx, item in enumerate(_base_load_mqtt2lox_config()):
+        for idx, item in enumerate(load_mqtt2lox_config()):
             if not isinstance(item, dict):
                 continue
             ref = f"Zeile {idx + 1}"
@@ -4349,7 +4005,7 @@ def collect_config_conflicts():
 
     # MQTT -> UDP
     try:
-        for idx, item in enumerate(_base_load_mqtt2udp_config()):
+        for idx, item in enumerate(load_mqtt2udp_config()):
             if not isinstance(item, dict):
                 continue
             ref = f"Zeile {idx + 1}"
@@ -4615,9 +4271,9 @@ def knx_monitor_payload():
 def dashboard_content():
     config = load_config()
     loxone_explorer_count = loxone_service.get_loxone_explorer_count(load_config, load_mapping, add_log_entry, load_topic_config, lambda: state_mapping, build_state_topic)
-    mqtt2lox_count = len(_base_load_mqtt2lox_config())
-    mqtt2udp_count = len(_base_load_mqtt2udp_config())
-    udp2mqtt_count = len(_base_load_udp2mqtt_config())
+    mqtt2lox_count = len(load_mqtt2lox_config())
+    mqtt2udp_count = len(load_mqtt2udp_config())
+    udp2mqtt_count = len(load_udp2mqtt_config())
     mqtt2knx_count = len(load_mqtt2knx_config())
     knx2mqtt_count = len(load_knx2mqtt_config())
     udp2knx_count = len(load_udp2knx_config())
@@ -4984,11 +4640,28 @@ def settings_content(config, notice=""):
 {sidebar_links_settings_content()}
 
 <div class="card">
-    <h2 class="section-title">Template Export / Import</h2>
-    <p class="small">Gezielte Mapping-Pakete für einzelne Integrationen exportieren oder importieren. Das ist unabhängig vom kompletten Backup.</p>
-    <div class="button-row">
-        <a href="/templates" class="button-link">Template exportieren / importieren</a>
-    </div>
+    <h2 class="section-title">Objekt Export / Import</h2>
+    <p class="small">Sichert und überträgt ausschließlich die Objekte des Objektmanagers. Einstellungen und Broker-Zugänge sind nicht enthalten.</p>
+
+    <form method="post" action="/templates/export" style="margin-top:14px;">
+        <label>Name des Exports</label>
+        <div class="button-row">
+            <input name="export_name" value="MP-Gateway Objekte" style="min-width:260px;">
+            <button type="submit">Objekte herunterladen</button>
+        </div>
+        <p class="small">Aktuell vorhanden: <b>{len(_load_raw_objects_for_export())}</b> Objekte</p>
+    </form>
+
+    <form method="post" action="/templates/import" enctype="multipart/form-data" class="restore-form" style="margin-top:16px;">
+        <input type="hidden" name="return_to" value="settings">
+        <input type="file" name="object_file" accept=".json" required class="file-upload">
+        <select name="mode" style="width:auto; min-width:180px;">
+            <option value="append">Ergänzen / gleiche IDs aktualisieren</option>
+            <option value="replace">Alle Objekte ersetzen</option>
+        </select>
+        <button type="submit">Objekte importieren</button>
+    </form>
+    <p class="small">Beim Ergänzen werden Objekte mit derselben ID aktualisiert. „Alle Objekte ersetzen“ überschreibt den vollständigen Objektbestand.</p>
 </div>
 
 <div class="card">
@@ -7336,7 +7009,7 @@ function restorePortIfEmpty(input) {
 
 def mqtt2lox():
     config = load_config()
-    mappings = _base_load_mqtt2lox_config()
+    mappings = load_mqtt2lox_config()
 
     prefill_source_topic = request.args.get("source_topic", "")
     prefill_json_key = request.args.get("json_key", "")
@@ -8251,7 +7924,7 @@ def mqtt2lox_save():
 
 
 def mqtt2lox_test(index):
-    mappings = _base_load_mqtt2lox_config()
+    mappings = load_mqtt2lox_config()
     config = load_config()
 
     if index < 0 or index >= len(mappings):
@@ -8295,7 +7968,7 @@ def mqtt2lox_test(index):
 
 
 def mqtt2lox_data():
-    mappings = _base_load_mqtt2lox_config()
+    mappings = load_mqtt2lox_config()
     data = {}
 
     for i, item in enumerate(mappings):
@@ -8311,7 +7984,7 @@ def mqtt2lox_data():
 
 
 def mqtt2udp():
-    mappings = _base_load_mqtt2udp_config()
+    mappings = load_mqtt2udp_config()
 
     prefill_source_topic = request.args.get("source_topic", "").strip()
     prefill_payload_mode = request.args.get("payload_mode", "raw").strip() or "raw"
@@ -8794,7 +8467,7 @@ def mqtt2udp_save():
 
 
 def mqtt2udp_test(index):
-    mappings = _base_load_mqtt2udp_config()
+    mappings = load_mqtt2udp_config()
 
     if index < 0 or index >= len(mappings):
         return redirect("/mqtt2udp")
@@ -8819,7 +8492,7 @@ def mqtt2udp_test(index):
 
 
 def mqtt2udp_data():
-    mappings = _base_load_mqtt2udp_config()
+    mappings = load_mqtt2udp_config()
     data = {}
 
     for i, item in enumerate(mappings):
@@ -8928,7 +8601,7 @@ def udp_presets_save():
 
 
 def mqtt2udp_copy(index):
-    mappings = _base_load_mqtt2udp_config()
+    mappings = load_mqtt2udp_config()
 
     if index < 0 or index >= len(mappings):
         return redirect("/mqtt2udp")
@@ -10405,9 +10078,9 @@ def mqtt_hub_content():
     cards = [
         ("Loxone Explorer", "/topics2", len(_topic_manager_2_collect_topics()), "Explorer-Ansicht für Loxone Topics: suchen, auswählen, Alias setzen, Influx/Writable schalten und direkt weiter mappen."),
         ("MQTT Monitor", "/monitor", len(mqtt_monitor_snapshot), "Live MQTT Topics ansehen, filtern und kopieren. Discovery kannst du direkt dort ein- und ausschalten."),
-        ("MQTT → Loxone", "/mqtt2lox", len(_base_load_mqtt2lox_config()), "MQTT Topics an Loxone Eingänge/Controls schicken."),
-        ("MQTT → UDP", "/mqtt2udp", len(_base_load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
-        ("UDP → MQTT", "/udp2mqtt", len(_base_load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics veröffentlichen und gezielt mappen."),
+        ("MQTT → Loxone", "/mqtt2lox", len(load_mqtt2lox_config()), "MQTT Topics an Loxone Eingänge/Controls schicken."),
+        ("MQTT → UDP", "/mqtt2udp", len(load_mqtt2udp_config()), "MQTT Topics als UDP Telegramme senden."),
+        ("UDP → MQTT", "/udp2mqtt", len(load_udp2mqtt_config()), "UDP Telegramme als MQTT Topics veröffentlichen und gezielt mappen."),
         ("MQTT → KNX", "/mqtt2knx", len(load_mqtt2knx_config()), "MQTT Topics direkt auf KNX Gruppenadressen senden."),
         ("Influx Explorer", "/influx_explorer", "DB", "InfluxDB direkt aus MQTT2Lox verwalten: Topics finden, prüfen und gezielt löschen."),
         ("Objektmanager", "/objects", len(load_objects_config()), "Datenpunkte aus MQTT, Loxone, KNX, UDP und Influx zu einer Smart-Home-Objektansicht bündeln."),
@@ -12259,57 +11932,58 @@ def knx_monitor_data():
 
 @app.route("/templates")
 def mapping_templates_page(message=""):
-    return embedded_page("Mapping Templates", mapping_templates_content(message))
+    return embedded_page("Objekt Export / Import", mapping_templates_content(message))
 
 
 @app.route("/templates/export", methods=["POST"])
 def templates_export():
-    selected = []
-    for section_id in get_template_export_sections().keys():
-        if request.form.get(f"section_{section_id}"):
-            selected.append(section_id)
-    if not selected:
-        return mapping_templates_page('<div class="message">Kein Bereich ausgewählt.</div>')
-    template_name = request.form.get("template_name", "MQTT2Lox Mapping Template")
-    package = make_template_package(template_name, selected)
-    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(package.get("name", "template")).strip()).strip("_") or "template"
+    export_name = request.form.get("export_name", "MP-Gateway Objekte")
+    package = make_object_export_package(export_name)
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(package.get("name", "objekte")).strip()).strip("_") or "objekte"
     memory_file = io.BytesIO()
     memory_file.write(json.dumps(package, indent=2, ensure_ascii=False).encode("utf-8"))
     memory_file.seek(0)
-    add_log_entry(f"Template Export erstellt: {package.get('name')} ({', '.join(selected)})")
+    add_log_entry(f"Objekt Export erstellt: {package.get('name')} ({len(package.get('objects', []))} Objekte)")
     return send_file(
         memory_file,
         as_attachment=True,
-        download_name=f"mqtt2lox_template_{safe_name}.json",
+        download_name=f"mp_gateway_objekte_{safe_name}.json",
         mimetype="application/json"
     )
 
 
 @app.route("/templates/import", methods=["POST"])
 def templates_import():
-    if "template_file" not in request.files:
-        return mapping_templates_page('<div class="message">Keine Template-Datei empfangen.</div>')
-    file = request.files["template_file"]
+    return_to_settings = request.form.get("return_to") == "settings"
+
+    def render_result(message_html):
+        if return_to_settings:
+            return embedded_page("Einstellungen", settings_content(load_config(), message_html))
+        return mapping_templates_page(message_html)
+
+    if "object_file" not in request.files:
+        return render_result('<div class="message">Keine Objektdatei empfangen.</div>')
+    file = request.files["object_file"]
     if file.filename == "":
-        return mapping_templates_page('<div class="message">Keine Datei ausgewählt.</div>')
+        return render_result('<div class="message">Keine Datei ausgewählt.</div>')
     mode = request.form.get("mode", "append")
     if mode not in ["append", "replace"]:
         mode = "append"
     try:
         package = json.loads(file.read().decode("utf-8"))
-        ok, messages = import_template_package(package, mode=mode)
+        ok, messages = import_object_package(package, mode=mode)
         for msg in messages:
-            add_log_entry(f"Template Import: {msg}")
+            add_log_entry(f"Objekt Import: {msg}")
         if ok:
-            add_log_entry(f"Template importiert: {package.get('name', file.filename)} | Modus {mode}")
-            restart_bridge_async()
-            msg_html = '<div class="message">Template importiert ✅<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
+            reload_object_routes_async("object_import")
+            msg_html = '<div class="message">Objekte importiert ✅<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
         else:
-            msg_html = '<div class="message">Template nicht importiert.<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
-        return mapping_templates_page(msg_html)
+            msg_html = '<div class="message">Objekte nicht importiert.<br>' + '<br>'.join(escape(str(m)) for m in messages) + '</div>'
+        return render_result(msg_html)
     except Exception as e:
-        add_log_entry(f"Template Import Fehler: {e}")
-        return mapping_templates_page(f'<div class="message">Template Import Fehler: {escape(str(e))}</div>')
+        add_log_entry(f"Objekt Import Fehler: {e}")
+        return render_result(f'<div class="message">Objekt Import Fehler: {escape(str(e))}</div>')
+
 
 def backup_config():
     files_to_backup = get_backup_files()
@@ -12334,7 +12008,7 @@ def restore_config():
 
 
 def udp2mqtt():
-    mappings = _base_load_udp2mqtt_config()
+    mappings = load_udp2mqtt_config()
     config = load_config()
     prefill_mqtt = request.args.get("mqtt_topic", "").strip()
     prefill_udp = request.args.get("udp_topic", "").strip()
@@ -12441,7 +12115,7 @@ def udp2mqtt_test(index):
     udp.run_udp2mqtt_test(
         index,
         request.form,
-        _base_load_udp2mqtt_config,
+        load_udp2mqtt_config,
         save_udp2mqtt_config,
         publish_func,
         add_log_entry,
@@ -12452,7 +12126,7 @@ def udp2mqtt_test(index):
 
 def udp2mqtt_data():
     data = {}
-    for i, item in enumerate(_base_load_udp2mqtt_config()):
+    for i, item in enumerate(load_udp2mqtt_config()):
         udp_topic = str(item.get("udp_topic", "")).strip()
         info = get_udp_last_seen("udp2mqtt", udp_topic)
         data[str(i)] = {"value": str(info.get("value", "-")), "time": str(info.get("time", "-"))}
@@ -13231,31 +12905,62 @@ def monitor_alias():
 
 def influx_explorer_page(notice=""):
     search = str(request.args.get("q", "") or "").strip()
-    ok, msg, topics = influx_service.influx_get_topics(search=search, limit=400, load_config=load_config, start=str(request.args.get("start", "-30d") if request else "-30d") or "-30d")
+    start_range = str(request.args.get("start", "-30d") or "-30d").strip()
+    allowed_ranges = {"-1h", "-6h", "-24h", "-7d", "-30d", "-90d", "-365d"}
+    if start_range not in allowed_ranges:
+        start_range = "-30d"
+
+    ok, msg, entries = influx_service.influx_get_entries(
+        search=search,
+        limit=400,
+        load_config=load_config,
+        start=start_range,
+    )
     cfg = load_config().get("influx", {})
     bucket = str(cfg.get("bucket", "") or "")
     org = str(cfg.get("org", "") or "")
-    measurement = str(cfg.get("measurement", "loxone") or "loxone")
     notice_html = f'<div class="notice">{escape(notice)}</div>' if notice else ""
     if not ok:
         notice_html += f'<div class="notice bad">{escape(msg)}</div>'
-        topics = []
+        entries = []
+
     rows = ""
-    for item in topics:
-        t = item["topic"]
-        et = escape(t)
+    row_index = 0
+    for item in entries:
+        row_index += 1
+        measurement = str(item.get("measurement", "") or "")
+        topic = str(item.get("topic", "") or "")
+        em = escape(measurement)
+        et = escape(topic)
+        selection = escape(json.dumps({"measurement": measurement, "topic": topic}, ensure_ascii=False))
+        topic_cell = f'<b>{et}</b>' if topic else '<span class="small">kein topic-Tag</span>'
+        label = f"{measurement} / {topic}" if topic else measurement
+        confirm_label = escape(label).replace("'", "\\'")
         rows += f'''
 <tr>
-  <td><input type="checkbox" name="topic" value="{et}"></td>
-  <td><b>{et}</b></td>
+  <td><input type="checkbox" name="series" value="{selection}"></td>
+  <td><b>{em}</b></td>
+  <td>{topic_cell}</td>
   <td>{escape(item.get('fields',''))}</td>
   <td>{escape(item.get('last_value',''))}</td>
   <td>{escape(item.get('last_time',''))}</td>
   <td style="text-align:right;">{escape(item.get('count',''))}</td>
-  <td><form method="post" action="/influx_explorer/delete" onsubmit="return confirm('Topic wirklich löschen?\\n{et}');"><input type="hidden" name="topic" value="{et}"><button type="submit" class="danger">Löschen</button></form></td>
+  <td>
+    <button type="submit" class="danger" name="single_series" value="{selection}" formaction="/influx_explorer/delete" onclick="return confirm('Influx-Daten wirklich löschen?\\n{confirm_label}');">Löschen</button>
+  </td>
 </tr>'''
     if not rows:
-        rows = '<tr><td colspan="7" class="small">Keine Topics gefunden. Zeitraum/Search prüfen oder erst neue Werte schreiben lassen.</td></tr>'
+        rows = '<tr><td colspan="8" class="small">Keine Influx-Daten gefunden. Zeitraum und Suche prüfen.</td></tr>'
+
+    range_options = "".join(
+        f'<option value="{value}" {"selected" if value == start_range else ""}>{label}</option>'
+        for value, label in [
+            ("-1h", "1 Stunde"), ("-6h", "6 Stunden"), ("-24h", "24 Stunden"),
+            ("-7d", "7 Tage"), ("-30d", "30 Tage"), ("-90d", "90 Tage"),
+            ("-365d", "1 Jahr"),
+        ]
+    )
+
     return f'''
 <!doctype html><html><head><meta charset="utf-8"><title>Influx Explorer</title><style>
 body {{ font-family:Arial; background:#202830; color:#f4f7fb; margin:24px; }}
@@ -13263,7 +12968,7 @@ a {{ color:inherit; }}
 .card {{ background:#1b2229; border:1px solid #303b45; border-radius:12px; padding:16px; margin-bottom:16px; }}
 .header {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }}
 .badge {{ display:inline-block; padding:4px 8px; border-radius:999px; background:#2a333d; color:#dbe6f2; font-size:12px; margin-right:6px; }}
-.small {{ color:#aeb8c4; font-size:13px; line-height:1.35; }} .mini-row {{ display:flex; gap:6px; align-items:center; }} .mini-row input {{ flex:1; }} .mini-btn {{ padding:9px 10px; white-space:nowrap; }}
+.small {{ color:#aeb8c4; font-size:13px; line-height:1.35; }}
 .notice {{ border:1px solid #355b3f; background:#132015; padding:10px 12px; border-radius:10px; margin-bottom:12px; }}
 .notice.bad {{ border-color:#7a3434; background:#281717; }}
 button,.button-link {{ background:#5f686f; color:white; padding:9px 13px; border:0; border-radius:8px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; font-weight:700; }}
@@ -13275,25 +12980,26 @@ table {{ width:100%; border-collapse:collapse; background:#151c23; }} th,td {{ b
 .toolbar {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }}
 </style></head><body>
 <div class="header">
-  <div><h1>Influx Explorer</h1><div class="small">Datenbank direkt aus MQTT2Lox verwalten. Erste Ausbaustufe: Topics anzeigen, suchen und gezielt löschen.</div></div>
+  <div><h1>Influx Explorer</h1><div class="small">Liveansicht des tatsächlich vorhandenen InfluxDB-Buckets – unabhängig von lokalen Gateway-Konfigurationen.</div></div>
   <a class="button-link" href="/mqtt">← MQTT Hub</a>
 </div>
 <div class="card">
-  <span class="badge">Bucket: {escape(bucket)}</span><span class="badge">Org: {escape(org)}</span><span class="badge">Measurement: {escape(measurement)}</span>
-  <p class="small">Tipp: falsch getippte KNX-Aliase über Suche markieren und löschen. Löschen nutzt die Influx Delete-API mit Predicate <code>topic="..."</code>.</p>
+  <span class="badge">Bucket: {escape(bucket)}</span><span class="badge">Org: {escape(org)}</span>
+  <p class="small">Angezeigt werden echte Measurements und – sofern vorhanden – deren Topic-Tags. Einträge ohne Topic-Tag werden auf Measurement-Ebene dargestellt.</p>
 </div>
 {notice_html}
 <div class="card">
   <form method="get" action="/influx_explorer" class="toolbar">
-    <input type="text" name="q" value="{escape(search)}" placeholder="Topic suchen..." style="min-width:340px; flex:1;">
-    <button type="submit">Suchen</button>
+    <input type="text" name="q" value="{escape(search)}" placeholder="Measurement oder Topic suchen..." style="min-width:340px; flex:1;">
+    <select name="start">{range_options}</select>
+    <button type="submit">Aktualisieren</button>
     <a class="button-link" href="/influx_explorer">Zurücksetzen</a>
   </form>
 </div>
-<form method="post" action="/influx_explorer/delete_selected" onsubmit="return confirm('Markierte Topics wirklich löschen?');">
+<form method="post" action="/influx_explorer/delete_selected" onsubmit="return confirm('Markierte Influx-Daten wirklich löschen?');">
 <div class="card">
-  <div class="toolbar" style="margin-bottom:12px;"><button type="button" onclick="document.querySelectorAll('input[name=topic]').forEach(x=>x.checked=true)">Alle markieren</button><button type="button" onclick="document.querySelectorAll('input[name=topic]').forEach(x=>x.checked=false)">Alle abwählen</button><button type="submit" class="danger">Markierte löschen</button></div>
-  <table><tr><th style="width:40px;"></th><th>Topic</th><th>Fields</th><th>Letzter Wert</th><th>Letzte Zeit</th><th style="width:100px; text-align:right;">Werte</th><th style="width:115px;">Aktion</th></tr>{rows}</table>
+  <div class="toolbar" style="margin-bottom:12px;"><button type="button" onclick="document.querySelectorAll('input[name=series]').forEach(x=>x.checked=true)">Alle markieren</button><button type="button" onclick="document.querySelectorAll('input[name=series]').forEach(x=>x.checked=false)">Alle abwählen</button><button type="submit" class="danger">Markierte löschen</button></div>
+  <table><tr><th style="width:40px;"></th><th>Measurement</th><th>Topic</th><th>Fields</th><th>Letzter Wert</th><th>Letzte Zeit</th><th style="width:100px; text-align:right;">Werte</th><th style="width:115px;">Aktion</th></tr>{rows}</table>
 </div>
 </form>
 </body></html>'''
@@ -13304,28 +13010,39 @@ def influx_explorer():
 
 
 def influx_explorer_delete():
-    topic = request.form.get("topic", "")
-    ok, msg = influx_service.influx_delete_topic(topic, load_config, add_log_entry)
+    try:
+        item = json.loads(request.form.get("single_series", "{}") or "{}")
+        measurement = str(item.get("measurement", "") or "")
+        topic = str(item.get("topic", "") or "")
+    except Exception:
+        return influx_explorer_page("❌ Ungültige Auswahl")
+    ok, msg = influx_service.influx_delete_series(measurement, topic, load_config, add_log_entry)
     return influx_explorer_page(("✅ " if ok else "❌ ") + msg)
 
 
 def influx_explorer_delete_selected():
-    topics = request.form.getlist("topic")
-    if not topics:
-        return influx_explorer_page("Keine Topics ausgewählt")
+    selections = request.form.getlist("series")
+    if not selections:
+        return influx_explorer_page("Keine Einträge ausgewählt")
     ok_count = 0
     errors = []
-    for topic in topics:
-        ok, msg = influx_service.influx_delete_topic(topic, load_config, add_log_entry)
+    for raw in selections:
+        try:
+            item = json.loads(raw)
+            measurement = str(item.get("measurement", "") or "")
+            topic = str(item.get("topic", "") or "")
+        except Exception:
+            errors.append("Ungültige Auswahl")
+            continue
+        ok, msg = influx_service.influx_delete_series(measurement, topic, load_config, add_log_entry)
         if ok:
             ok_count += 1
         else:
             errors.append(msg)
-    notice = f"✅ {ok_count} Topic(s) gelöscht"
+    notice = f"✅ {ok_count} Eintrag/Einträge gelöscht"
     if errors:
         notice += " | Fehler: " + "; ".join(errors[:3])
     return influx_explorer_page(notice)
-
 
 
 def objects_page(notice=""):

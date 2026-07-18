@@ -35,18 +35,10 @@ OBJECTS_FILE = os.path.join(CONFIG_DIR, "objects.json")
 
 CONFIG_FILES = [
     "config.json",
-    "topic_config.json",
-    "mqtt2lox.json",
-    "mqtt2udp_config.json",
-    "udp2mqtt.json",
     "mqtt_brokers.json",
     "monitor_settings.json",
     "plugins.json",
     "knx_config.json",
-    "mqtt2knx.json",
-    "knx2mqtt.json",
-    "udp2knx.json",
-    "knx2lox.json",
     "sidebar_links.json",
     "internal_broker.json",
     "objects.json",
