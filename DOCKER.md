@@ -1,61 +1,80 @@
-# MP-Gateway 33.4.68 RC1 – Docker
+# MP-Gateway 33.4.68 RC1 – Docker mit einem Daten-Volume
 
-## Voraussetzungen
+Die komplette Anwendung liegt nach dem ersten Start in einem einzigen Docker-Volume:
 
-- Docker Engine mit Docker Compose Plugin
-- Linux-Host oder Linux-VM
-- Freier TCP-Port `8099`
+```text
+/var/lib/docker/volumes/mpgateway_data/_data/
+├── app/
+├── templates/
+├── static/
+├── config/
+├── data/
+├── backups/
+├── logs/
+├── requirements.txt
+└── VERSION
+```
 
-Für KNX und frei konfigurierbare UDP-Ports verwendet die Compose-Datei bewusst `network_mode: host`. Dadurch sieht MP-Gateway das lokale Netzwerk direkt und KNX-Tunneling sowie UDP-Empfang funktionieren ohne zusätzliche Portfreigaben.
+Das Image enthält eine Ausgangskopie. Beim ersten Start wird sie einmalig in das leere Volume kopiert. Bei späteren Starts wird das Volume nicht überschrieben.
 
-## Start
-
-Im entpackten Projektordner:
+## Installation
 
 ```bash
+unzip MP-Gateway_33.4.68_Docker_RC1_Volume.zip
+cd MP-Gateway
 docker compose up -d --build
 ```
 
-Danach ist die Oberfläche erreichbar unter:
+Weboberfläche:
 
 ```text
-http://<IP-des-Docker-Hosts>:8099
+http://IP-DES-DOCKER-HOSTS:8099
 ```
 
-Status prüfen:
+Status und Protokoll:
 
 ```bash
 docker compose ps
 docker compose logs -f mp-gateway
 ```
 
-## Persistente Daten
-
-Die Compose-Datei bindet diese Ordner direkt ein:
-
-- `./config` → Konfigurationen und Objekte
-- `./data` → Laufzeitdaten und interne Brokerdaten
-- `./backups` → Backups
-
-Damit bleiben alle Einstellungen beim Neuaufbau oder Austausch des Containers erhalten.
-
-## Update
-
-Vor einem Update zuerst ein Backup über MP-Gateway erstellen. Danach den neuen Projektordner verwenden und die vorhandenen Ordner `config`, `data` und `backups` übernehmen.
+Volume prüfen:
 
 ```bash
-docker compose down
-docker compose up -d --build
+docker volume inspect mpgateway_data
+ls -la /var/lib/docker/volumes/mpgateway_data/_data
 ```
 
-## Stoppen
+## Vorhandene alte Daten übernehmen
+
+Container zunächst stoppen:
 
 ```bash
 docker compose down
 ```
 
-## Hinweise
+Danach nur die benötigten Ordner aus dem alten Volume kopieren, beispielsweise:
 
-- Die Compose-Datei ist für einen Linux-Docker-Host ausgelegt. Docker Desktop unter Windows und macOS unterstützt Host-Networking nicht in jeder Konstellation gleich zuverlässig.
-- Die Anwendung läuft absichtlich als einzelner Prozess. Mehrere Web-Worker würden die MQTT-, UDP- und KNX-Runtime mehrfach starten.
-- Mosquitto ist im Image enthalten, damit der optionale interne Broker weiterhin genutzt werden kann.
+```bash
+cp -a /var/lib/docker/volumes/mqtt2lox_data/_data/config/. /var/lib/docker/volumes/mpgateway_data/_data/config/
+cp -a /var/lib/docker/volumes/mqtt2lox_data/_data/data/. /var/lib/docker/volumes/mpgateway_data/_data/data/
+cp -a /var/lib/docker/volumes/mqtt2lox_data/_data/backups/. /var/lib/docker/volumes/mpgateway_data/_data/backups/
+```
+
+Anschließend:
+
+```bash
+docker compose up -d
+```
+
+Wichtig: Nicht die alte `app.py` oder alte Programmordner über die neue Version kopieren. Für die Übernahme reichen normalerweise `config`, `data` und `backups`.
+
+## Backup des kompletten Volumes
+
+```bash
+docker run --rm \
+  -v mpgateway_data:/data:ro \
+  -v "$PWD":/backup \
+  alpine \
+  tar czf /backup/mpgateway-volume-backup.tar.gz -C /data .
+```

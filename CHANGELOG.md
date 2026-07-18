@@ -1,11 +1,8 @@
-## 33.4.68-rc1
+# 33.4.68-rc1
 
-- Erster Docker-Release-Candidate auf Basis des stabilen Stands 33.4.67.
-- Dockerfile fuer Python 3.13 inklusive optionalem Mosquitto-Broker ergaenzt.
-- Docker Compose nutzt Host-Networking fuer KNX und frei konfigurierbare UDP-Ports.
-- `config`, `data` und `backups` werden persistent vom Host eingebunden.
-- Healthcheck, Entrypoint, Docker-Ignore und Docker-Kurzanleitung ergaenzt.
-- KNX-, MQTT-, UDP- und Objektmanager-Runtime unveraendert gelassen.
+- Docker RC1 mit einem persistenten Volume `mpgateway_data`.
+- Komplette Anwendung wird beim ersten Start einmalig in das Volume kopiert.
+- KNX-, MQTT- und UDP-Runtime unverändert gegenüber 33.4.67.
 
 ## 33.4.67
 

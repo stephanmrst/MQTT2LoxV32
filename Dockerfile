@@ -7,30 +7,30 @@ LABEL org.opencontainers.image.title="MP-Gateway" \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    MQTT2LOX_APP_ROOT=/app \
-    MQTT2LOX_CONFIG_DIR=/app/config \
-    MQTT2LOX_DATA_DIR=/app/data \
-    MQTT2LOX_BACKUP_DIR=/app/backups
-
-WORKDIR /app
+    MQTT2LOX_APP_ROOT=/mpgateway \
+    MQTT2LOX_CONFIG_DIR=/mpgateway/config \
+    MQTT2LOX_DATA_DIR=/mpgateway/data \
+    MQTT2LOX_BACKUP_DIR=/mpgateway/backups
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends mosquitto mosquitto-clients ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates mosquitto mosquitto-clients \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
+WORKDIR /opt/mpgateway-source
+COPY requirements.txt ./requirements.txt
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -r /app/requirements.txt
+    && python -m pip install -r requirements.txt
 
-COPY . /app
+COPY . /opt/mpgateway-source
+RUN chmod +x /opt/mpgateway-source/docker-entrypoint.sh \
+    && sha256sum /opt/mpgateway-source/requirements.txt | awk '{print $1}' > /opt/mpgateway-source/.image-requirements.sha256
 
-RUN mkdir -p /app/config /app/data /app/backups \
-    && chmod +x /app/docker-entrypoint.sh
-
+VOLUME ["/mpgateway"]
+WORKDIR /mpgateway
 EXPOSE 8099/tcp
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/startup_status', timeout=3).read()" || exit 1
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/opt/mpgateway-source/docker-entrypoint.sh"]
 CMD ["python", "-u", "app/main.py"]
