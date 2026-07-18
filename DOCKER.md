@@ -1,4 +1,4 @@
-# MP-Gateway 33.4.68 RC1 – Docker mit einem Daten-Volume
+# MP-Gateway 33.4.68 RC2 – Docker mit einem Daten-Volume
 
 Die komplette Anwendung liegt nach dem ersten Start in einem einzigen Docker-Volume:
 
@@ -20,7 +20,7 @@ Das Image enthält eine Ausgangskopie. Beim ersten Start wird sie einmalig in da
 ## Installation
 
 ```bash
-unzip MP-Gateway_33.4.68_Docker_RC1_Volume.zip
+unzip MP-Gateway_33.4.68_Docker_RC2_GitHub.zip
 cd MP-Gateway
 docker compose up -d --build
 ```

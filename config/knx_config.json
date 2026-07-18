@@ -1,8 +1,0 @@
-{
-  "enabled": true,
-  "gateway_ip": "192.168.1.14",
-  "gateway_port": 3671,
-  "connection_type": "tunneling",
-  "local_ip": "",
-  "physical_address": "1.1.250"
-}

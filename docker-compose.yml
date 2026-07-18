@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mp-gateway:33.4.68-rc1
+    image: mp-gateway:33.4.68-rc2
     container_name: mp-gateway
     restart: unless-stopped
     init: true

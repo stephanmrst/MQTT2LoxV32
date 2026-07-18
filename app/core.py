@@ -1426,7 +1426,7 @@ def build_sidebar_links_html(iframe_shell=False):
 
 DEFAULT_KNX_CONFIG = {
     "enabled": False,
-    "gateway_ip": "192.168.2.10",
+    "gateway_ip": "",
     "gateway_port": 3671,
     "connection_type": "tunneling",
     "local_ip": "",
@@ -2756,8 +2756,8 @@ def udp_input_listener(config):
 
 
 DEFAULT_CONFIG = {
-    "loxone": {"host": "172.16.12.212", "user": "admin", "password": ""},
-    "mqtt": {"host": "172.16.12.17", "port": 1883, "user": "", "password": "", "prefix": "loxone"},
+    "loxone": {"host": "", "user": "admin", "password": ""},
+    "mqtt": {"host": "127.0.0.1", "port": 1883, "user": "", "password": "", "prefix": "loxone"},
     "udp_input": {
         "enabled": True,
         "port": 7002,
@@ -2768,7 +2768,7 @@ DEFAULT_CONFIG = {
     "influx": {
         "enabled": False,
         "version": "2",
-        "host": "172.16.12.122",
+        "host": "127.0.0.1",
         "port": 8086,
         "database": "",
         "bucket": "loxone",

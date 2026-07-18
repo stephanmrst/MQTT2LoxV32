@@ -1,3 +1,10 @@
+# 33.4.68-rc2
+
+- GitHub-saubere Docker-Version ohne lokale Konfigurations-, Objekt- oder Laufzeitdaten.
+- Leere persistente Verzeichnisse werden über `.gitkeep` bereitgestellt.
+- Persönliche Beispiel-IP-Adressen in den Standardwerten wurden neutralisiert.
+- Docker-Hostnetzwerk und das zentrale Volume `mpgateway_data` bleiben unverändert.
+
 # 33.4.68-rc1
 
 - Docker RC1 mit einem persistenten Volume `mpgateway_data`.
