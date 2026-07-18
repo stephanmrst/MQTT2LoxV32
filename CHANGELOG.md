@@ -1,3 +1,9 @@
+# 34.0.6
+
+- Docker-Start synchronisiert nun auch das top-level Verzeichnis `static/` aus dem Container-Image in das persistente Anwendungsverzeichnis.
+- Behebt `GET /static/css/sidebar.css 404` bei neu erstellten Containern.
+- Sidebar- und Hauptlayout-CSS werden damit im Container wieder vollständig geladen.
+
 # 34.0.5
 
 - Objekt Export / Import direkt in die Einstellungen integriert.

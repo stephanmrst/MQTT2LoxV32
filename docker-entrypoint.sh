@@ -12,7 +12,7 @@ mkdir -p "$APP_DIR" "$CONFIG_DIR" "$DATA_DIR" "$BACKUP_DIR" "$APP_DIR/logs"
 # V34: Anwendungscode bei jedem Containerstart aus dem Image aktualisieren.
 # Persistente Verzeichnisse bleiben unangetastet.
 echo "MP-Gateway: aktualisiere Anwendungscode aus dem Container-Image ..."
-for path in app templates docs tests; do
+for path in app static templates docs tests; do
     rm -rf "$APP_DIR/$path"
     if [ -e "$SOURCE_DIR/$path" ]; then
         cp -a "$SOURCE_DIR/$path" "$APP_DIR/$path"
