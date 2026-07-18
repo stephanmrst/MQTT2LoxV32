@@ -1,5 +1,5 @@
 
-## Stand 33.4.66
+## Stand 33.4.67
 - KNX-Empfang und MQTT-Routing bleiben auf dem stabilen 33.4.63-Pfad.
 - UDP-Zielkonfiguration wird nach Speichern ohne Neustart wirksam.
 ## Stand 33.4.58

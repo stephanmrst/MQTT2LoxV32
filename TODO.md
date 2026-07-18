@@ -1,5 +1,5 @@
 
-## 33.4.66 Nachtest
+## 33.4.67 Nachtest
 - KNX 0/0/9 mehrfach schalten und identische Reihenfolge in MQTT und UDP prüfen.
 - Neues Objekt anlegen: UDP-Ziel muss zunächst deaktiviert sein.
 - UDP-Ziel speichern und ohne Neustart testen.

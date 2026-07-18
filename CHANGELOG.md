@@ -1,3 +1,18 @@
+## 33.4.68-rc1
+
+- Erster Docker-Release-Candidate auf Basis des stabilen Stands 33.4.67.
+- Dockerfile fuer Python 3.13 inklusive optionalem Mosquitto-Broker ergaenzt.
+- Docker Compose nutzt Host-Networking fuer KNX und frei konfigurierbare UDP-Ports.
+- `config`, `data` und `backups` werden persistent vom Host eingebunden.
+- Healthcheck, Entrypoint, Docker-Ignore und Docker-Kurzanleitung ergaenzt.
+- KNX-, MQTT-, UDP- und Objektmanager-Runtime unveraendert gelassen.
+
+## 33.4.67
+
+- Sidebar aufgeraeumt: `Objektmanager V33` heisst jetzt `Objektmanager` und steht direkt unter dem Dashboard.
+- `KNX Testcenter` steht jetzt direkt unter der globalen Suche.
+- Keine Aenderungen an KNX-, MQTT- oder UDP-Runtime.
+
 
 ## 33.4.66
 - Basis wieder auf den stabilen Stand 33.4.63 gesetzt.

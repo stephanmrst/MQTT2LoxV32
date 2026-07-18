@@ -1,0 +1,21 @@
+services:
+  mp-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mp-gateway:33.4.68-rc1
+    container_name: mp-gateway
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    environment:
+      TZ: Europe/Berlin
+      PYTHONUNBUFFERED: "1"
+      MQTT2LOX_APP_ROOT: /app
+      MQTT2LOX_CONFIG_DIR: /app/config
+      MQTT2LOX_DATA_DIR: /app/data
+      MQTT2LOX_BACKUP_DIR: /app/backups
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./backups:/app/backups

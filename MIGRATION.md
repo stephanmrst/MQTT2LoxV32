@@ -1,5 +1,5 @@
 
-## Migration auf 33.4.66
+## Migration auf 33.4.67
 Keine manuelle Migration erforderlich. Bereits konfigurierte UDP-Ziele bleiben erhalten. Neue Objekte starten mit deaktiviertem UDP-Ziel.
 ## Migration auf 33.4.58
 
