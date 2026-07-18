@@ -1,0 +1,34 @@
+<aside class="mp-sidebar">
+  <div class="mp-sidebar-header">
+    <div class="mp-sidebar-title">{{ app_name }}</div>
+    <div class="mp-sidebar-subtitle">{{ app_subtitle }}</div>
+    <div class="mp-sidebar-status">Status: <b id="bridgeStatus">{{ status }}</b></div>
+    {% if iframe_shell %}
+    <div class="mp-sidebar-actions">
+      <button type="button" onclick="bridgeControl('/start')">Start</button>
+      <button type="button" onclick="bridgeControl('/stop')">Stopp</button>
+    </div>
+    {% endif %}
+  </div>
+
+  <nav class="mp-sidebar-nav">
+    <a class="mp-nav-link {{ 'active' if active == 'dashboard' else '' }}" href="{{ '/dashboard_embed' if iframe_shell else '/' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Dashboard</a>
+    <a class="mp-nav-link {{ 'active' if active == 'objects_v33' else '' }}" href="/objects_v33" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Objektmanager</a>
+    <a class="mp-nav-link {{ 'active' if active == 'monitor' else '' }}" href="/monitor" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>MQTT Explorer</a>
+    <a class="mp-nav-link {{ 'active' if active == 'loxone_monitor' else '' }}" href="/topics2" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Loxone Monitor</a>
+    <a class="mp-nav-link {{ 'active' if active == 'knx_monitor' else '' }}" href="/knx_monitor" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>KNX Explorer</a>
+    <a class="mp-nav-link {{ 'active' if active == 'udp_explorer' else '' }}" href="/udp_explorer" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>UDP Explorer</a>
+    <a class="mp-nav-link {{ 'active' if active == 'global_search' else '' }}" href="{{ '/global_search' if iframe_shell else '/global_search_page' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Suche</a>
+    <a class="mp-nav-link {{ 'active' if active == 'knx' else '' }}" href="/knx" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>KNX Testcenter</a>
+    <a class="mp-nav-link {{ 'active' if active == 'conflict_scanner' else '' }}" href="{{ '/conflicts' if iframe_shell else '/conflicts_page' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Konfig pr&uuml;fen</a>
+    <a class="mp-nav-link {{ 'active' if active == 'influx_explorer' else '' }}" href="/influx_explorer" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Influx Explorer</a>
+    <a class="mp-nav-link {{ 'active' if active == 'settings' else '' }}" href="{{ '/settings_embed' if iframe_shell else '/settings' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Einstellungen</a>
+    <div class="mp-nav-group-title">Externe Dienste</div>
+    {{ sidebar_links_html|safe }}
+  </nav>
+
+  <div class="mp-sidebar-footer">
+    {{ app_name }} {{ app_version }}<br>
+    <span>{{ app_legacy_name }} Technikbasis</span>
+  </div>
+</aside>
