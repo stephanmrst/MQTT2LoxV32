@@ -1041,7 +1041,11 @@ def _knx_mqtt_payload_value(value, dpt="", value_type=""):
     return value
 
 def _object_routes(log=False):
-    """Erzeugt alle Laufzeitrouten ausschließlich aus den Objekten des Objektmanagers."""
+    """Erzeugt einen Kompatibilitäts-Snapshot ausschließlich aus objects.json.
+
+    Die historischen Routennamen bleiben intern noch als Adaptervertrag erhalten;
+    es werden dabei keine Legacy-Mappingdateien gelesen oder geschrieben.
+    """
     return object_core_service.build_routes_from_objects(add_log_entry if log else None)
 
 
@@ -4271,13 +4275,16 @@ def knx_monitor_payload():
 def dashboard_content():
     config = load_config()
     loxone_explorer_count = loxone_service.get_loxone_explorer_count(load_config, load_mapping, add_log_entry, load_topic_config, lambda: state_mapping, build_state_topic)
-    mqtt2lox_count = len(load_mqtt2lox_config())
-    mqtt2udp_count = len(load_mqtt2udp_config())
-    udp2mqtt_count = len(load_udp2mqtt_config())
-    mqtt2knx_count = len(load_mqtt2knx_config())
-    knx2mqtt_count = len(load_knx2mqtt_config())
-    udp2knx_count = len(load_udp2knx_config())
-    knx2lox_count = len(load_knx2lox_config())
+    dashboard_routes = []
+    for dashboard_object in object_core_service.list_objects():
+        if not getattr(dashboard_object, "enabled", True):
+            continue
+        dashboard_routes.extend(object_core_service.build_generated_route_entries(dashboard_object))
+
+    loxone_route_count = sum(1 for route in dashboard_routes if "LOXONE" in {route.get("source"), route.get("target")})
+    udp_route_count = sum(1 for route in dashboard_routes if "UDP" in {route.get("source"), route.get("target")})
+    knx_route_count = sum(1 for route in dashboard_routes if "KNX" in {route.get("source"), route.get("target")})
+    mqtt_route_count = sum(1 for route in dashboard_routes if "MQTT" in {route.get("source"), route.get("target")})
     broker_count = len(load_mqtt_brokers())
     udp_cfg = config.get("udp_input", {})
     udp_state = "aktiv" if udp_cfg.get("enabled", False) else "aus"
@@ -4301,32 +4308,31 @@ def dashboard_content():
 </div>
 
 <div class="grid dashboard-grid">
-    <a class="card dashboard-tile" href="/mqtt2lox">
-        <div class="muted">MQTT → Loxone</div>
-        <div class="stat-value">{mqtt2lox_count}</div>
-        <div class="small">Mappings</div>
+    <a class="card dashboard-tile" href="/objects_v33">
+        <div class="muted">Objekte</div>
+        <div class="stat-value">{len(load_objects_config())}</div>
+        <div class="small">Zentrale Konfiguration</div>
     </a>
-    <a class="card dashboard-tile" href="/mqtt2udp">
-        <div class="muted">MQTT → UDP</div>
-        <div class="stat-value">{mqtt2udp_count}</div>
-        <div class="small">Mappings</div>
+    <a class="card dashboard-tile" href="/objects_v33">
+        <div class="muted">Loxone-Routen</div>
+        <div class="stat-value">{loxone_route_count}</div>
+        <div class="small">Aus objects.json erzeugt</div>
     </a>
-    <a class="card dashboard-tile" href="/mqtt2knx">
-        <div class="muted">MQTT → KNX</div>
-        <div class="stat-value">{mqtt2knx_count}</div>
-        <div class="small">Mappings</div>
+    <a class="card dashboard-tile" href="/objects_v33">
+        <div class="muted">UDP-Routen</div>
+        <div class="stat-value">{udp_route_count}</div>
+        <div class="small">Aus objects.json erzeugt</div>
     </a>
-    <a class="card dashboard-tile" href="/knx">
-        <div class="muted">KNX Routen</div>
-        <div class="stat-value">{mqtt2knx_count + knx2mqtt_count + udp2knx_count + knx2lox_count}</div>
-        <div class="small">KNX Mappings gesamt</div>
+    <a class="card dashboard-tile" href="/objects_v33">
+        <div class="muted">KNX-Routen</div>
+        <div class="stat-value">{knx_route_count}</div>
+        <div class="small">Aus objects.json erzeugt</div>
     </a>
-    <a class="card dashboard-tile" href="/mqtt">
-        <div class="muted">MQTT Routen</div>
-        <div class="stat-value">{mqtt2lox_count + mqtt2udp_count + udp2mqtt_count + mqtt2knx_count + knx2mqtt_count}</div>
-        <div class="small">MQTT Mappings gesamt</div>
+    <a class="card dashboard-tile" href="/objects_v33">
+        <div class="muted">MQTT-Routen</div>
+        <div class="stat-value">{mqtt_route_count}</div>
+        <div class="small">Aus objects.json erzeugt</div>
     </a>
-
 </div>
 
 <div class="card compact-card">

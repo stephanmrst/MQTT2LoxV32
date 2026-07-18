@@ -1,3 +1,24 @@
+# 34.1.2
+
+- KNX kann im Objektmanager wieder gleichzeitig an MQTT und UDP geroutet werden.
+- Die fehlende unterstützte Route `KNX -> UDP` wurde in der objektbasierten Routing-Matrix ergänzt.
+- Routing-Tab und Dashboard-Zähler erkennen die UDP-Route dadurch wieder direkt aus `objects.json`.
+
+# 34.1.1
+
+- Quellenbestimmung korrigiert: explizite Eingänge (`direction=in`) haben Vorrang vor bidirektionalen Ziel-/Rückkanälen.
+- Dashboard-Routenzähler werden direkt aus den aktiven Objekt-Routen berechnet.
+- KNX → MQTT und andere objektbasierte Routen werden wieder korrekt angezeigt.
+
+# 34.1.0
+
+- Dashboard vollständig objektzentriert; alte Mapping-Kacheln entfernt.
+- Sämtliche historischen Mapping-URLs leiten jetzt konsequent zum Objektmanager weiter.
+- Auch alte Save-, Test-, Copy- und Data-Endpunkte können keine Legacy-Dateien mehr verändern.
+- Runtime-Routen werden weiterhin ausschließlich aus `objects.json` erzeugt.
+- Docker archiviert vorhandene V33-Mappingdateien beim Start unverändert im Backup-Verzeichnis.
+- Keine funktionale Erweiterung; reine Konsolidierungs- und Aufräumversion vor dem Influx-Monitor-Umbau.
+
 # 34.0.6
 
 - Docker-Start synchronisiert nun auch das top-level Verzeichnis `static/` aus dem Container-Image in das persistente Anwendungsverzeichnis.

@@ -21,14 +21,14 @@ def mqtt2lox():
 
 @bp.route("/mqtt2lox/save", methods=["POST"])
 def mqtt2lox_save():
-    return _core().mqtt2lox_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2lox/test/<int:index>", methods=["POST"])
 def mqtt2lox_test(index):
-    return _core().mqtt2lox_test(index)
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2lox_data")
 def mqtt2lox_data():
-    return _core().mqtt2lox_data()
+    return redirect("/objects_v33")

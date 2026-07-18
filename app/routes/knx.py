@@ -106,17 +106,17 @@ def mqtt2knx():
 
 @bp.route("/mqtt2knx/save", methods=["POST"])
 def mqtt2knx_save():
-    return _core().mqtt2knx_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2knx/test/<int:index>", methods=["POST"])
 def mqtt2knx_test(index):
-    return _core().mqtt2knx_test(index)
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2knx_data")
 def mqtt2knx_data():
-    return _core().mqtt2knx_data()
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2knx")
@@ -127,17 +127,17 @@ def udp2knx():
 
 @bp.route("/udp2knx/save", methods=["POST"])
 def udp2knx_save():
-    return _core().udp2knx_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2knx/test/<int:index>", methods=["POST"])
 def udp2knx_test(index):
-    return _core().udp2knx_test(index)
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2knx_data")
 def udp2knx_data():
-    return _core().udp2knx_data()
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx2mqtt")
@@ -148,12 +148,12 @@ def knx2mqtt():
 
 @bp.route("/knx2mqtt/save", methods=["POST"])
 def knx2mqtt_save():
-    return _core().knx2mqtt_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx2mqtt_data")
 def knx2mqtt_data():
-    return _core().knx2mqtt_data()
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx2lox")
@@ -164,12 +164,12 @@ def knx2lox():
 
 @bp.route("/knx2lox/save", methods=["POST"])
 def knx2lox_save():
-    return _core().knx2lox_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx2lox_data")
 def knx2lox_data():
-    return _core().knx2lox_data()
+    return redirect("/objects_v33")
 
 
 @bp.route("/knx_monitor")

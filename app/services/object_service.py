@@ -87,6 +87,7 @@ SUPPORTED_ROUTE_PAIRS = {
     ("loxone", "influx"),
     ("knx", "mqtt"),
     ("knx", "loxone"),
+    ("knx", "udp"),
     ("knx", "influx"),
     ("udp", "mqtt"),
     ("udp", "knx"),
@@ -934,6 +935,9 @@ def _live_targets(item: GatewayObject, source: str) -> list[str]:
 
 def _configured_input_source(item: GatewayObject) -> tuple[str | None, Any | None, dict[str, Any]]:
     adapters = _adapter_map(item)
+    candidates: list[tuple[int, int, str, Any]] = []
+    protocol_order = {"loxone": 0, "udp": 1, "mqtt": 2, "knx": 3}
+
     for protocol in ("loxone", "udp", "mqtt", "knx"):
         adapter = adapters.get(protocol)
         if adapter is None or not _is_complete_endpoint(protocol, adapter):
@@ -942,20 +946,25 @@ def _configured_input_source(item: GatewayObject) -> tuple[str | None, Any | Non
             continue
         if protocol == "udp" and not _udp_source_route_active(adapter):
             continue
-        if protocol == "mqtt":
-            direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
-            if direction not in {"in", "both"}:
-                continue
-            if not _adapter_value(adapter, "topic"):
-                continue
-        if protocol == "knx":
-            direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
-            if direction not in {"in", "both"}:
-                continue
-            if not _adapter_value(adapter, "group_address"):
-                continue
-        return protocol, adapter, adapters
-    return None, None, adapters
+
+        direction = str(getattr(adapter, "direction", "both") or "both").strip().lower()
+        if direction not in {"in", "both"}:
+            continue
+        if protocol == "mqtt" and not _adapter_value(adapter, "topic"):
+            continue
+        if protocol == "knx" and not _adapter_value(adapter, "group_address"):
+            continue
+
+        # Ein expliziter Eingang (direction=in) ist die tatsächliche Quelle.
+        # Ein Adapter mit direction=both kann zugleich nur Ziel/Rückkanal sein
+        # und darf deshalb einen eindeutigen Eingang nicht überstimmen.
+        priority = 0 if direction == "in" else 1
+        candidates.append((priority, protocol_order[protocol], protocol, adapter))
+
+    if not candidates:
+        return None, None, adapters
+    _, _, protocol, adapter = min(candidates, key=lambda entry: (entry[0], entry[1]))
+    return protocol, adapter, adapters
 
 
 def _live_unit(item: GatewayObject, source: str = "") -> str:

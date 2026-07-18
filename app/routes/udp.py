@@ -21,22 +21,22 @@ def mqtt2udp():
 
 @bp.route("/mqtt2udp/save", methods=["POST"])
 def mqtt2udp_save():
-    return _core().mqtt2udp_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2udp/test/<int:index>", methods=["POST"])
 def mqtt2udp_test(index):
-    return _core().mqtt2udp_test(index)
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2udp_data")
 def mqtt2udp_data():
-    return _core().mqtt2udp_data()
+    return redirect("/objects_v33")
 
 
 @bp.route("/mqtt2udp/copy/<int:index>", methods=["POST"])
 def mqtt2udp_copy(index):
-    return _core().mqtt2udp_copy(index)
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp_presets")
@@ -57,17 +57,17 @@ def udp2mqtt():
 
 @bp.route("/udp2mqtt/save", methods=["POST"])
 def udp2mqtt_save():
-    return _core().udp2mqtt_save()
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2mqtt/test/<int:index>", methods=["POST"])
 def udp2mqtt_test(index):
-    return _core().udp2mqtt_test(index)
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp2mqtt_data")
 def udp2mqtt_data():
-    return _core().udp2mqtt_data()
+    return redirect("/objects_v33")
 
 
 @bp.route("/udp_input")
