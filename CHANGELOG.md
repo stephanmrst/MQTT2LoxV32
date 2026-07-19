@@ -1,3 +1,12 @@
+# 34.4.0
+
+- Plattformneutralen Update-Manager für Docker, LXC, Debian/systemd und Standalone ergänzt.
+- Neue Update-Seite mit Systeminformationen, ZIP-Upload, Paketprüfung, Installation, Fortschrittsanzeige und Neustartfunktion.
+- Updatepakete werden auf Produkt, Version, Mindestversion, Struktur, Größe und sichere ZIP-Pfade geprüft.
+- Vor jeder Installation wird ein Programm-Backup erstellt; bei Fehlern erfolgt automatisch ein Rollback.
+- Persistente Bereiche wie Konfiguration, Daten, Logs, Backups, Instanzdaten und `.env` werden niemals überschrieben.
+- Docker-Webupdates bleiben im persistenten Anwendungsverzeichnis erhalten; neuere Container-Images können weiterhin regulär aktualisieren.
+
 ## 34.3.2
 
 - Objektliste im Objektmanager auf eine reine, kompakte Namensliste reduziert.

@@ -4611,7 +4611,8 @@ def settings_content(config, notice=""):
         {"name": "MQTT Broker", "status": f"{mqtt.get('host', '-')}:{mqtt.get('port', '-')}", "desc": "Hauptbroker, zusätzliche Broker und Prefix", "route": "/mqtt_settings_embed"},
         {"name": "UDP", "status": "aktiv" if udp_cfg.get("enabled") else "aus", "desc": f"UDP → MQTT Eingang auf Port {udp_cfg.get('port', '-')}; MQTT → UDP Mappings bleiben links unter Mappings", "route": "/udp_input"},
         {"name": "InfluxDB", "status": "aktiv" if influx.get("enabled") else "aus", "desc": "Zeitreihen-Ausgabe / Logging", "route": "/influx_settings_embed"},
-        {"name": "KNX", "status": "aktiv" if knx_cfg.get("enabled") else "aus", "desc": f"Gateway {knx_cfg.get('gateway_ip', '-')}:{knx_cfg.get('gateway_port', '-')}; Routen werden im Objektmanager gepflegt", "route": "/knx_settings_embed"}
+        {"name": "KNX", "status": "aktiv" if knx_cfg.get("enabled") else "aus", "desc": f"Gateway {knx_cfg.get('gateway_ip', '-')}:{knx_cfg.get('gateway_port', '-')}; Routen werden im Objektmanager gepflegt", "route": "/knx_settings_embed"},
+        {"name": "Update", "status": current_app_version(), "desc": "ZIP-Updates mit Prüfung, Backup, Rollback und plattformabhängigem Neustart", "route": "/update_embed"}
     ]
 
     rows = ""

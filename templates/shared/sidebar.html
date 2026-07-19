@@ -23,6 +23,7 @@
     <a class="mp-nav-link {{ 'active' if active == 'conflict_scanner' else '' }}" href="{{ '/conflicts' if iframe_shell else '/conflicts_page' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Konfig pr&uuml;fen</a>
     <a class="mp-nav-link {{ 'active' if active == 'influx_explorer' else '' }}" href="/influx_explorer" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Influx Explorer</a>
     <a class="mp-nav-link {{ 'active' if active == 'settings' else '' }}" href="{{ '/settings_embed' if iframe_shell else '/settings' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Einstellungen</a>
+    <a class="mp-nav-link {{ 'active' if active == 'update' else '' }}" href="{{ '/update_embed' if iframe_shell else '/update' }}" {% if iframe_shell %}target="contentFrame" onclick="setActive(this)"{% endif %}>Update</a>
     <div class="mp-nav-group-title">Externe Dienste</div>
     {{ sidebar_links_html|safe }}
   </nav>

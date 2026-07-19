@@ -18,6 +18,7 @@ def _register_blueprints(app):
     from .routes.objects_v33 import bp as objects_v33_bp
     from .routes.system import bp as system_bp
     from .routes.udp import bp as udp_bp
+    from .routes.update import bp as update_bp
 
     blueprints = (
         dashboard_bp,
@@ -33,6 +34,7 @@ def _register_blueprints(app):
         events_bp,
         knx_bp,
         system_bp,
+        update_bp,
     )
     for blueprint in blueprints:
         if blueprint.name not in app.blueprints:

@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 LABEL org.opencontainers.image.title="MP-Gateway" \
       org.opencontainers.image.description="Multi-Protokoll-Gateway für KNX, MQTT, UDP, Loxone und InfluxDB" \
-      org.opencontainers.image.version="34.2.0"
+      org.opencontainers.image.version="34.4.0"
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
