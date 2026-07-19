@@ -4,7 +4,7 @@ import inspect
 import re
 import threading
 
-from flask import Blueprint, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
 
 try:
     from app.models.object_model import GatewayObject
@@ -31,6 +31,10 @@ except ModuleNotFoundError:
 bp = Blueprint("objects_v33", __name__, template_folder="../../templates")
 _EXPLORER_CREATE_LOCK = threading.Lock()
 SOURCE_FILTER_TYPES = {"mqtt", "loxone", "udp", "knx"}
+
+
+def _wants_ajax_response() -> bool:
+    return request.headers.get("X-Requested-With", "").lower() == "xmlhttprequest"
 
 
 def _slugify(value: str) -> str:
@@ -725,6 +729,22 @@ def _object_payload_from_explorer() -> dict:
             payload["source_address"] = adapter.group_address
             if not payload["category"]:
                 payload["category"] = "KNX"
+    elif explorer == "influx" or source_type == "influx":
+        measurement = _clean_prefill(request.args.get("measurement", ""))
+        field = _clean_prefill(request.args.get("field", "")) or "value"
+        influx_topic = _clean_prefill(request.args.get("topic", ""))
+        if measurement:
+            adapter_cls = ADAPTER_TYPES["influx"]
+            payload["influx"] = adapter_cls(
+                enabled=True,
+                direction="out",
+                datatype=datatype,
+                measurement=measurement,
+                field=field,
+                topic=influx_topic,
+            ).serialize()
+            if not payload["category"]:
+                payload["category"] = "Influx"
 
     return payload
 
@@ -1055,6 +1075,9 @@ def objects_v33_save():
         else:
             object_def = object_service.create_object(payload)
     except ValueError as exc:
+        errors = str(exc).split("; ")
+        if _wants_ajax_response():
+            return jsonify({"ok": False, "errors": errors}), 400
         object_def = object_service.get_object(object_uuid) if object_uuid else object_service.build_object(payload)
         return render_template(
             "objects_v33/edit.html",
@@ -1062,7 +1085,7 @@ def objects_v33_save():
             adapters=_ensure_known_adapters(object_def),
             adapter_template_name=adapter_template_name,
             routing_preview=build_object_routing_preview(object_def),
-            errors=str(exc).split("; "),
+            errors=errors,
             is_new=not bool(object_uuid),
         ), 400
     except Exception as exc:
@@ -1070,6 +1093,8 @@ def objects_v33_save():
         return _objects_index_redirect(object_uuid, "general", f"Objekt konnte nicht gespeichert werden: {exc}")
 
     _safe_reload_object_routes("save")
+    if _wants_ajax_response():
+        return jsonify({"ok": True, "object_id": object_def.id, "tab": "general"})
     return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))
 
 
@@ -1142,6 +1167,8 @@ def objects_v33_adapter_save(object_uuid, protocol):
     adapter = adapter_from_form(protocol, request.form)
     errors = adapter.validate()
     if errors:
+        if _wants_ajax_response():
+            return jsonify({"ok": False, "errors": errors}), 400
         return render_template(
             "objects_v33/adapter.html",
             object_def=object_def,
@@ -1158,4 +1185,6 @@ def objects_v33_adapter_save(object_uuid, protocol):
     payload[protocol] = adapter.serialize()
     object_service.update_object(object_def.id, payload)
     _safe_reload_object_routes("adapter_save")
+    if _wants_ajax_response():
+        return jsonify({"ok": True, "object_id": object_def.id, "tab": protocol})
     return redirect(url_for("objects_v33.objects_v33_index", selected=object_def.id))

@@ -1,3 +1,11 @@
+## 34.3.2
+
+- Dreispaltigen Objektmanager durch kompakte reine Namensliste vervollständigt.
+
+## Stand 34.3.1
+- Dreispaltiger Objektmanager umgesetzt: Objektliste, Objekt-Explorer, dynamische Konfiguration.
+- Nächster Schritt: Bedienung und responsive Darstellung im Praxistest verfeinern.
+
 
 ## Stand 33.4.67
 - KNX-Empfang und MQTT-Routing bleiben auf dem stabilen 33.4.63-Pfad.

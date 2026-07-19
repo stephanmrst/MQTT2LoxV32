@@ -1,3 +1,10 @@
+## 34.3.2
+
+Keine Datenmigration erforderlich. Die Änderung betrifft ausschließlich die Darstellung der Objektliste.
+
+## Migration auf 34.3.1
+Keine Datenmigration erforderlich. Objektdefinitionen, Adapterdaten und Backend-Endpunkte bleiben kompatibel. Die Änderung betrifft den Aufbau und die Bedienung des Objektmanagers.
+
 
 ## Migration auf 33.4.67
 Keine manuelle Migration erforderlich. Bereits konfigurierte UDP-Ziele bleiben erhalten. Neue Objekte starten mit deaktiviertem UDP-Ziel.

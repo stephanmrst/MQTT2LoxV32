@@ -1,3 +1,46 @@
+## 34.3.2
+
+- Objektliste im Objektmanager auf eine reine, kompakte Namensliste reduziert.
+- Initialen, Datentyp, Livewert, Quelle, Status und Adapter-Badges aus der linken Spalte entfernt.
+- Dynamisch nachgeladene Objektkarten verwenden dieselbe reduzierte Darstellung.
+
+## 34.3.1
+- Objektmanager auf eine feste dreispaltige Explorer-Oberfläche umgestellt.
+- Linke Objektliste beibehalten und mittleren Objekt-Explorer dauerhaft eingeblendet.
+- Obere Registerkarten sowie Klassisch/Preview-Umschaltung entfernt.
+- Klick auf Allgemein, Live, Routing oder einen Adapter öffnet direkt die passende Konfiguration rechts.
+- Bestehende Speicher-, Adapter-, Routing- und Live-Backendlogik unverändert weiterverwendet.
+
+# 34.3.0
+
+- Objektmanager: umschaltbare klassische und neue Preview-Ansicht ergänzt.
+- Neue rechte Objektübersicht mit echten Live-Daten, Objektinformationen, Adapterstatus und Routing.
+- Adapter im Preview-Panel sind anklickbar und öffnen direkt den jeweiligen Konfigurations-Tab.
+- Preview-Modus wird lokal im Browser gespeichert und bleibt bei Objektwechseln erhalten.
+- Bestehende klassische Ansicht bleibt unverändert verfügbar.
+
+# 34.2.2
+
+- Influx Explorer: „Objekt öffnen“ navigiert wieder innerhalb der MP-Gateway-Hauptansicht, sodass die Sidebar erhalten bleibt.
+- Das gefundene Objekt wird im Objektmanager über den korrekten Parameter `selected` direkt ausgewählt.
+- Auch „Objekt erstellen“ verwendet nun dieselbe eingebettete Navigation.
+
+# 34.2.1
+
+- Influx Explorer liest jetzt alle vorhandenen Influx-Tags dynamisch statt nur `topic`.
+- Measurements werden nativ gruppiert; Fields und unterschiedliche Tag-Serien bleiben getrennt sichtbar.
+- Detailansicht zeigt Bucket, Measurement, Field, Datentyp, Zeit, Punktanzahl und sämtliche Tags.
+- Bereits zugeordnete Objektmanager-Objekte werden erkannt und können direkt geöffnet werden.
+- Nicht zugeordnete Serien bieten einen klaren Button „Objekt erstellen“.
+
+# MP-Gateway 34.2.0
+
+- Influx Explorer als Live-Monitor mit dreigeteilter Measurement-, Field- und Detailansicht neu aufgebaut.
+- Daten werden in Sammelabfragen direkt aus realen Influx-Punkten gelesen; kein lokaler Topic-Cache.
+- Automatische Aktualisierung alle 5 Sekunden mit Pause-, Suche- und Zeitraumfunktion.
+- Letzter Wert, Zeitstempel, Datentyp und Punktanzahl je Field sichtbar.
+- Influx-Serie kann direkt gelöscht und als Influx-Adapter in den Objektmanager übernommen werden.
+
 # 34.1.2
 
 - KNX kann im Objektmanager wieder gleichzeitig an MQTT und UDP geroutet werden.

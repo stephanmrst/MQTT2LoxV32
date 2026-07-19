@@ -12909,55 +12909,84 @@ def monitor_alias():
 # -----------------------------------------------------------------------------
 
 
+def _influx_explorer_object_index():
+    index = []
+    try:
+        objects = object_core_service.list_objects()
+    except Exception:
+        LOGGER.exception("Influx Explorer: Objektliste konnte nicht geladen werden")
+        return index
+    for item in objects:
+        adapters = _object_adapter_map(item)
+        influx_adapter = adapters.get("influx")
+        if not influx_adapter or not bool(getattr(influx_adapter, "enabled", False)):
+            continue
+        protocols = sorted(
+            protocol for protocol, adapter in adapters.items()
+            if bool(getattr(adapter, "enabled", False))
+        )
+        index.append({
+            "id": str(getattr(item, "id", "") or ""),
+            "name": str(getattr(item, "name", "") or getattr(item, "id", "") or "Objekt"),
+            "measurement": str(getattr(influx_adapter, "measurement", "") or "").strip(),
+            "field": str(getattr(influx_adapter, "field", "") or "value").strip() or "value",
+            "topic": str(getattr(influx_adapter, "topic", "") or "").strip(),
+            "protocols": protocols,
+        })
+    return index
+
+
+def _influx_explorer_payload(search="", start_range="-30d"):
+    ok, msg, entries = influx_service.influx_get_field_entries(
+        search=search,
+        limit=1200,
+        load_config=load_config,
+        start=start_range,
+    )
+    cfg = load_config().get("influx", {})
+    object_index = _influx_explorer_object_index() if ok else []
+    enriched = []
+    for raw in entries if ok else []:
+        entry = dict(raw)
+        measurement = str(entry.get("measurement", "") or "").strip()
+        field = str(entry.get("field", "") or "value").strip() or "value"
+        topic = str((entry.get("tags") or {}).get("topic", entry.get("topic", "")) or "").strip()
+        matches = []
+        for obj in object_index:
+            same_topic = bool(topic and obj.get("topic") == topic)
+            same_series = bool(obj.get("measurement") == measurement and obj.get("field") == field)
+            if same_topic or same_series:
+                matches.append(obj)
+        entry["objects"] = matches
+        enriched.append(entry)
+    return {
+        "ok": bool(ok),
+        "message": msg,
+        "entries": enriched,
+        "bucket": str(cfg.get("bucket", "") or ""),
+        "org": str(cfg.get("org", "") or ""),
+        "start": start_range,
+    }
+
+
+def influx_explorer_data():
+    search = str(request.args.get("q", "") or "").strip()
+    start_range = str(request.args.get("start", "-30d") or "-30d").strip()
+    allowed_ranges = {"-1h", "-6h", "-24h", "-7d", "-30d", "-90d", "-365d"}
+    if start_range not in allowed_ranges:
+        start_range = "-30d"
+    return jsonify(_influx_explorer_payload(search, start_range))
+
+
 def influx_explorer_page(notice=""):
     search = str(request.args.get("q", "") or "").strip()
     start_range = str(request.args.get("start", "-30d") or "-30d").strip()
     allowed_ranges = {"-1h", "-6h", "-24h", "-7d", "-30d", "-90d", "-365d"}
     if start_range not in allowed_ranges:
         start_range = "-30d"
-
-    ok, msg, entries = influx_service.influx_get_entries(
-        search=search,
-        limit=400,
-        load_config=load_config,
-        start=start_range,
-    )
-    cfg = load_config().get("influx", {})
-    bucket = str(cfg.get("bucket", "") or "")
-    org = str(cfg.get("org", "") or "")
-    notice_html = f'<div class="notice">{escape(notice)}</div>' if notice else ""
-    if not ok:
-        notice_html += f'<div class="notice bad">{escape(msg)}</div>'
-        entries = []
-
-    rows = ""
-    row_index = 0
-    for item in entries:
-        row_index += 1
-        measurement = str(item.get("measurement", "") or "")
-        topic = str(item.get("topic", "") or "")
-        em = escape(measurement)
-        et = escape(topic)
-        selection = escape(json.dumps({"measurement": measurement, "topic": topic}, ensure_ascii=False))
-        topic_cell = f'<b>{et}</b>' if topic else '<span class="small">kein topic-Tag</span>'
-        label = f"{measurement} / {topic}" if topic else measurement
-        confirm_label = escape(label).replace("'", "\\'")
-        rows += f'''
-<tr>
-  <td><input type="checkbox" name="series" value="{selection}"></td>
-  <td><b>{em}</b></td>
-  <td>{topic_cell}</td>
-  <td>{escape(item.get('fields',''))}</td>
-  <td>{escape(item.get('last_value',''))}</td>
-  <td>{escape(item.get('last_time',''))}</td>
-  <td style="text-align:right;">{escape(item.get('count',''))}</td>
-  <td>
-    <button type="submit" class="danger" name="single_series" value="{selection}" formaction="/influx_explorer/delete" onclick="return confirm('Influx-Daten wirklich löschen?\\n{confirm_label}');">Löschen</button>
-  </td>
-</tr>'''
-    if not rows:
-        rows = '<tr><td colspan="8" class="small">Keine Influx-Daten gefunden. Zeitraum und Suche prüfen.</td></tr>'
-
+    payload = _influx_explorer_payload(search, start_range)
+    notice_text = notice or ("" if payload["ok"] else payload["message"])
+    payload_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
     range_options = "".join(
         f'<option value="{value}" {"selected" if value == start_range else ""}>{label}</option>'
         for value, label in [
@@ -12966,49 +12995,45 @@ def influx_explorer_page(notice=""):
             ("-365d", "1 Jahr"),
         ]
     )
-
-    return f'''
-<!doctype html><html><head><meta charset="utf-8"><title>Influx Explorer</title><style>
-body {{ font-family:Arial; background:#202830; color:#f4f7fb; margin:24px; }}
-a {{ color:inherit; }}
-.card {{ background:#1b2229; border:1px solid #303b45; border-radius:12px; padding:16px; margin-bottom:16px; }}
-.header {{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }}
-.badge {{ display:inline-block; padding:4px 8px; border-radius:999px; background:#2a333d; color:#dbe6f2; font-size:12px; margin-right:6px; }}
-.small {{ color:#aeb8c4; font-size:13px; line-height:1.35; }}
-.notice {{ border:1px solid #355b3f; background:#132015; padding:10px 12px; border-radius:10px; margin-bottom:12px; }}
-.notice.bad {{ border-color:#7a3434; background:#281717; }}
-button,.button-link {{ background:#5f686f; color:white; padding:9px 13px; border:0; border-radius:8px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; font-weight:700; }}
-button:hover,.button-link:hover {{ background:#727d85; }}
-button.danger {{ background:#b93b3b; }} button.danger:hover {{ background:#d14a4a; }}
-input[type=text],select {{ background:#111820; color:white; border:1px solid #4a5663; border-radius:8px; padding:9px; }}
-input[type=checkbox] {{ width:18px; height:18px; accent-color:#35c75a; }}
-table {{ width:100%; border-collapse:collapse; background:#151c23; }} th,td {{ border:1px solid #303b45; padding:8px; vertical-align:middle; }} th {{ background:#2a333d; text-align:left; }}
-.toolbar {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }}
+    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Influx Explorer</title><style>
+:root{{--bg:#202830;--panel:#1b2229;--panel2:#151c23;--border:#303b45;--muted:#9fb0c1;--accent:#4d90c2;--good:#1e8d45;--danger:#a83939}}
+*{{box-sizing:border-box}} body{{font-family:Arial,sans-serif;background:var(--bg);color:#f4f7fb;margin:0;padding:14px}} button,input,select{{font:inherit}}
+.header{{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px}} h1{{margin:0 0 4px;font-size:24px}} .small{{color:var(--muted);font-size:12px;line-height:1.4}}
+.toolbar{{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px}}
+input[type=text],select{{background:#101820;color:white;border:1px solid #465565;border-radius:6px;padding:8px}} input[type=text]{{min-width:230px;flex:1}}
+button,.button-link{{background:#5f6c78;color:white;padding:8px 12px;border:0;border-radius:6px;cursor:pointer;text-decoration:none;font-weight:700}} button:hover,.button-link:hover{{filter:brightness(1.12)}} button.primary{{background:#2f6f9f}} button.danger{{background:var(--danger)}} button:disabled{{opacity:.45;cursor:not-allowed}}
+.badge{{display:inline-block;background:#26333e;border:1px solid #394958;border-radius:999px;padding:4px 8px;font-size:12px;margin-right:5px}} .notice{{padding:9px 11px;border:1px solid #765b30;background:#2a2112;border-radius:8px;margin-bottom:12px}}
+.layout{{display:grid;grid-template-columns:minmax(220px,28%) minmax(300px,38%) minmax(280px,34%);gap:10px;min-height:570px}} .pane{{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;min-width:0}} .pane-head{{padding:11px 12px;background:#222d37;border-bottom:1px solid var(--border);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px}} .pane-body{{padding:8px;max-height:calc(100vh - 185px);overflow:auto}}
+.item{{width:100%;text-align:left;background:var(--panel2);border:1px solid transparent;border-radius:7px;padding:9px;margin-bottom:6px;color:#eef5fb;cursor:pointer}} .item:hover{{border-color:#4b6073}} .item.active{{border-color:#69a8d7;background:#223649}} .item-title{{font-weight:700;overflow-wrap:anywhere}} .item-meta{{color:var(--muted);font-size:12px;margin-top:4px;display:flex;justify-content:space-between;gap:8px}}
+.field-row{{display:grid;grid-template-columns:minmax(100px,1fr) minmax(90px,.8fr) 120px;gap:8px;align-items:center}} .value{{font-weight:700;overflow-wrap:anywhere}} .time{{font-size:11px;color:var(--muted)}}
+.detail{{padding:14px}} .detail h2{{margin:0 0 12px;font-size:20px;overflow-wrap:anywhere}} .detail h3{{margin:18px 0 6px;font-size:15px;color:#b9d7ed}} .object-box{{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #2b3742}} .kv{{display:grid;grid-template-columns:110px 1fr;gap:7px;padding:7px 0;border-bottom:1px solid #2b3742}} .kv b{{color:#b9d7ed}} .big-value{{font-size:28px;font-weight:700;padding:14px;background:#111920;border:1px solid var(--border);border-radius:8px;margin:12px 0;overflow-wrap:anywhere}} .actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}} .empty{{padding:28px 12px;text-align:center;color:var(--muted)}}
+.live-dot{{width:9px;height:9px;background:#34c759;border-radius:50%;display:inline-block;margin-right:6px}} .paused .live-dot{{background:#d69b32}}
+@media(max-width:950px){{.layout{{grid-template-columns:1fr}} .pane-body{{max-height:420px}}}}
 </style></head><body>
-<div class="header">
-  <div><h1>Influx Explorer</h1><div class="small">Liveansicht des tatsächlich vorhandenen InfluxDB-Buckets – unabhängig von lokalen Gateway-Konfigurationen.</div></div>
-  <a class="button-link" href="/mqtt">← MQTT Hub</a>
+<div class="header"><div><h1>Influx Explorer</h1><div class="small">Echte Daten aus InfluxDB – nativ nach Measurement, Field und Tags.</div></div><div><span class="badge">Bucket: {escape(payload['bucket'])}</span><span class="badge">Org: {escape(payload['org'])}</span></div></div>
+{f'<div class="notice">{escape(notice_text)}</div>' if notice_text else ''}
+<div class="toolbar"><input id="search" type="text" value="{escape(search)}" placeholder="Measurement, Field oder Tag suchen"><select id="range">{range_options}</select><button id="refresh" class="primary" type="button">Aktualisieren</button><button id="pause" type="button"><span class="live-dot"></span>Live</button><span id="summary" class="small"></span></div>
+<div class="layout">
+<section class="pane"><div class="pane-head"><span>Measurements</span><span id="measurementCount" class="badge">0</span></div><div id="measurements" class="pane-body"></div></section>
+<section class="pane"><div class="pane-head"><span>Fields</span><span id="fieldCount" class="badge">0</span></div><div id="fields" class="pane-body"></div></section>
+<section class="pane"><div class="pane-head"><span>Details</span><span id="status" class="small">bereit</span></div><div id="detail" class="detail"><div class="empty">Links ein Measurement und anschließend ein Field auswählen.</div></div></section>
 </div>
-<div class="card">
-  <span class="badge">Bucket: {escape(bucket)}</span><span class="badge">Org: {escape(org)}</span>
-  <p class="small">Angezeigt werden echte Measurements und – sofern vorhanden – deren Topic-Tags. Einträge ohne Topic-Tag werden auf Measurement-Ebene dargestellt.</p>
-</div>
-{notice_html}
-<div class="card">
-  <form method="get" action="/influx_explorer" class="toolbar">
-    <input type="text" name="q" value="{escape(search)}" placeholder="Measurement oder Topic suchen..." style="min-width:340px; flex:1;">
-    <select name="start">{range_options}</select>
-    <button type="submit">Aktualisieren</button>
-    <a class="button-link" href="/influx_explorer">Zurücksetzen</a>
-  </form>
-</div>
-<form method="post" action="/influx_explorer/delete_selected" onsubmit="return confirm('Markierte Influx-Daten wirklich löschen?');">
-<div class="card">
-  <div class="toolbar" style="margin-bottom:12px;"><button type="button" onclick="document.querySelectorAll('input[name=series]').forEach(x=>x.checked=true)">Alle markieren</button><button type="button" onclick="document.querySelectorAll('input[name=series]').forEach(x=>x.checked=false)">Alle abwählen</button><button type="submit" class="danger">Markierte löschen</button></div>
-  <table><tr><th style="width:40px;"></th><th>Measurement</th><th>Topic</th><th>Fields</th><th>Letzter Wert</th><th>Letzte Zeit</th><th style="width:100px; text-align:right;">Werte</th><th style="width:115px;">Aktion</th></tr>{rows}</table>
-</div>
-</form>
-</body></html>'''
+<script>
+const initialData={payload_json};
+let state={{data:initialData, measurement:null, entry:null, paused:false, timer:null}};
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+function keyOf(e){{return `${{e.measurement}}`;}}
+function groupData(){{const m=new Map(); for(const e of state.data.entries||[]){{const k=keyOf(e); if(!m.has(k))m.set(k,{{key:k,measurement:e.measurement,entries:[]}});m.get(k).entries.push(e);}} return [...m.values()];}}
+function renderMeasurements(){{const groups=groupData(); $('measurementCount').textContent=groups.length; $('summary').textContent=`${{groups.length}} Serien · ${{state.data.entries.length}} Fields · Stand ${{new Date().toLocaleTimeString()}}`; if(!groups.length){{$('measurements').innerHTML='<div class="empty">Keine Daten gefunden.</div>'; state.measurement=null; renderFields();return;}} if(!state.measurement||!groups.some(g=>g.key===state.measurement))state.measurement=groups[0].key; $('measurements').innerHTML=groups.map(g=>`<button class="item ${{g.key===state.measurement?'active':''}}" data-key="${{esc(g.key)}}"><div class="item-title">${{esc(g.measurement)}}</div><div class="item-meta"><span>${{new Set(g.entries.map(e=>e.field)).size}} Fields · ${{g.entries.length}} Serien</span><span>${{g.entries.reduce((n,e)=>n+(Number(e.count)||0),0)}} Werte</span></div></button>`).join(''); $('measurements').querySelectorAll('[data-key]').forEach(b=>b.addEventListener('click',()=>{{state.measurement=b.dataset.key;state.entry=null;renderAll();}}));}}
+function renderFields(){{const group=groupData().find(g=>g.key===state.measurement); const entries=group?group.entries:[]; $('fieldCount').textContent=entries.length; if(!entries.length){{$('fields').innerHTML='<div class="empty">Keine Fields vorhanden.</div>';state.entry=null;renderDetail();return;}} if(!state.entry||!entries.some(e=>`${{keyOf(e)}}\u0000${{e.field}}\u0000${{JSON.stringify(e.tags||{{}})}}`===state.entry))state.entry=`${{keyOf(entries[0])}}\u0000${{entries[0].field}}\u0000${{JSON.stringify(entries[0].tags||{{}})}}`; $('fields').innerHTML=entries.map(e=>{{const id=`${{keyOf(e)}}\u0000${{e.field}}\u0000${{JSON.stringify(e.tags||{{}})}}`;return `<button class="item ${{id===state.entry?'active':''}}" data-entry="${{esc(id)}}"><div class="field-row"><div><div class="item-title">${{esc(e.field)}}</div><div class="time">${{esc(e.datatype)}} · ${{esc(e.count)}} Werte</div></div><div class="value">${{esc(e.last_value)}}</div><div class="time">${{formatTime(e.last_time)}}</div></div></button>`;}}).join(''); $('fields').querySelectorAll('[data-entry]').forEach(b=>b.addEventListener('click',()=>{{state.entry=b.dataset.entry;renderFields();renderDetail();}}));}}
+function selectedEntry(){{return (state.data.entries||[]).find(e=>`${{keyOf(e)}}\u0000${{e.field}}\u0000${{JSON.stringify(e.tags||{{}})}}`===state.entry);}}
+function formatTime(v){{if(!v)return '-';const d=new Date(v);return isNaN(d)?esc(v):d.toLocaleString();}}
+function renderDetail(){{const e=selectedEntry();if(!e){{$('detail').innerHTML='<div class="empty">Field auswählen.</div>';return;}}const tags=e.tags||{{}};const topic=tags.topic||e.topic||'';const params=new URLSearchParams({{explorer:'influx',source_type:'influx',tab:'influx',name:topic||`${{e.measurement}} ${{e.field}}`,measurement:e.measurement,field:e.field,topic:topic,datatype:e.datatype||'auto'}});const selection=JSON.stringify({{measurement:e.measurement,topic:topic}});const tagRows=Object.entries(tags).length?Object.entries(tags).map(([k,v])=>`<div class="kv"><b>${{esc(k)}}</b><span>${{esc(v)}}</span></div>`).join(''):'<div class="small">Keine Tags vorhanden.</div>';const objects=e.objects||[];const objectHtml=objects.length?objects.map(o=>`<div class="object-box"><div><b>${{esc(o.name)}}</b><div class="small">${{(o.protocols||[]).map(p=>p.toUpperCase()).join(' · ')}}</div></div><button class="primary open-object" type="button" data-id="${{esc(o.id)}}">Objekt öffnen</button></div>`).join(''):'<div class="small">Noch keinem Objekt zugeordnet.</div>';const button=objects.length?'':'<button id="objectBtn" class="primary" type="button">Objekt erstellen</button>';$('detail').innerHTML=`<h2>${{esc(e.field)}}</h2><div class="big-value">${{esc(e.last_value)}}</div><h3>Allgemein</h3><div class="kv"><b>Bucket</b><span>${{esc(state.data.bucket||'-')}}</span></div><div class="kv"><b>Measurement</b><span>${{esc(e.measurement)}}</span></div><div class="kv"><b>Field</b><span>${{esc(e.field)}}</span></div><div class="kv"><b>Datentyp</b><span>${{esc(e.datatype)}}</span></div><div class="kv"><b>Letzte Zeit</b><span>${{formatTime(e.last_time)}}</span></div><div class="kv"><b>Werte</b><span>${{esc(e.count)}}</span></div><h3>Tags</h3>${{tagRows}}<h3>Objekt</h3>${{objectHtml}}<div class="actions">${{button}}<form method="post" action="/influx_explorer/delete" onsubmit="return confirm('Diese Influx-Serie wirklich löschen?')"><input type="hidden" name="single_series" value="${{esc(selection)}}"><button class="danger" type="submit">Serie löschen</button></form></div>`;function navigateToObjectManager(url){{if(window.parent&&window.parent!==window){{window.parent.postMessage({{type:'mqtt2lox:navigateFrame',url:url,activeHref:'/objects_v33'}},window.location.origin);return;}}window.location.href=url;}}const createBtn=$('objectBtn');if(createBtn)createBtn.addEventListener('click',()=>{{navigateToObjectManager('/objects_v33/create_from_explorer?'+params.toString());}});$('detail').querySelectorAll('.open-object').forEach(b=>b.addEventListener('click',()=>{{navigateToObjectManager('/objects_v33?selected='+encodeURIComponent(b.dataset.id));}}));}}
+function renderAll(){{renderMeasurements();renderFields();renderDetail();}}
+async function refresh(){{if(state.paused)return;$('status').textContent='lade …';const p=new URLSearchParams({{q:$('search').value.trim(),start:$('range').value}});try{{const r=await fetch('/influx_explorer/data?'+p.toString(),{{cache:'no-store'}});const data=await r.json();if(!data.ok)throw new Error(data.message||'Influx-Abfrage fehlgeschlagen');state.data=data;$('status').textContent='live';renderAll();}}catch(err){{$('status').textContent='Fehler';$('summary').textContent=err.message;}}}}
+$('refresh').addEventListener('click',refresh);$('search').addEventListener('keydown',e=>{{if(e.key==='Enter')refresh();}});$('range').addEventListener('change',refresh);$('pause').addEventListener('click',()=>{{state.paused=!state.paused;$('pause').classList.toggle('paused',state.paused);$('pause').innerHTML=`<span class="live-dot"></span>${{state.paused?'Pause':'Live'}}`;if(!state.paused)refresh();}});renderAll();state.timer=setInterval(refresh,5000);
+</script></body></html>'''
 
 
 def influx_explorer():

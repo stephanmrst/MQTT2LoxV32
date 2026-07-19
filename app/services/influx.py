@@ -565,6 +565,113 @@ from(bucket: {influx_flux_string(bucket)})
 
     return True, "ok", result
 
+
+def influx_get_field_entries(search="", limit=1200, load_config=None, start="-30d"):
+    """Liest reale Influx-Serien mit beliebigen Tags, letztem Wert und Punktanzahl."""
+    ok, msg, cfg = influx_v2_request_config(load_config)
+    if not ok:
+        return False, msg, []
+
+    bucket = str(cfg.get("bucket", "")).strip()
+    start = str(start or "-30d") or "-30d"
+    search_lower = str(search or "").strip().lower()
+
+    # Kein keep() und kein künstliches group(): So bleiben alle echten Tag-Spalten
+    # erhalten. Influx liefert pro Series/Field eine eigene Tabelle.
+    flux_last = f'''
+from(bucket: {influx_flux_string(bucket)})
+  |> range(start: {start})
+  |> last()
+'''
+    ok, msg, csv_last = influx_v2_query(flux_last, load_config, timeout=15)
+    if not ok:
+        return False, msg, []
+
+    flux_count = f'''
+from(bucket: {influx_flux_string(bucket)})
+  |> range(start: {start})
+  |> count(column: "_value")
+'''
+    ok_count, _count_msg, csv_count = influx_v2_query(flux_count, load_config, timeout=15)
+
+    reserved = {
+        "result", "table", "_start", "_stop", "_time", "_value",
+        "_field", "_measurement",
+    }
+
+    def tags_from_row(row):
+        tags = {}
+        for key, value in (row or {}).items():
+            key = str(key or "").strip()
+            if not key or key in reserved or key.startswith("_"):
+                continue
+            value = "" if value is None else str(value).strip()
+            if value:
+                tags[key] = value
+        return tags
+
+    def series_key(row):
+        measurement = str(row.get("_measurement", "") or "").strip()
+        field = str(row.get("_field", "") or "").strip()
+        tags = tuple(sorted(tags_from_row(row).items()))
+        return measurement, field, tags
+
+    counts = {}
+    if ok_count:
+        for row in influx_csv_dicts(csv_count):
+            measurement = str(row.get("_measurement", "") or "").strip()
+            field = str(row.get("_field", "") or "").strip()
+            if measurement and measurement != "_measurement" and field and field != "_field":
+                counts[series_key(row)] = str(row.get("_value", "0") or "0")
+
+    entries = []
+    seen = set()
+    for row in influx_csv_dicts(csv_last):
+        measurement = str(row.get("_measurement", "") or "").strip()
+        field = str(row.get("_field", "") or "").strip()
+        if not measurement or measurement == "_measurement" or not field or field == "_field":
+            continue
+        tags = tags_from_row(row)
+        key = series_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        tag_text = " ".join(f"{k} {v}" for k, v in tags.items())
+        haystack = f"{measurement} {field} {tag_text}".lower()
+        if search_lower and search_lower not in haystack:
+            continue
+        value = row.get("_value", "")
+        value_text = "" if value is None else str(value)
+        value_type = "string"
+        lowered = value_text.strip().lower()
+        if lowered in {"true", "false"}:
+            value_type = "boolean"
+        else:
+            try:
+                float(value_text.replace(",", "."))
+                value_type = "number"
+            except Exception:
+                pass
+        entries.append({
+            "measurement": measurement,
+            "topic": str(tags.get("topic", "") or ""),
+            "tags": tags,
+            "field": field,
+            "last_value": value_text,
+            "last_time": str(row.get("_time", "") or ""),
+            "count": counts.get(key, "-"),
+            "datatype": value_type,
+        })
+        if len(entries) >= int(limit):
+            break
+
+    entries.sort(key=lambda item: (
+        item["measurement"].casefold(),
+        item["field"].casefold(),
+        json.dumps(item.get("tags", {}), sort_keys=True, ensure_ascii=False).casefold(),
+    ))
+    return True, "ok", entries
+
 def influx_get_topics(search="", limit=500, load_config=None, start="-30d"):
     """Kompatibilitäts-Wrapper für ältere Aufrufer."""
     return influx_get_entries(search=search, limit=limit, load_config=load_config, start=start)

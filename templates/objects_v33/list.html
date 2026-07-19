@@ -95,19 +95,19 @@
     .chip.active { background:#274767; color:#fff; border-color:#47769d; box-shadow:inset 3px 0 0 var(--accent); }
     .object-list { display:grid; gap:11px; }
     .object-card {
-      display:grid;
-      grid-template-columns:34px minmax(0,1fr);
-      gap:10px;
+      display:flex;
+      align-items:center;
       border:1px solid var(--border);
       background:var(--panel);
       border-radius:6px;
-      padding:11px 12px;
+      padding:13px 14px;
       line-height:1.25;
       width:100%;
       appearance:none;
       text-align:left;
       font:inherit;
-      min-height:0;
+      min-height:48px;
+      cursor:pointer;
     }
     .object-card:hover { border-color:#5e7895; background:var(--panel2); }
     .object-card.selected {
@@ -115,28 +115,23 @@
       background:#223140;
       box-shadow:inset 4px 0 0 var(--accent), 0 0 0 1px rgba(122,162,247,.34), 0 8px 24px rgba(63,99,155,.18);
     }
-    .object-initial {
-      width:34px;
-      height:34px;
-      border:1px solid #40505f;
-      border-radius:5px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      background:#202b35;
-      color:#dbe8f5;
+    .object-name {
+      min-width:0;
+      flex:1 1 auto;
       font-weight:900;
-      font-size:13px;
-      margin-top:1px;
+      line-height:1.25;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      pointer-events:none;
     }
-    .object-body { min-width:0; }
-    .card-top { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px; }
-    .object-name { font-weight:900; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .object-meta { color:var(--muted); font-size:12px; margin:4px 0 9px; }
-    .object-live { display:flex; justify-content:space-between; gap:10px; color:#dce8f2; font-size:12px; margin:4px 0 9px; min-height:16px; }
-    .object-live-value { font-weight:900; color:#f2f7fb; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .object-live-source { color:var(--muted); white-space:nowrap; }
-    .badges { display:flex; gap:5px; flex-wrap:wrap; }
+    .object-live-value {
+      flex:0 0 auto;
+      margin-left:12px;
+      font-weight:900;
+      white-space:nowrap;
+      pointer-events:none;
+    }
     .badge {
       display:inline-flex;
       align-items:center;
@@ -228,6 +223,40 @@
     }
     .errors { border:1px solid #7a3b3f; background:#321c20; border-radius:7px; padding:12px; margin-bottom:14px; }
     .notice { border:1px solid #556b80; background:#172433; color:#d9e8f5; border-radius:7px; padding:12px; margin-bottom:14px; }
+
+    .detail-view-toggle { display:flex; align-items:center; gap:8px; border:1px solid var(--border); background:#141b22; border-radius:5px; padding:4px; }
+    .detail-view-toggle button { min-height:27px; padding:0 9px; background:transparent; border-color:transparent; color:var(--muted); }
+    .detail-view-toggle button.active { background:#2b4359; border-color:#4d6b85; color:#fff; }
+    .detail-workspace { display:grid; grid-template-columns:minmax(300px, 38%) minmax(420px, 1fr); gap:16px; align-items:start; }
+    .object-explorer-panel { display:block; position:sticky; top:0; min-width:0; border:1px solid var(--border); border-radius:7px; background:var(--panel3); padding:14px; }
+    .config-panel { min-width:0; margin-top:0; border:1px solid var(--border); border-radius:7px; background:var(--page-panel2); padding:14px; }
+    .preview-title-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .explorer-open { min-height:25px; padding:0 8px; font-size:11px; }
+    .preview-adapter { cursor:pointer; }
+    .preview-adapter.config-selected, .explorer-open.config-selected { outline:2px solid var(--accent); outline-offset:1px; }
+    .preview-section { border:1px solid var(--border); background:#121920; border-radius:6px; padding:13px; margin-bottom:10px; }
+    .preview-title { color:var(--muted); font-size:11px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; margin-bottom:10px; }
+    .preview-live-value { font-size:30px; font-weight:900; line-height:1.1; overflow-wrap:anywhere; }
+    .preview-live-meta { color:var(--muted); font-size:12px; margin-top:7px; display:flex; gap:7px; align-items:center; }
+    .preview-dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
+    .preview-object-name { font-weight:900; font-size:16px; margin-bottom:8px; }
+    .preview-kv { display:grid; grid-template-columns:84px minmax(0,1fr); gap:8px; font-size:12px; padding:4px 0; }
+    .preview-kv span:first-child { color:var(--muted); }
+    .preview-adapters { display:grid; gap:7px; }
+    .preview-adapter { width:100%; justify-content:flex-start; min-height:36px; background:#19222b; font-weight:800; }
+    .preview-adapter.active { border-color:#49677f; background:#203140; }
+    .preview-adapter-dot { width:9px; height:9px; border-radius:50%; background:#596671; }
+    .preview-adapter.active .preview-adapter-dot { background:var(--green); }
+    .preview-adapter small { color:var(--muted); margin-left:auto; font-weight:700; }
+    .preview-routing { display:grid; gap:8px; }
+    .preview-route-row { display:grid; grid-template-columns:70px 28px minmax(0,1fr); gap:6px; align-items:center; font-size:12px; }
+    .preview-route-arrow { color:var(--green); text-align:center; font-weight:900; }
+    .preview-route-target { border:1px solid var(--border); border-radius:4px; background:#172029; padding:7px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .preview-route-empty { color:var(--muted); font-size:12px; }
+    @media(max-width:1250px) {
+      .detail-workspace { grid-template-columns:1fr; }
+      .object-explorer-panel { position:static; }
+    }
     @media(max-width:980px) {
       .page { grid-template-columns:1fr; height:auto; }
       .left { border-right:none; border-bottom:1px solid var(--border); }
@@ -269,29 +298,8 @@
           {% set protocols = adapter_protocols(item) %}
           {% set loxone_target = item.loxone if item.loxone and item.loxone.target_enabled and item.loxone.target_uuid else none %}
           <button type="button" class="object-card {% if selected and item.id == selected.id %}selected{% endif %}" data-object-card="1" data-object-id="{{ item.id }}" data-configured-source="{{ current_source_label(item) }}" data-configured-source-address="{{ current_source_address(item) }}">
-            <div class="object-initial">{{ (item.name or item.key or item.id or '?')[:1]|upper }}</div>
-            <div class="object-body">
-              <div class="card-top">
-                <span class="badge type">{{ item.type or 'Objekt' }}</span>
-                <span class="badge {% if item.enabled %}on{% else %}off{% endif %}">{{ 'Aktiv' if item.enabled else 'Inaktiv' }}</span>
-              </div>
-              <div class="object-name">{{ item.name or item.key or item.id }}</div>
-              <div class="object-live">
-                <span class="object-live-value" data-live-field="value">-</span>
-                <span class="object-live-source">Quelle: <span data-live-field="source">{{ current_source_label(item) }}</span></span>
-              </div>
-              <div class="object-meta">{{ item.type or 'auto' }}{% if item.unit %} &middot; {{ item.unit }}{% endif %}</div>
-              {% if loxone_target %}
-                <div class="object-meta">Loxone Ziel aktiv: {{ loxone_target.target_name or loxone_target.target_uuid }}{% if loxone_target.target_room %} &middot; {{ loxone_target.target_room }}{% endif %}{% if loxone_target.target_category %} &middot; {{ loxone_target.target_category }}{% endif %}</div>
-              {% elif item.loxone and item.loxone.target_enabled and not item.loxone.target_uuid %}
-                <div class="object-meta">Loxone nicht konfiguriert</div>
-              {% endif %}
-              <div class="badges">
-                {% for protocol, label in [('mqtt', 'MQTT'), ('loxone', 'Loxone'), ('udp', 'UDP'), ('knx', 'KNX'), ('influx', 'Influx')] %}
-                  <span class="badge proto proto-{{ protocol }} {% if protocol in protocols %}active{% else %}inactive{% endif %}">{{ label }}</span>
-                {% endfor %}
-              </div>
-            </div>
+            <div class="object-name">{{ item.name or item.key or item.id }}</div>
+            <div class="object-live-value" data-live-field="value">-</div>
           </button>
         {% endfor %}
       {% else %}
@@ -378,324 +386,45 @@ function objectStatusClass(status) {
 }
 
 function buildObjectCard(item) {
-  const protocols = objectProtocols(item);
-  const status = String(item.route_status || "nicht konfiguriert");
   const selected = selectedObjectId && String(item.id || "") === selectedObjectId ? " selected" : "";
-  const enabledClass = item.enabled ? "on" : "off";
-  const enabledLabel = item.enabled ? "Aktiv" : "Inaktiv";
-  const value = item.live && item.live.value !== undefined ? item.live.value : "";
-  const loxoneTarget = loxoneTargetSummary(item);
   const configuredSource = configuredSourceLabel(item);
   return `
     <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}" data-configured-source="${escapeHtml(configuredSource)}">
-      <div class="object-initial">${escapeHtml((item.name || item.key || item.id || "?").slice(0, 1).toUpperCase())}</div>
-      <div class="object-body">
-        <div class="card-top">
-          <span class="badge type">${escapeHtml(item.type || "Objekt")}</span>
-          <span class="badge ${enabledClass}">${enabledLabel}</span>
-          <span class="badge ${objectStatusClass(status)}">${escapeHtml(status)}</span>
-        </div>
-        <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
-        <div class="object-live">
-          <span class="object-live-value" data-live-field="value">${escapeHtml(value || "-")}</span>
-          <span class="object-live-source">Quelle: <span data-live-field="source">${escapeHtml(configuredSource)}</span></span>
-        </div>
-        <div class="object-meta">${escapeHtml(item.type || "auto")}${item.unit ? " &middot; " + escapeHtml(item.unit) : ""}</div>
-        ${loxoneTarget ? `<div class="object-meta">${escapeHtml(loxoneTarget)}</div>` : ""}
-        <div class="badges">
-          ${["mqtt", "loxone", "udp", "knx", "influx"].map(protocol => `
-            <span class="badge proto proto-${protocol} ${protocols.includes(protocol) ? "active" : "inactive"}">${protocol.toUpperCase()}</span>
-          `).join("")}
-        </div>
-      </div>
+      <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
+      <div class="object-live-value" data-live-field="value">-</div>
     </button>
   `;
 }
 
 function buildObjectCardHtml(item) {
-  const protocols = objectProtocols(item);
-  const status = String(item.route_status || "nicht konfiguriert");
   const selected = selectedObjectId && String(item.id || "") === selectedObjectId ? " selected" : "";
-  const enabledClass = item.enabled ? "on" : "off";
-  const enabledLabel = item.enabled ? "Aktiv" : "Inaktiv";
-  const loxoneTarget = loxoneTargetSummary(item);
   const configuredSource = configuredSourceLabel(item);
   return `
     <button type="button" class="object-card${selected}" data-object-card="1" data-object-id="${escapeHtml(item.id)}" data-configured-source="${escapeHtml(configuredSource)}">
-      <div class="object-initial">${escapeHtml((item.name || item.key || item.id || "?").slice(0, 1).toUpperCase())}</div>
-      <div class="object-body">
-        <div class="card-top">
-          <span class="badge type">${escapeHtml(item.type || "Objekt")}</span>
-          <span class="badge ${enabledClass}">${enabledLabel}</span>
-          <span class="badge ${objectStatusClass(status)}">${escapeHtml(status)}</span>
-        </div>
-        <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
-        <div class="object-live">
-          <span class="object-live-value" data-live-field="value">-</span>
-          <span class="object-live-source">Quelle: <span data-live-field="source">${escapeHtml(configuredSource)}</span></span>
-        </div>
-        <div class="object-meta">${escapeHtml(item.type || "auto")}${item.unit ? " &middot; " + escapeHtml(item.unit) : ""}</div>
-        ${loxoneTarget ? `<div class="object-meta">${escapeHtml(loxoneTarget)}</div>` : ""}
-        <div class="badges">
-          ${["mqtt", "loxone", "udp", "knx", "influx"].map(protocol => `
-            <span class="badge proto proto-${protocol} ${protocols.includes(protocol) ? "active" : "inactive"}">${protocol.toUpperCase()}</span>
-          `).join("")}
-        </div>
-      </div>
+      <div class="object-name">${escapeHtml(item.name || item.key || item.id)}</div>
+      <div class="object-live-value" data-live-field="value">-</div>
     </button>
   `;
 }
 
-function updateSelectedCardState(objectId) {
-  document.querySelectorAll("[data-object-card]").forEach(card => {
-    card.classList.toggle("selected", String(card.getAttribute("data-object-id") || "") === String(objectId || ""));
-  });
-}
-
-function currentTabName() {
-  const checked = document.querySelector(".tabs input[name='tabs']:checked");
-  if (!checked) return selectedTabName || "general";
-  return checked.id.replace(/^tab-/, "");
-}
-
-function updateBrowserState(objectId, tabName) {
-  const url = new URL(window.location.href);
-  if (objectId) {
-    url.searchParams.set("selected", objectId);
-  } else {
-    url.searchParams.delete("selected");
-  }
-  url.searchParams.set("tab", tabName || "general");
-  window.history.replaceState({}, "", url.toString());
-}
-
-function setObjectDetailPane(html) {
-  const pane = document.getElementById("objectDetailPane");
-  if (pane) {
-    pane.innerHTML = html;
-    if (typeof initLoxoneTargetPickers === "function") {
-      initLoxoneTargetPickers();
-    }
-  }
-}
-
-function findLoxonePickerRoot(prefix) {
-  return document.querySelector(`[data-loxone-target-root="${String(prefix || "")}"]`);
-}
-
-function initLoxoneTargetPicker(root) {
-  if (!root) return;
-  const prefix = String(root.getAttribute("data-loxone-target-root") || "");
-  const picker = document.getElementById(prefix + "_target_picker");
-  if (!picker) return;
-  const rowsEl = document.getElementById(prefix + "_target_picker_rows");
-  const emptyEl = document.getElementById(prefix + "_target_picker_empty");
-  const options = JSON.parse(picker.getAttribute("data-loxone-target-options") || "[]");
-  const search = document.getElementById(prefix + "_target_search");
-  const room = document.getElementById(prefix + "_target_room_filter");
-  const category = document.getElementById(prefix + "_target_category_filter");
-  const type = document.getElementById(prefix + "_target_type_filter");
-  const uuid = document.getElementById(prefix + "_target_uuid");
-  const name = document.getElementById(prefix + "_target_name");
-  const roomField = document.getElementById(prefix + "_target_room");
-  const categoryField = document.getElementById(prefix + "_target_category");
-  const typeField = document.getElementById(prefix + "_target_type");
-  const enabledField = root.querySelector('input[name="target_enabled"]');
-
-  const normalize = value => String(value || "").toLowerCase().trim();
-  const escapeHtmlLocal = value => escapeHtml(value);
-
-  function matches(option) {
-    const filterSearch = normalize(search && search.value);
-    const filterRoom = normalize(room && room.value);
-    const filterCategory = normalize(category && category.value);
-    const filterType = normalize(type && type.value);
-    const haystack = normalize([option.name, option.room, option.category, option.type, option.uuid].join(" "));
-    if (filterSearch && !haystack.includes(filterSearch)) return false;
-    if (filterRoom && !normalize(option.room).includes(filterRoom)) return false;
-    if (filterCategory && !normalize(option.category).includes(filterCategory)) return false;
-    if (filterType && !normalize(option.type).includes(filterType)) return false;
-    return true;
-  }
-
-  function renderRows() {
-    if (!rowsEl) return;
-    const filtered = options.filter(matches);
-    rowsEl.innerHTML = "";
-    if (!filtered.length) {
-      if (emptyEl) emptyEl.hidden = false;
-      return;
-    }
-    if (emptyEl) emptyEl.hidden = true;
-    filtered.forEach(option => {
-      const row = document.createElement("tr");
-      if (uuid && uuid.value && uuid.value === option.uuid) row.classList.add("selected");
-      row.innerHTML = `
-        <td>${escapeHtmlLocal(option.name || "")}</td>
-        <td>${escapeHtmlLocal(option.room || "")}</td>
-        <td>${escapeHtmlLocal(option.category || "")}</td>
-        <td>${escapeHtmlLocal(option.type || "")}</td>
-        <td>${escapeHtmlLocal(option.uuid || "")}</td>
-      `;
-      row.addEventListener("click", () => {
-        if (uuid) uuid.value = option.uuid || "";
-        if (name) name.value = option.name || "";
-        if (roomField) roomField.value = option.room || "";
-        if (categoryField) categoryField.value = option.category || "";
-        if (typeField) typeField.value = option.type || "";
-        if (enabledField) enabledField.checked = true;
-        renderRows();
-      });
-      rowsEl.appendChild(row);
-    });
-  }
-
-  if (root.dataset.loxonePickerBound !== "1") {
-    root.dataset.loxonePickerBound = "1";
-    [search, room, category, type].forEach(input => {
-      if (!input || input.dataset.loxonePickerBound === "1") return;
-      input.dataset.loxonePickerBound = "1";
-      input.addEventListener("input", renderRows);
-    });
-  }
-
-  renderRows();
-}
-
-function initLoxoneTargetPickers() {
-  document.querySelectorAll("[data-loxone-target-root]").forEach(initLoxoneTargetPicker);
-}
-
-window.toggleLoxoneTargetPicker = function(prefix) {
-  const root = findLoxonePickerRoot(prefix);
-  if (!root) return;
-  const picker = document.getElementById(String(prefix || "") + "_target_picker");
-  if (!picker) return;
-  picker.hidden = !picker.hidden;
-  if (!picker.hidden && typeof initLoxoneTargetPickers === "function") {
-    initLoxoneTargetPickers();
-  }
-};
-
-window.clearLoxoneTarget = function(prefix) {
-  const root = findLoxonePickerRoot(prefix);
-  if (!root) return;
-  const picker = document.getElementById(String(prefix || "") + "_target_picker");
-  const uuid = document.getElementById(String(prefix || "") + "_target_uuid");
-  const name = document.getElementById(String(prefix || "") + "_target_name");
-  const room = document.getElementById(String(prefix || "") + "_target_room");
-  const category = document.getElementById(String(prefix || "") + "_target_category");
-  const type = document.getElementById(String(prefix || "") + "_target_type");
-  const enabled = root.querySelector('input[name="target_enabled"]');
-  if (uuid) uuid.value = "";
-  if (name) name.value = "";
-  if (room) room.value = "";
-  if (category) category.value = "";
-  if (type) type.value = "";
-  if (enabled) enabled.checked = false;
-  if (picker && !picker.hidden && typeof initLoxoneTargetPickers === "function") {
-    initLoxoneTargetPickers();
-  }
-};
-
-function sourceAddressForType(sourceType) {
-  const type = String(sourceType || "").trim().toLowerCase();
-  if (type === "mqtt") {
-    return document.getElementById("mqtt_topic")?.value || "";
-  }
-  if (type === "udp") {
-    return document.getElementById("udp_source_topic")?.value || document.getElementById("udp_listen_port")?.value || "";
-  }
-  if (type === "knx") {
-    return document.getElementById("knx_group_address")?.value || "";
-  }
-  if (type === "loxone") {
-    return document.getElementById("loxone_source_io")?.value || document.getElementById("loxone_source_uuid")?.value || "";
-  }
-  return "";
-}
-
-function syncObjectSourceAddress() {
-  const sourceType = document.getElementById("source_type");
-  const sourceAddress = document.getElementById("objectSourceAddress");
-  if (!sourceType || !sourceAddress) return;
-  sourceAddress.value = sourceAddressForType(sourceType.value);
-}
-
-function syncObjectSourceTab() {
-  const sourceType = document.getElementById("source_type");
-  if (!sourceType) return;
-  const tab = document.getElementById("tab-" + String(sourceType.value || "").toLowerCase());
-  if (tab) tab.checked = true;
-  syncObjectSourceAddress();
-}
-
-function bindObjectSourceSelector() {
-  const sourceType = document.getElementById("source_type");
-  if (!sourceType || sourceType.dataset.bound === "1") return;
-  sourceType.dataset.bound = "1";
-  sourceType.addEventListener("change", syncObjectSourceTab);
-  ["mqtt_topic", "udp_source_topic", "udp_listen_port", "knx_group_address", "loxone_source_io", "loxone_source_uuid"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener("input", () => {
-        if (String(sourceType.value || "").toLowerCase() === id.split("_")[0]) {
-          syncObjectSourceAddress();
-        }
-      });
-    }
-  });
-  const form = document.getElementById("objectGeneralForm");
-  if (form && form.dataset.sourceBound !== "1") {
-    form.dataset.sourceBound = "1";
-    form.addEventListener("submit", syncObjectSourceAddress);
-  }
-  document.querySelectorAll(".tabs input[name='tabs']").forEach(tab => {
-    if (tab.dataset.sourceBound === "1") return;
-    tab.dataset.sourceBound = "1";
-    tab.addEventListener("change", () => {
-      const tabName = String(tab.id || "").replace(/^tab-/, "");
-      if (["mqtt", "loxone", "udp", "knx"].includes(tabName) && sourceType.value !== tabName) {
-        sourceType.value = tabName;
-      }
-      syncObjectSourceAddress();
-    });
-  });
-  syncObjectSourceAddress();
-}
-
-function setObjectListHtml(html) {
+function renderObjectList(items) {
   const list = document.getElementById("objectList");
-  if (list) {
-    const scrollTop = list.scrollTop;
-    const scrollLeft = list.scrollLeft;
-    list.innerHTML = html;
-    list.setAttribute("data-selected", selectedObjectId || "");
-    requestAnimationFrame(() => {
-      if (!list.isConnected) return;
-      list.scrollTop = scrollTop;
-      list.scrollLeft = scrollLeft;
-    });
-  }
-}
-
-function renderObjectList(objects) {
-  const query = String(objectListQuery || "").toLowerCase().trim();
-  const activeFilter = String(objectListFilter || "all").toLowerCase();
-  const filtered = (objects || []).filter(item => {
-    const name = String(item.name || item.id || "").toLowerCase();
-    const type = String(item.type || "").toLowerCase();
-    const id = String(item.id || "").toLowerCase();
-    if (query && !(`${name} ${type} ${id}`).includes(query)) return false;
-    if (activeFilter === "all") return true;
-    if (activeFilter === "active") return !!item.enabled;
-    return !!item[activeFilter];
+  if (!list) return;
+  const query = String(objectListQuery || "").trim().toLowerCase();
+  const filter = String(objectListFilter || "all").trim().toLowerCase();
+  const visible = (items || []).filter(item => {
+    const name = String(item && (item.name || item.key || item.id) || "").toLowerCase();
+    if (query && !name.includes(query)) return false;
+    if (filter !== "all" && !objectProtocols(item).includes(filter)) return false;
+    return true;
   });
-  if (!filtered.length) {
-    setObjectListHtml('<div class="empty">Keine Objekte vorhanden.</div>');
-    return;
-  }
-  setObjectListHtml(filtered.map(buildObjectCardHtml).join(""));
+  list.innerHTML = visible.length
+    ? visible.map(buildObjectCardHtml).join("")
+    : '<div class="empty">Keine Objekte vorhanden.</div>';
+  list.setAttribute("data-selected", selectedObjectId || "");
+  const count = document.getElementById("objectVisibleCount");
+  if (count) count.textContent = String(visible.length);
+  updateSelectedCardState(selectedObjectId);
 }
 
 async function refreshObjectList() {
@@ -707,6 +436,36 @@ async function refreshObjectList() {
     refreshObjectLiveData();
   } catch (error) {
   }
+}
+
+function currentTabName() {
+  const checked = document.querySelector(".tabs input[name='tabs']:checked");
+  return checked ? checked.id.replace(/^tab-/, "") : (selectedTabName || "general");
+}
+
+function updateSelectedCardState(objectId) {
+  const wanted = String(objectId || "");
+  document.querySelectorAll("[data-object-card='1']").forEach(card => {
+    card.classList.toggle("selected", String(card.getAttribute("data-object-id") || "") === wanted);
+  });
+}
+
+function updateBrowserState(objectId, tabName) {
+  const url = new URL(window.location.href);
+  const selected = String(objectId || "");
+  if (selected) url.searchParams.set("selected", selected);
+  else url.searchParams.delete("selected");
+  url.searchParams.set("tab", String(tabName || "general"));
+  window.history.replaceState({}, "", url.toString());
+}
+
+function setObjectDetailPane(html) {
+  const pane = document.getElementById("objectDetailPane");
+  if (!pane) return;
+  pane.innerHTML = html;
+  initLoxoneTargetPickers();
+  bindObjectSourceSelector();
+  initObjectPreview();
 }
 
 async function loadObjectPanel(objectId, options = {}) {
@@ -769,6 +528,74 @@ document.addEventListener("click", event => {
   selectObject(card.getAttribute("data-object-id") || "");
 });
 
+// Die Detailansicht wird beim Objektwechsel per AJAX ersetzt. Deshalb die
+// Schaltflaechen im mittleren Objektbereich delegiert behandeln, damit auch
+// neu geladene Adapter-, Routing-, Live- und Bearbeiten-Buttons funktionieren.
+document.addEventListener("click", event => {
+  const button = event.target.closest("#objectDetailPane [data-config-section]");
+  if (!button) return;
+  event.preventDefault();
+  openObjectConfigSection(button.getAttribute("data-config-section") || "general");
+});
+
+async function submitObjectFormAjax(form) {
+  if (!form || form.dataset.saving === "1") return;
+  form.dataset.saving = "1";
+  const submitButtons = Array.from(form.querySelectorAll("button[type='submit'], input[type='submit']"));
+  submitButtons.forEach(button => { button.disabled = true; });
+  try {
+    const response = await fetch(form.action, {
+      method: (form.method || "POST").toUpperCase(),
+      body: new FormData(form),
+      headers: {"X-Requested-With": "XMLHttpRequest"},
+      cache: "no-store"
+    });
+    let result = {};
+    try { result = await response.json(); } catch (error) {}
+    if (!response.ok || result.ok === false) {
+      const errors = Array.isArray(result.errors) ? result.errors.join("\n") : "Speichern fehlgeschlagen.";
+      window.alert(errors);
+      return;
+    }
+    const savedId = String(result.object_id || selectedObjectId || "");
+    const tabName = String(result.tab || currentTabName() || "general");
+    if (savedId) selectedObjectId = savedId;
+
+    // Die linke Objektliste bleibt beim Speichern vollständig bestehen.
+    // Nur den Namen der aktuell ausgewählten Karte aktualisieren, damit
+    // Livewerte und Auswahlzustand nicht kurz verschwinden.
+    try {
+      const objectsResponse = await fetch("/api/objects", { cache: "no-store" });
+      if (objectsResponse.ok) {
+        const objectsData = await objectsResponse.json();
+        const savedObject = (objectsData.objects || []).find(item => String(item.id || "") === selectedObjectId);
+        const selectedCard = document.querySelector(`[data-object-card="1"][data-object-id="${CSS.escape(selectedObjectId)}"]`);
+        const nameElement = selectedCard && selectedCard.querySelector(".object-name");
+        if (savedObject && nameElement) {
+          nameElement.textContent = savedObject.name || savedObject.key || savedObject.id || selectedObjectId;
+          selectedCard.setAttribute("data-configured-source", configuredSourceLabel(savedObject));
+        }
+      }
+    } catch (error) {
+    }
+
+    updateSelectedCardState(selectedObjectId);
+    await loadObjectPanel(selectedObjectId, {tab: tabName});
+  } catch (error) {
+    window.alert("Speichern fehlgeschlagen.");
+  } finally {
+    form.dataset.saving = "0";
+    submitButtons.forEach(button => { if (button.isConnected) button.disabled = false; });
+  }
+}
+
+document.addEventListener("submit", event => {
+  const form = event.target.closest("#objectDetailPane form");
+  if (!form || form.matches("[data-delete-form='1']")) return;
+  event.preventDefault();
+  submitObjectFormAjax(form);
+});
+
 function submitObjectDelete(form) {
   if (!form || deleteInFlight) return false;
   const formData = new FormData(form);
@@ -829,7 +656,7 @@ function applyObjectLiveData(items) {
     const valueEl = card.querySelector('[data-live-field="value"]');
     const sourceEl = card.querySelector('[data-live-field="source"]');
     const configuredSource = String(card.getAttribute("data-configured-source") || "").trim();
-    if (valueEl) valueEl.textContent = formatObjectLiveValue(item);
+    if (valueEl) valueEl.textContent = (!item || item.value === null || item.value === undefined || item.value === "") ? "-" : String(item.value);
     if (sourceEl) sourceEl.textContent = formatObjectLiveSource(item && (item.display_source || item.route_source || item.source_protocol || item.last_source || item.original_source || item.source), configuredSource);
   });
   const selected = byId.get(String(selectedObjectId || ""));
@@ -844,6 +671,11 @@ function applyObjectLiveData(items) {
     const targetAdapters = (selected.last_target_adapters || []).length ? selected.last_target_adapters : (selected.targets || []);
     setObjectLiveText("objectLiveTargets", targetAdapters.length ? targetAdapters.join(", ") : "-");
     setObjectLiveText("objectLiveStatus", selected.status || "unbekannt");
+    setObjectLiveText("previewLiveValue", formatObjectLiveValue(selected));
+    setObjectLiveText("previewLiveSource", formatObjectLiveSource(selected.display_source || selected.route_source || selected.input_protocol || selected.source_protocol || selected.last_source || selected.original_source || selected.source, configuredSource));
+    setObjectLiveText("previewLiveTimestamp", selected.timestamp || "gerade eben");
+    const previewStatus = document.getElementById("previewLiveStatus");
+    if (previewStatus) previewStatus.textContent = selected.status || "live";
   }
 }
 
@@ -857,10 +689,52 @@ async function refreshObjectLiveData() {
   }
 }
 
+function openObjectConfigSection(section) {
+  const name = String(section || "general").toLowerCase();
+  const tab = document.getElementById("tab-" + name);
+  if (!tab) return;
+  tab.checked = true;
+  tab.dispatchEvent(new Event("change", {bubbles:true}));
+  selectedTabName = name;
+  updateBrowserState(selectedObjectId, selectedTabName);
+  document.querySelectorAll("[data-config-section]").forEach(button => {
+    button.classList.toggle("config-selected", button.getAttribute("data-config-section") === name);
+  });
+  const panel = document.querySelector(".config-panel");
+  if (panel && window.matchMedia("(max-width: 1100px)").matches) {
+    panel.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+}
+
+function openObjectAdapterTab(protocol) {
+  openObjectConfigSection(protocol);
+}
+
+function initObjectPreview() {
+  const card = document.querySelector(".detail-card[data-object-detail]");
+  if (!card || card.dataset.previewBound === "1") return;
+  card.dataset.previewBound = "1";
+  card.querySelectorAll("[data-config-section]").forEach(button => {
+    button.addEventListener("click", () => openObjectConfigSection(button.getAttribute("data-config-section")));
+  });
+  document.querySelectorAll(".tabs input[name='tabs']").forEach(input => {
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        const name = input.id.replace(/^tab-/, "");
+        document.querySelectorAll("[data-config-section]").forEach(button => {
+          button.classList.toggle("config-selected", button.getAttribute("data-config-section") === name);
+        });
+      }
+    });
+  });
+  openObjectConfigSection(selectedTabName || "general");
+}
+
 refreshObjectLiveData();
 setInterval(refreshObjectLiveData, 3000);
 initLoxoneTargetPickers();
 bindObjectSourceSelector();
+initObjectPreview();
 </script>
 {% endblock %}
 

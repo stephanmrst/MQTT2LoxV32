@@ -12,7 +12,7 @@
     </div>
   {% endif %}
 
-  <div class="detail-card">
+  <div class="detail-card" data-object-detail="1">
     <div class="detail-head">
       <div>
         <h1>{{ object_def.name or 'Neues Objekt' }}</h1>
@@ -31,7 +31,65 @@
       </div>
     </div>
 
-    <div class="tabs">
+    <div class="detail-workspace">
+    {% set configured_protocols = adapter_protocols(selected) %}
+    {% set preview_report = selected_route_report or {'main_routes': selected_preview, 'return_routes': []} %}
+    {% set preview_source = current_source_label(selected) if selected else 'unbekannt' %}
+    <aside class="object-explorer-panel" aria-label="Objekt-Explorer">
+      <section class="preview-section">
+        <div class="preview-title-row"><div class="preview-title">Live</div><button type="button" class="explorer-open" data-config-section="live">Details</button></div>
+        <div class="preview-live-value" id="previewLiveValue">-</div>
+        <div class="preview-live-meta"><span class="preview-dot"></span><span id="previewLiveStatus">warte auf Wert</span></div>
+        <div class="preview-live-meta"><span id="previewLiveSource">{{ preview_source }}</span><span>·</span><span id="previewLiveTimestamp">-</span></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="preview-title-row"><div class="preview-title">Objekt</div><button type="button" class="explorer-open" data-config-section="general">Bearbeiten</button></div>
+        <div class="preview-object-name">{{ object_def.name or 'Neues Objekt' }}</div>
+        <div class="preview-kv"><span>Quelle</span><strong>{{ preview_source }}</strong></div>
+        <div class="preview-kv"><span>Datentyp</span><strong>{{ object_def.datatype or 'auto' }}</strong></div>
+        <div class="preview-kv"><span>Kategorie</span><strong>{{ object_def.category or '-' }}</strong></div>
+        <div class="preview-kv"><span>Raum</span><strong>{{ object_def.room or '-' }}</strong></div>
+      </section>
+
+      <section class="preview-section">
+        <div class="preview-title">Adapter</div>
+        <div class="preview-adapters">
+          {% for protocol in ['mqtt', 'loxone', 'udp', 'knx', 'influx'] %}
+            {% set is_active = protocol in configured_protocols %}
+            <button type="button" class="preview-adapter {% if is_active %}active{% endif %}" data-config-section="{{ protocol }}">
+              <span class="preview-adapter-dot"></span>
+              {{ protocol|upper }}
+              <small>{{ 'aktiv' if is_active else 'nicht aktiv' }}</small>
+            </button>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="preview-section">
+        <div class="preview-title-row"><div class="preview-title">Routing</div><button type="button" class="explorer-open" data-config-section="routing">Öffnen</button></div>
+        <div class="preview-routing">
+          {% if preview_report.main_routes %}
+            {% for route in preview_report.main_routes %}
+              <div class="preview-route-row">
+                <strong>{{ route.source }}</strong><span class="preview-route-arrow">→</span><div class="preview-route-target">{{ route.target }}</div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="preview-route-empty">Noch keine aktive Hauptroute.</div>
+          {% endif %}
+          {% if preview_report.return_routes %}
+            {% for route in preview_report.return_routes %}
+              <div class="preview-route-row">
+                <strong>{{ route.source }}</strong><span class="preview-route-arrow">↩</span><div class="preview-route-target">{{ route.target }}</div>
+              </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </section>
+    </aside>
+
+    <div class="tabs config-panel">
       {% set active_tab = selected_tab|default('general') %}
       <input id="tab-general" type="radio" name="tabs" {% if active_tab == 'general' %}checked{% endif %}>
       <input id="tab-mqtt" type="radio" name="tabs" {% if active_tab == 'mqtt' %}checked{% endif %}>
@@ -42,16 +100,7 @@
       <input id="tab-routing" type="radio" name="tabs" {% if active_tab == 'routing' %}checked{% endif %}>
       <input id="tab-live" type="radio" name="tabs" {% if active_tab == 'live' %}checked{% endif %}>
 
-      <div class="tab-labels">
-        <label for="tab-general">Allgemein</label>
-        <label for="tab-mqtt">MQTT</label>
-        <label for="tab-loxone">Loxone</label>
-        <label for="tab-udp">UDP</label>
-        <label for="tab-knx">KNX</label>
-        <label for="tab-influx">Influx</label>
-        <label for="tab-routing">Routing</label>
-        <label for="tab-live">Live</label>
-      </div>
+
 
       <div class="panels">
         <div class="tab-panel general-panel">
@@ -193,6 +242,9 @@
           </div>
         </div>
       </div>
+    </div>
+
+
     </div>
   </div>
 {% else %}

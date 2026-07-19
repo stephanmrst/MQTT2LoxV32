@@ -1,3 +1,12 @@
+## 34.3.2
+
+- [x] Linke Objektliste auf reine Objektnamen reduzieren.
+
+## Ab 34.3.1
+- Dreispalten-Layout mit großen Objektbeständen testen.
+- Responsive Breiten und Scrollverhalten auf kleinen Displays prüfen.
+- Optional: Duplizieren-Funktion im Objekt-Explorer ergänzen.
+
 
 ## 33.4.67 Nachtest
 - KNX 0/0/9 mehrfach schalten und identische Reihenfolge in MQTT und UDP prüfen.

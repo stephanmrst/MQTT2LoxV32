@@ -23,6 +23,11 @@ def influx_explorer():
     return _core().influx_explorer()
 
 
+@bp.route("/influx_explorer/data")
+def influx_explorer_data():
+    return _core().influx_explorer_data()
+
+
 @bp.route("/influx_explorer/delete", methods=["POST"])
 def influx_explorer_delete():
     return _core().influx_explorer_delete()
